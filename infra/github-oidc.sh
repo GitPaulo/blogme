@@ -40,13 +40,29 @@ fi
 PRINCIPAL_ID="$(az ad sp show --id "$APP_ID" --query id -o tsv)"
 
 log "Federated credential"
-# The subject must match exactly what GitHub sends, or the token exchange fails.
-SUBJECT="repo:${REPO}:ref:refs/heads/${BRANCH}"
+# GitHub now prefixes the subject claim with immutable numeric owner and repo IDs,
+# so a rename cannot be used to impersonate the repository. Read the prefix from
+# GitHub rather than assuming a format: the subject must match byte for byte or the
+# token exchange fails with AADSTS700213.
+SUB_PREFIX="$(gh api "repos/${REPO}/actions/oidc/customization/sub" \
+	--jq '.sub_claim_prefix' 2>/dev/null || true)"
+if [[ -z "$SUB_PREFIX" || "$SUB_PREFIX" == "null" ]]; then
+	SUB_PREFIX="repo:${REPO}"
+fi
+
+SUBJECT="${SUB_PREFIX}:ref:refs/heads/${BRANCH}"
 CRED_NAME="github-${BRANCH}"
-if az ad app federated-credential list --id "$APP_ID" \
-	--query "[?subject=='$SUBJECT']" -o tsv | grep -q .; then
+
+EXISTING_SUBJECT="$(az ad app federated-credential list --id "$APP_ID" \
+	--query "[?name=='$CRED_NAME'].subject | [0]" -o tsv)"
+
+if [[ "$EXISTING_SUBJECT" == "$SUBJECT" ]]; then
 	echo "exists: $SUBJECT"
 else
+	if [[ -n "$EXISTING_SUBJECT" ]]; then
+		echo "replacing stale subject: $EXISTING_SUBJECT"
+		az ad app federated-credential delete --id "$APP_ID" --federated-credential-id "$CRED_NAME" --output none
+	fi
 	az ad app federated-credential create --id "$APP_ID" --parameters "{
 		\"name\": \"${CRED_NAME}\",
 		\"issuer\": \"https://token.actions.githubusercontent.com\",
