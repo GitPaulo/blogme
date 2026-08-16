@@ -8,6 +8,8 @@
 </script>
 
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>
-<BookmarksPanel />
-<ThemeToggle />
+<div class="fixed end-4 top-4 z-50 flex items-center gap-2">
+	<BookmarksPanel />
+	<ThemeToggle />
+</div>
 {@render children()}

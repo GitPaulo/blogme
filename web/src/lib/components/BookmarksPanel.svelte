@@ -56,7 +56,7 @@
 
 <Button
 	color="alternative"
-	class="fixed end-16 top-4 z-50 gap-2 !px-3 !py-2"
+	class="gap-2 !px-3 !py-2.5"
 	pill
 	onclick={() => (open = true)}
 	aria-label={label}
@@ -66,7 +66,7 @@
 </Button>
 <Tooltip>Bookmarks</Tooltip>
 
-<Drawer bind:open placement="right" class="w-full sm:w-96">
+<Drawer bind:open placement="right" dismissable={false} class="w-full sm:w-96">
 	<Drawerhead onclick={() => (open = false)}>
 		<Heading tag="h2" class="text-lg font-semibold">Bookmarks</Heading>
 	</Drawerhead>

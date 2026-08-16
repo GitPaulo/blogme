@@ -17,13 +17,7 @@
 	const label = $derived(theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode');
 </script>
 
-<Button
-	color="alternative"
-	class="fixed end-4 top-4 z-50 !p-2.5"
-	pill
-	onclick={toggle}
-	aria-label={label}
->
+<Button color="alternative" class="!p-2.5" pill onclick={toggle} aria-label={label}>
 	{#if theme === 'dark'}
 		<SunSolid class="h-4 w-4" />
 	{:else}
