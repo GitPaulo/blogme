@@ -2,25 +2,52 @@
 	import { Alert, Badge, Button, Card, Heading, P, Search } from 'flowbite-svelte';
 	import { search, type SearchResult } from '$lib/api';
 
+	const DEBOUNCE_MS = 300;
+
 	let query = $state('');
 	let results = $state<SearchResult[]>([]);
 	let status = $state<'idle' | 'loading' | 'done' | 'error'>('idle');
 	let error = $state('');
 
-	async function onsubmit(event: SubmitEvent) {
-		event.preventDefault();
-		if (!query.trim()) return;
+	let timer: ReturnType<typeof setTimeout>;
+	let controller: AbortController | undefined;
+
+	async function run(term: string) {
+		controller?.abort();
+		const current = new AbortController();
+		controller = current;
 
 		status = 'loading';
 		error = '';
 		try {
-			const response = await search(query);
+			const response = await search(term, current.signal);
 			results = response.results;
 			status = 'done';
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Something went wrong';
+			if (current.signal.aborted) return;
+			error = e instanceof Error ? e.message : 'Something went wrong.';
 			status = 'error';
 		}
+	}
+
+	$effect(() => {
+		const term = query.trim();
+		if (!term) {
+			controller?.abort();
+			results = [];
+			status = 'idle';
+			return;
+		}
+		timer = setTimeout(() => run(term), DEBOUNCE_MS);
+		return () => clearTimeout(timer);
+	});
+
+	// Submitting skips the pending debounce rather than queueing a second request.
+	function onsubmit(event: SubmitEvent) {
+		event.preventDefault();
+		clearTimeout(timer);
+		const term = query.trim();
+		if (term) run(term);
 	}
 </script>
 
@@ -36,7 +63,8 @@
 		<Search
 			bind:value={query}
 			size="md"
-			placeholder="problems scaling single-threaded servers"
+			placeholder="something you want to read about..."
+			classes={{ input: 'placeholder-gray-400' }}
 			aria-label="Search query"
 		/>
 		<Button type="submit" loading={status === 'loading'} class="shrink-0">Search</Button>
@@ -45,8 +73,8 @@
 	<p class="sr-only" role="status">
 		{#if status === 'loading'}
 			Searching
-		{:else if status === 'done' && results.length > 0}
-			{results.length} results found
+		{:else if status === 'done'}
+			{results.length === 1 ? '1 result found' : `${results.length} results found`}
 		{/if}
 	</p>
 
@@ -56,7 +84,7 @@
 			{error}
 		</Alert>
 	{:else if status === 'done' && results.length === 0}
-		<Alert color="gray" class="mt-6">No results yet — the corpus is still empty.</Alert>
+		<Alert color="gray" class="mt-6">No results found. Try a different search.</Alert>
 	{:else if results.length > 0}
 		<div class="mt-8 space-y-4">
 			{#each results as result (result.url)}

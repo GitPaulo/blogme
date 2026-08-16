@@ -24,7 +24,7 @@ export async function search(query: string, signal?: AbortSignal): Promise<Searc
 
 	if (!response.ok) {
 		const body = await response.json().catch(() => null);
-		throw new Error(body?.error ?? `Search failed (${response.status})`);
+		throw new Error(body?.error ?? `The server returned an error (${response.status}).`);
 	}
 
 	return response.json();
