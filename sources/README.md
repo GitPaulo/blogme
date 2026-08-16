@@ -153,4 +153,4 @@ Two consequences worth knowing:
 
 The job also works through the list in slices of a few hundred sources per run, recording
 the last source it handled, rather than attempting the whole list in one pass. See
-[system design](../docs/system-design.md).
+[discovery cadence](../docs/discovery-cadence.md).

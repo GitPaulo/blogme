@@ -1,0 +1,53 @@
+name: Deploy API to Azure Functions
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'api/**'
+      - '.github/workflows/deploy-api.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Let a running deployment finish rather than cancelling it mid-publish.
+concurrency:
+  group: deploy-api
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Required for the OIDC token exchange with Entra ID.
+      id-token: write
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: api/go.mod
+          cache-dependency-path: api/go.sum
+
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # Core Tools compiles the Go worker and publishes it, reusing the Azure CLI login.
+      - name: Install Azure Functions Core Tools
+        run: npm install -g azure-functions-core-tools@4
+
+      - name: Publish
+        run: func azure functionapp publish ${{ vars.AZURE_FUNCTIONAPP_NAME }}
+
+      - name: Verify the deployed app responds
+        run: |
+          curl --fail --show-error --silent --retry 5 --retry-all-errors --retry-delay 10 \
+            "https://${{ vars.AZURE_FUNCTIONAPP_NAME }}.azurewebsites.net/api/health"
