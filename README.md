@@ -1,22 +1,7 @@
 # blogme
 A search engine to find human written blogs about all kinds of things!
 
-## Documentation
-
-- [High-level plan](docs/blog-discovery-search-high-level-plan.md) — what the product is for.
-- [System design](docs/system-design.md) — the architecture and Azure services.
-- [Tech stack](docs/tech-stack.md) — languages, tooling and the local development loop.
-
-## Layout
-
-| Path | Contents |
-| --- | --- |
-| `api/` | Azure Functions app (Go): search HTTP API and the discovery timer job |
-| `web/` | SvelteKit static site, deployed to GitHub Pages |
-| `sources/` | [Curated list of approved blogs](sources/README.md), plus the extractor that builds it |
-| `docs/` | Design documentation |
-
-## Getting started
+## Dev
 
 The dev container installs everything. Then:
 
