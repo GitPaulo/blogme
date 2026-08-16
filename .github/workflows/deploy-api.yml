@@ -45,6 +45,9 @@ jobs:
         run: npm install -g azure-functions-core-tools@4
 
       - name: Publish
+        env:
+          # Core Tools infers this from local.settings.json, which is not committed.
+          FUNCTIONS_WORKER_RUNTIME: native
         run: func azure functionapp publish ${{ vars.AZURE_FUNCTIONAPP_NAME }}
 
       - name: Verify the deployed app responds
