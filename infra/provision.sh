@@ -25,6 +25,10 @@ SEARCH_SKU="${SEARCH_SKU:-free}"
 ARTICLES_CONTAINER="${ARTICLES_CONTAINER:-articles}"
 SOURCES_CONTAINER="${SOURCES_CONTAINER:-sources}"
 SEARCH_INDEX="${SEARCH_INDEX:-articles}"
+# Origins the static site is served from, space separated. No trailing slashes: an
+# origin is scheme + host + port only. Development goes through the Vite proxy, so only
+# deployed origins need allowing.
+WEB_ORIGINS="${WEB_ORIGINS:-https://gitpaulo.github.io https://gitpaulo.moe}"
 
 log() { printf '\n\033[36m==> %s\033[0m\n' "$1"; }
 
@@ -166,6 +170,22 @@ az functionapp config appsettings set \
 	"BLOGME_STORAGE_ACCOUNT=${STORAGE_ACCOUNT}" \
 	--output none
 echo "ok"
+
+log "CORS"
+allowed="$(az functionapp cors show --name "$FUNCTION_APP" --resource-group "$RESOURCE_GROUP" \
+	--query "allowedOrigins" -o tsv 2>/dev/null || true)"
+for origin in $WEB_ORIGINS; do
+	if grep -qx "$origin" <<<"$allowed"; then
+		echo "exists: $origin"
+	else
+		az functionapp cors add \
+			--name "$FUNCTION_APP" \
+			--resource-group "$RESOURCE_GROUP" \
+			--allowed-origins "$origin" \
+			--output none
+		echo "allowed: $origin"
+	fi
+done
 
 log "Done"
 cat <<EOF
