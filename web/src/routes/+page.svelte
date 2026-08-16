@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Alert, Badge, Button, Card, Heading, P, Search } from 'flowbite-svelte';
+	import BookmarkButton from '$lib/components/BookmarkButton.svelte';
 	import { search, type SearchResult } from '$lib/api';
 
 	const DEBOUNCE_MS = 300;
@@ -89,19 +90,24 @@
 		<div class="mt-8 space-y-4">
 			{#each results as result (result.url)}
 				<Card class="max-w-none p-4">
-					<Heading tag="h2" class="text-lg font-semibold">
-						<a
-							href={result.url}
-							target="_blank"
-							rel="noopener noreferrer"
-							class="rounded-sm text-gray-900 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 dark:text-white"
-						>
-							{result.title}
-						</a>
-					</Heading>
-					{#if result.author}
-						<P size="sm" class="text-gray-500 dark:text-gray-400">{result.author}</P>
-					{/if}
+					<div class="flex items-start gap-3">
+						<div class="min-w-0 flex-1">
+							<Heading tag="h2" class="text-lg font-semibold">
+								<a
+									href={result.url}
+									target="_blank"
+									rel="noopener noreferrer"
+									class="rounded-sm text-gray-900 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 dark:text-white"
+								>
+									{result.title}
+								</a>
+							</Heading>
+							{#if result.author}
+								<P size="sm" class="text-gray-500 dark:text-gray-400">{result.author}</P>
+							{/if}
+						</div>
+						<BookmarkButton {result} />
+					</div>
 					{#if result.summary}
 						<P class="mt-2">{result.summary}</P>
 					{/if}
