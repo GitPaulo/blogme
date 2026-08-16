@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/GitPaulo/blogme/api/internal/article"
 	"github.com/GitPaulo/blogme/api/internal/blob"
@@ -16,6 +19,13 @@ import (
 
 // Azure AI Search accepts at most 1000 documents per indexing request.
 const indexBatchSize = 1000
+
+// sourceResult carries one source's crawl outcome back from a worker.
+type sourceResult struct {
+	source   sources.Source
+	articles []article.Article
+	err      error
+}
 
 // Discoverer walks the approved source list, turns new posts into canonical
 // articles, persists them, and projects them into the search index.
@@ -30,10 +40,40 @@ type Discoverer struct {
 	index     *index.Index
 	cursor    *Cursor
 	batchSize int
+
+	client       *http.Client
+	fetcher      *fetcher
+	robots       *robots
+	maxPosts     int
+	contentWords int
+	concurrency  int
 }
 
-func New(provider sources.Provider, st *store.Store, idx *index.Index, cur *Cursor, batchSize int) *Discoverer {
-	return &Discoverer{sources: provider, store: st, index: idx, cursor: cur, batchSize: batchSize}
+// Options tune how much work one run does and how much text it keeps.
+type Options struct {
+	BatchSize    int
+	MaxPosts     int
+	ContentWords int
+	Concurrency  int
+}
+
+func New(provider sources.Provider, st *store.Store, idx *index.Index, cur *Cursor, opts Options) *Discoverer {
+	client := &http.Client{Timeout: 20 * time.Second}
+	f := newFetcher(client)
+
+	return &Discoverer{
+		sources:      provider,
+		store:        st,
+		index:        idx,
+		cursor:       cur,
+		batchSize:    opts.BatchSize,
+		client:       client,
+		fetcher:      f,
+		robots:       newRobots(f),
+		maxPosts:     opts.MaxPosts,
+		contentWords: opts.ContentWords,
+		concurrency:  opts.Concurrency,
+	}
 }
 
 // Run performs one bounded discovery pass.
@@ -75,16 +115,38 @@ func (d *Discoverer) Run(ctx context.Context) error {
 		return nil
 	}
 
+	// Crawling is almost entirely network wait, so run sources in parallel. Each
+	// source is a different host, so this stays polite to any individual site.
+	results := make(chan sourceResult, len(batch))
+	sem := make(chan struct{}, max(d.concurrency, 1))
+	var wg sync.WaitGroup
+
 	for _, s := range batch {
-		found, err := d.fromSource(ctx, s)
-		if err != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			found, err := d.crawl(ctx, s)
+			results <- sourceResult{source: s, articles: found, err: err}
+		}()
+	}
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	for res := range results {
+		if res.err != nil {
 			// One bad source must not abort the whole pass.
-			slog.ErrorContext(ctx, "source failed", "source", s.ID, "error", err)
+			slog.WarnContext(ctx, "source failed", "source", res.source.ID, "error", res.err)
 			failed++
 			continue
 		}
 
-		for _, a := range found {
+		for _, a := range res.articles {
 			if err := d.store.Save(ctx, a); err != nil {
 				return fmt.Errorf("save %s: %w", a.ID, err)
 			}
@@ -96,7 +158,7 @@ func (d *Discoverer) Run(ctx context.Context) error {
 			}
 		}
 
-		processed += len(found)
+		processed += len(res.articles)
 	}
 
 	if err := flush(); err != nil {
@@ -110,13 +172,6 @@ func (d *Discoverer) Run(ctx context.Context) error {
 	slog.InfoContext(ctx, "discovery pass complete",
 		"articles", processed, "sources_failed", failed, "next_cursor", next)
 	return nil
-}
-
-func (d *Discoverer) fromSource(ctx context.Context, s sources.Source) ([]article.Article, error) {
-	// TODO: check robots.txt, read the RSS/Atom feed or sitemap, fetch and extract
-	// each new post, then score it for quality before accepting it.
-	slog.DebugContext(ctx, "source discovery not implemented", "source", s.ID, "site", s.Site)
-	return nil, nil
 }
 
 // resumeIndex finds where to continue from. Resuming by source ID rather than by

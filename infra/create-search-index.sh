@@ -7,7 +7,7 @@
 set -euo pipefail
 
 RESOURCE_GROUP="${RESOURCE_GROUP:-rg-blogme}"
-SEARCH_SERVICE="${SEARCH_SERVICE:-srch-blogme-b3d38b}"
+SEARCH_SERVICE="${SEARCH_SERVICE:-srch-blogme-basic-b3d38b}"
 SCHEMA="${SCHEMA:-infra/search-index.json}"
 API_VERSION="${API_VERSION:-2024-07-01}"
 

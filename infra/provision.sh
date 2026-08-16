@@ -19,9 +19,11 @@ SUFFIX="${SUFFIX:-${SUBSCRIPTION_ID//-/}}"
 SUFFIX="${SUFFIX:0:6}"
 
 STORAGE_ACCOUNT="${STORAGE_ACCOUNT:-stblogme${SUFFIX}}"
-SEARCH_SERVICE="${SEARCH_SERVICE:-srch-blogme-${SUFFIX}}"
+# Free tier caps at 50 MB, which the corpus exceeds by ~50x. Azure cannot upgrade a
+# Free service in place, so Basic runs as a separate service.
+SEARCH_SERVICE="${SEARCH_SERVICE:-srch-blogme-basic-${SUFFIX}}"
 FUNCTION_APP="${FUNCTION_APP:-func-blogme-${SUFFIX}}"
-SEARCH_SKU="${SEARCH_SKU:-free}"
+SEARCH_SKU="${SEARCH_SKU:-basic}"
 ARTICLES_CONTAINER="${ARTICLES_CONTAINER:-articles}"
 SOURCES_CONTAINER="${SOURCES_CONTAINER:-sources}"
 SEARCH_INDEX="${SEARCH_INDEX:-articles}"

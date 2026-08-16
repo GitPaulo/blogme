@@ -15,11 +15,12 @@ import (
 // Source is one approved blog. The list is generated into sources/blogs.yml and
 // published to blob storage, so updating it does not require redeploying the app.
 type Source struct {
-	ID    string `yaml:"id"`
-	Name  string `yaml:"name"`
-	Site  string `yaml:"site"`
-	Feed  string `yaml:"feed,omitempty"`
-	Notes string `yaml:"notes,omitempty"`
+	ID    string   `yaml:"id"`
+	Name  string   `yaml:"name"`
+	Site  string   `yaml:"site"`
+	Feed  string   `yaml:"feed,omitempty"`
+	Tags  []string `yaml:"tags,omitempty"`
+	Notes string   `yaml:"notes,omitempty"`
 }
 
 type file struct {

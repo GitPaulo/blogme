@@ -69,6 +69,11 @@ func newDiscoverer(cfg config, idx *index.Index) (*discovery.Discoverer, error) 
 		store.New(client, cfg.articlesContainer),
 		idx,
 		discovery.NewCursor(client, cfg.sourcesContainer, cfg.cursorBlob),
-		cfg.discoveryBatch,
+		discovery.Options{
+			BatchSize:    cfg.discoveryBatch,
+			MaxPosts:     cfg.maxPostsPerSource,
+			ContentWords: cfg.contentWords,
+			Concurrency:  cfg.crawlConcurrency,
+		},
 	), nil
 }
