@@ -1,0 +1,46 @@
+# Blog lists to harvest links from.
+# One GitHub repository or topic URL per line; blank lines and # comments are ignored.
+
+# General blog lists
+https://github.com/letsila/awesome-blogs
+https://github.com/pgilad/awesome-blogs
+https://github.com/inputsh/awesome-blogs
+https://github.com/ekajogja/awesome-blogs
+https://github.com/linsa-io/blogs
+https://github.com/jkup/awesome-personal-blogs
+https://github.com/endymion1818/awesome-developer-blogs
+https://github.com/abdelhai/awesome-dev-blogs
+https://github.com/Firevvork/1000-awesome-blogs
+https://github.com/sanmak/awesome-blogs
+https://github.com/rapulu/awesome-blogs
+
+# Engineering and developer blogs
+https://github.com/kilimchoi/engineering-blogs
+https://github.com/abdelhai/devblogs
+https://github.com/mayankchauhan971/engineering-blogs
+https://github.com/crispgm/awesome-engineering-blogs
+https://github.com/sumodirjo/engineering-blogs
+https://github.com/upgundecha/awesome-engineering
+https://github.com/snuzi/awesome-dev-blogs
+https://github.com/snuzi/devblogs
+https://github.com/mhadikz/The-Best-Tech-Blogs-to-Follow
+https://github.com/topics/engineering-blogs
+https://github.com/topics/developer-blogs
+https://github.com/topics/programming-blogs
+
+# Data, ML and AI
+https://github.com/rushter/data-science-blogs
+https://github.com/alexmolas/ml-blogs
+https://github.com/antoinebrl/awesome-ml-blogs
+https://github.com/primaprashant/ml-engineering-blogs
+
+# Science
+https://github.com/jonathansick/awesome-astronomy
+https://github.com/front-matter/awesome-science-blogs
+https://github.com/mpi-astronomy/awesome-astro-datascience
+https://github.com/wbierbower/awesome-physics
+
+# Wider webs
+https://github.com/sindresorhus/awesome
+https://github.com/kagisearch/smallweb
+https://github.com/voku/awesome-web

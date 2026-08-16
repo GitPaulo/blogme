@@ -1,0 +1,323 @@
+# Subject tags for sources/blogs.yml.
+#
+# Each tag lists the words and phrases that imply it. Matching is whole-word and
+# case-insensitive, against a blog's own title, description and recent post titles.
+#
+# A tag is kept when it scores at least 2 points:
+#   2 points  the blog files its posts under that word (a feed category)
+#   1 point   each distinct keyword found in the blog's text
+#
+# So one passing mention is never enough, but a self-declared category always is.
+# Order matters: when a blog matches more tags than fit, the earlier ones win.
+#
+# To add a tag, add an entry here. Nothing else needs changing.
+
+software-engineering:
+  - software engineering
+  - software development
+  - programming
+  - coding
+  - computer science
+  - algorithms
+  - refactoring
+  - code review
+  - testing
+
+web-development:
+  - web development
+  - frontend
+  - front-end
+  - javascript
+  - typescript
+  - react
+  - vue
+  - svelte
+  - angular
+  - css
+  - html
+  - browser
+  - web performance
+
+programming-languages:
+  - programming language
+  - compiler
+  - interpreter
+  - type system
+  - functional programming
+  - parser
+  - language design
+
+rust:
+  - rust
+  - rustlang
+  - rust-lang
+
+go:
+  - golang
+  - go-lang
+
+python:
+  - python
+  - django
+  - flask
+  - pandas
+
+devops:
+  - devops
+  - kubernetes
+  - docker
+  - containers
+  - sre
+  - site reliability
+  - infrastructure
+  - terraform
+  - observability
+  - ci/cd
+  - deployment
+
+cloud:
+  - cloud
+  - aws
+  - azure
+  - gcp
+  - google cloud
+  - serverless
+
+databases:
+  - database
+  - databases
+  - postgres
+  - postgresql
+  - mysql
+  - sqlite
+  - sql
+  - distributed systems
+  - data modelling
+  - data modeling
+
+security:
+  - security
+  - infosec
+  - cybersecurity
+  - cryptography
+  - encryption
+  - malware
+  - reverse engineering
+  - vulnerability
+  - penetration testing
+  - privacy
+
+ai:
+  - artificial intelligence
+  - generative ai
+  - llm
+  - llms
+  - large language model
+  - chatgpt
+  - prompt engineering
+
+machine-learning:
+  - machine learning
+  - deep learning
+  - neural network
+  - neural networks
+  - transformer
+  - nlp
+  - computer vision
+  - pytorch
+  - tensorflow
+  - reinforcement learning
+
+data-science:
+  - data science
+  - data engineering
+  - analytics
+  - statistics
+  - visualisation
+  - visualization
+
+linux:
+  - linux
+  - unix
+  - kernel
+  - operating system
+  - bsd
+  - systemd
+  - shell scripting
+  - vim
+  - emacs
+
+hardware:
+  - hardware
+  - embedded
+  - firmware
+  - electronics
+  - fpga
+  - microcontroller
+  - raspberry pi
+  - arduino
+  - retrocomputing
+
+game-development:
+  - game development
+  - gamedev
+  - game engine
+  - unity
+  - godot
+  - unreal
+  - shaders
+
+design:
+  - design
+  - ux
+  - ui
+  - user experience
+  - typography
+  - accessibility
+  - product design
+
+career:
+  - career
+  - leadership
+  - engineering management
+  - hiring
+  - interviewing
+  - remote work
+  - productivity
+  - mentoring
+
+startups:
+  - startup
+  - startups
+  - founder
+  - entrepreneurship
+  - product management
+  - saas
+  - bootstrapping
+
+open-source:
+  - open source
+  - free software
+  - foss
+  - maintainer
+  - licensing
+
+mathematics:
+  - mathematics
+  - maths
+  - algebra
+  - geometry
+  - number theory
+  - probability
+  - proof
+
+physics:
+  - physics
+  - quantum
+  - relativity
+  - particle physics
+  - thermodynamics
+
+astronomy:
+  - astronomy
+  - astrophysics
+  - telescope
+  - cosmology
+  - space
+  - nasa
+  - astrophotography
+
+science:
+  - science
+  - research
+  - biology
+  - chemistry
+  - neuroscience
+  - genomics
+  - climate
+
+photography:
+  - photography
+  - camera
+  - lens
+  - darkroom
+  - film photography
+
+art:
+  - art
+  - illustration
+  - drawing
+  - painting
+  - printmaking
+
+music:
+  - music
+  - guitar
+  - synthesizer
+  - songwriting
+  - audio production
+
+gaming:
+  - video games
+  - gaming
+  - board games
+  - speedrunning
+
+books:
+  - books
+  - reading
+  - literature
+  - book review
+  - poetry
+
+writing:
+  - writing
+  - blogging
+  - newsletter
+  - essays
+  - journaling
+
+food:
+  - cooking
+  - recipe
+  - recipes
+  - baking
+  - coffee
+  - brewing
+
+travel:
+  - travel
+  - hiking
+  - cycling
+  - outdoors
+  - backpacking
+
+health:
+  - health
+  - fitness
+  - running
+  - medicine
+  - mental health
+  - nutrition
+
+finance:
+  - finance
+  - investing
+  - economics
+  - personal finance
+
+history:
+  - history
+  - archaeology
+  - historical
+
+philosophy:
+  - philosophy
+  - ethics
+  - stoicism
+
+education:
+  - education
+  - teaching
+  - learning
+  - pedagogy

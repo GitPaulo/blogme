@@ -1,0 +1,16 @@
+# Approved sources. Changes go through normal Git review — see docs/system-design.md.
+#
+#   id    stable identifier, used in article IDs and logs
+#   name  human-readable title
+#   site  homepage
+#   feed  RSS/Atom feed, if the site publishes one
+sources:
+  - id: seangoedecke
+    name: Sean Goedecke
+    site: https://www.seangoedecke.com/
+    feed: https://www.seangoedecke.com/rss.xml
+
+  - id: alynwallace
+    name: Alyn Wallace Photography
+    site: https://alynwallacephotography.com/blog
+    notes: Astrophotography; feed URL to be confirmed.

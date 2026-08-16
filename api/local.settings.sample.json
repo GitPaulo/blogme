@@ -1,0 +1,12 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "native",
+    "BLOGME_SOURCES_PATH": "../sources/blogs.yml",
+    "BLOGME_ARTICLES_CONTAINER": "articles",
+    "BLOGME_SEARCH_ENDPOINT": "",
+    "BLOGME_SEARCH_INDEX": "articles",
+    "BLOGME_SEARCH_API_KEY": ""
+  }
+}

@@ -1,0 +1,30 @@
+# Go
+api/bin/
+
+# Azure Functions
+api/local.settings.json
+api/.python_packages/
+**/.azurefunctions/
+*.zip
+
+# Azurite
+.azurite/
+__azurite_db*.json
+__blobstorage__/
+__queuestorage__/
+
+# Node / SvelteKit (web/.gitignore covers the rest)
+node_modules/
+
+# Python (sources/tools)
+.venv/
+__pycache__/
+*.py[cod]
+
+# Source extractor output (blogs.yml is committed, these are not)
+sources/tools/link-audit.csv
+sources/tools/build.log
+
+# Editors and OS
+.DS_Store
+Thumbs.db

@@ -13,6 +13,7 @@ Validated against official documentation and package registries on **16 August 2
 | Backend host | Azure Functions, Flex Consumption, Linux |
 | Functions programming model | First-class Go worker (`azure-functions-golang-worker`) |
 | Frontend | SvelteKit + Svelte 5 + Tailwind CSS 4, `adapter-static` |
+| UI components | Flowbite Svelte (stable 1.x) |
 | Frontend host | GitHub Pages |
 | Canonical storage | Azure Blob Storage |
 | Search | Azure AI Search |
@@ -78,6 +79,21 @@ hand-pin these.
 
 `adapter-static` produces a fully static build, which is what GitHub Pages serves. The site is UI only:
 it calls the Functions HTTP API and holds no Azure credentials.
+
+### UI components
+
+[Flowbite Svelte](https://flowbite-svelte.com) supplies the component set, on top of Tailwind. We use
+the **stable 1.x** release, whose peer dependencies (`svelte ^5.40`, `tailwindcss ^4.1.4`) match this
+project exactly.
+
+We are deliberately **not** on `flowbite-svelte@2.0.0-next`. Version 2 is still a prerelease — its docs
+site is a preview and it ships a `theme-selector` theming system that stable does not have. A component
+library is a foundation, so it stays on a released version until v2 is stable.
+
+Tailwind is configured in [web/src/routes/layout.css](../web/src/routes/layout.css): the Flowbite plugin,
+a `dark` custom variant, the `primary`/`secondary` theme colours the components expect, and `@source`
+directives so Tailwind scans the Flowbite package for the utility classes its components emit. That scan
+is why the stylesheet is larger than a hand-written one — roughly 34 KB gzipped.
 
 In development, Vite proxies `/api/*` to `http://localhost:7071` so the browser sees one origin and CORS
 stays out of the inner loop. In production the API base URL is injected at build time and the Function
