@@ -27,6 +27,9 @@ const (
 
 	// Length of the description shown on a result card.
 	summaryWords = 40
+
+	// Below this, a paragraph-derived summary is too thin to be worth preferring.
+	minSummaryWords = 12
 )
 
 // crawl turns one approved blog into articles, using its feed.
@@ -98,12 +101,18 @@ func (d *Discoverer) toArticle(ctx context.Context, s sources.Source, it feedIte
 		}
 	}
 
-	summary := cleanProse(it.Summary)
-	if summary == "" {
-		summary = extractSummary(markup, summaryWords)
-	}
-	if summary == "" {
+	// The article's own opening paragraphs make a better card than a feed's
+	// description, which is often a machine-generated blurb built from raw Markdown.
+	// Both extracted forms have been sanitised; the feed description has not, so it
+	// is the last resort.
+	summary := extractSummary(markup, summaryWords)
+	if wordCount(summary) < minSummaryWords && wordCount(content) > wordCount(summary) {
 		summary = content
+	}
+	if wordCount(summary) < minSummaryWords {
+		if fallback := cleanProse(it.Summary); wordCount(fallback) > wordCount(summary) {
+			summary = fallback
+		}
 	}
 
 	return article.Article{

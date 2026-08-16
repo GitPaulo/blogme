@@ -57,9 +57,12 @@ var skipElements = map[atom.Atom]bool{
 	atom.Pre: true, atom.Code: true, atom.Figcaption: true,
 }
 
-// Themes add anchor links inside headings whose text ("Link to heading", "¶") is
-// decoration, not content.
-var anchorClassHints = []string{"anchor", "headerlink", "permalink", "hash-link"}
+// Classes marking content that exists for anchors or assistive technology rather
+// than for reading: heading permalinks and visually-hidden labels.
+var hiddenClassHints = []string{
+	"anchor", "headerlink", "header-link", "heading-link", "permalink", "hash-link",
+	"sr-only", "visually-hidden", "visuallyhidden", "screen-reader", "screenreader",
+}
 
 func skipNode(n *html.Node) bool {
 	if n.Type != html.ElementNode {
@@ -75,9 +78,11 @@ func skipNode(n *html.Node) bool {
 			if attr.Val == "true" {
 				return true
 			}
+		case "hidden":
+			return true
 		case "class":
 			class := strings.ToLower(attr.Val)
-			for _, hint := range anchorClassHints {
+			for _, hint := range hiddenClassHints {
 				if strings.Contains(class, hint) {
 					return true
 				}
