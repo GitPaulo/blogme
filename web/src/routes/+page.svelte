@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Alert, Badge, Button, Card, Heading, P, Search, Spinner } from 'flowbite-svelte';
+	import { Alert, Badge, Button, Card, Heading, P, Search } from 'flowbite-svelte';
 	import { search, type SearchResult } from '$lib/api';
 
 	let query = $state('');
@@ -32,20 +32,23 @@
 		Find human-written, long-form blog posts worth reading.
 	</P>
 
-	<form {onsubmit} class="flex gap-2">
+	<form {onsubmit} role="search" class="flex gap-2">
 		<Search
 			bind:value={query}
 			size="md"
 			placeholder="problems scaling single-threaded servers"
 			aria-label="Search query"
 		/>
-		<Button type="submit" disabled={status === 'loading'} class="shrink-0">
-			{#if status === 'loading'}
-				<Spinner class="me-2" size="4" color="gray" />
-			{/if}
-			Search
-		</Button>
+		<Button type="submit" loading={status === 'loading'} class="shrink-0">Search</Button>
 	</form>
+
+	<p class="sr-only" role="status">
+		{#if status === 'loading'}
+			Searching
+		{:else if status === 'done' && results.length > 0}
+			{results.length} results found
+		{/if}
+	</p>
 
 	{#if status === 'error'}
 		<Alert color="red" class="mt-6">
@@ -58,13 +61,16 @@
 		<div class="mt-8 space-y-4">
 			{#each results as result (result.url)}
 				<Card class="max-w-none p-4">
-					<a
-						href={result.url}
-						rel="noopener noreferrer"
-						class="text-lg font-semibold text-gray-900 hover:underline dark:text-white"
-					>
-						{result.title}
-					</a>
+					<Heading tag="h2" class="text-lg font-semibold">
+						<a
+							href={result.url}
+							target="_blank"
+							rel="noopener noreferrer"
+							class="rounded-sm text-gray-900 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 dark:text-white"
+						>
+							{result.title}
+						</a>
+					</Heading>
 					{#if result.author}
 						<P size="sm" class="text-gray-500 dark:text-gray-400">{result.author}</P>
 					{/if}

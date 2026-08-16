@@ -38,6 +38,12 @@
 		display: none;
 	}
 
+	/* Tailwind v4 preflight dropped v3's pointer cursor for buttons. */
+	button:not(:disabled),
+	[role='button']:not(:disabled) {
+		cursor: pointer;
+	}
+
 	html {
 		color-scheme: light;
 	}
