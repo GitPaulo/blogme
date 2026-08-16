@@ -11,7 +11,10 @@ export type SearchResult = {
 
 export type SearchResponse = {
 	query: string;
+	/** Rows in this page; total counts every match in the corpus. */
 	count: number;
+	total: number;
+	offset: number;
 	results: SearchResult[];
 };
 
@@ -19,6 +22,10 @@ export type SearchResponse = {
 export const MIN_QUERY_LENGTH = 3;
 /** Mirrors maxQueryLen in api/internal/httpapi, so the server never has to reject us. */
 export const MAX_QUERY_LENGTH = 512;
+/** Mirrors defaultLimit in api/internal/httpapi. */
+export const PAGE_SIZE = 20;
+/** Mirrors maxOffset in api/internal/httpapi: the deep tail is not offered. */
+export const MAX_OFFSET = 1000;
 
 /** Mirrors maxLimit in api/internal/httpapi. */
 const MAX_RESULTS = 50;
@@ -73,19 +80,37 @@ function toResult(value: unknown): SearchResult | undefined {
 }
 
 /** The response is untrusted input: anything unexpected is dropped rather than rendered. */
-function toResponse(body: unknown, query: string): SearchResponse {
+function toResponse(body: unknown, query: string, offset: number): SearchResponse {
 	const raw = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>;
 	const results = (Array.isArray(raw.results) ? raw.results : [])
 		.slice(0, MAX_RESULTS)
 		.map(toResult)
 		.filter((result): result is SearchResult => result !== undefined);
 
-	return { query, count: results.length, results };
+	const reported =
+		typeof raw.total === 'number' && Number.isFinite(raw.total) ? Math.trunc(raw.total) : 0;
+
+	return {
+		query,
+		count: results.length,
+		// A total below what we already hold would make "load more" contradict itself.
+		total: Math.max(reported, offset + results.length),
+		offset,
+		results
+	};
 }
 
-export async function search(query: string, signal?: AbortSignal): Promise<SearchResponse> {
+export async function search(
+	query: string,
+	options: { offset?: number; signal?: AbortSignal } = {}
+): Promise<SearchResponse> {
+	const { signal } = options;
 	const term = query.trim().slice(0, MAX_QUERY_LENGTH);
-	const url = `${API_BASE}/api/search?q=${encodeURIComponent(term)}`;
+	const offset = Math.min(Math.max(Math.trunc(options.offset ?? 0), 0), MAX_OFFSET);
+
+	const params = new URLSearchParams({ q: term, limit: String(PAGE_SIZE) });
+	if (offset > 0) params.set('offset', String(offset));
+	const url = `${API_BASE}/api/search?${params}`;
 
 	// A hung request would otherwise leave the UI loading forever.
 	const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
@@ -106,5 +131,5 @@ export async function search(query: string, signal?: AbortSignal): Promise<Searc
 		throw new Error(message ?? `The server returned an error (${response.status}).`);
 	}
 
-	return toResponse(body, term);
+	return toResponse(body, term, offset);
 }

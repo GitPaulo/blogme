@@ -14,6 +14,9 @@ const (
 	maxQueryLen  = 512
 	defaultLimit = 20
 	maxLimit     = 50
+	// Deep paging costs the index more with every page and relevance is long gone by
+	// this depth, so the tail is simply not offered.
+	maxOffset = 1000
 )
 
 type Handlers struct {
@@ -25,12 +28,15 @@ func New(idx *index.Index) *Handlers {
 }
 
 type searchResponse struct {
-	Query   string           `json:"query"`
+	Query string `json:"query"`
+	// Count is the size of this page; Total is how many matches exist in all.
 	Count   int              `json:"count"`
+	Total   int              `json:"total"`
+	Offset  int              `json:"offset"`
 	Results []article.Result `json:"results"`
 }
 
-// Search handles GET /api/search?q=...&limit=...
+// Search handles GET /api/search?q=...&limit=...&offset=...
 func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query().Get("q")
 	if q == "" {
@@ -42,24 +48,47 @@ func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	limit := defaultLimit
-	if raw := r.URL.Query().Get("limit"); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n < 1 || n > maxLimit {
-			writeError(w, http.StatusBadRequest, "query parameter 'limit' must be between 1 and "+strconv.Itoa(maxLimit))
-			return
-		}
-		limit = n
+	limit, ok := queryInt(r, "limit", defaultLimit, 1, maxLimit)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "query parameter 'limit' must be between 1 and "+strconv.Itoa(maxLimit))
+		return
 	}
 
-	results, err := h.index.Query(r.Context(), q, limit)
+	offset, ok := queryInt(r, "offset", 0, 0, maxOffset)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "query parameter 'offset' must be between 0 and "+strconv.Itoa(maxOffset))
+		return
+	}
+
+	results, total, err := h.index.Query(r.Context(), q, limit, offset)
 	if err != nil {
 		slog.ErrorContext(r.Context(), "search failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "search failed")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, searchResponse{Query: q, Count: len(results), Results: results})
+	writeJSON(w, http.StatusOK, searchResponse{
+		Query:   q,
+		Count:   len(results),
+		Total:   total,
+		Offset:  offset,
+		Results: results,
+	})
+}
+
+// queryInt reads an optional integer parameter, reporting false when the value is
+// present but outside [minimum, maximum].
+func queryInt(r *http.Request, name string, fallback, minimum, maximum int) (int, bool) {
+	raw := r.URL.Query().Get(name)
+	if raw == "" {
+		return fallback, true
+	}
+
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < minimum || n > maximum {
+		return 0, false
+	}
+	return n, true
 }
 
 // Health handles GET /api/health.

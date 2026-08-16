@@ -1,0 +1,64 @@
+package httpapi
+
+import (
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/GitPaulo/blogme/api/internal/index"
+)
+
+func newTestHandlers(t *testing.T, body string) *Handlers {
+	t.Helper()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, body)
+	}))
+	t.Cleanup(srv.Close)
+
+	return New(index.New(srv.URL, "articles", "test-key"))
+}
+
+func get(t *testing.T, h *Handlers, target string) *httptest.ResponseRecorder {
+	t.Helper()
+
+	rec := httptest.NewRecorder()
+	h.Search(rec, httptest.NewRequest(http.MethodGet, target, nil))
+	return rec
+}
+
+func TestSearchReportsPageAndTotal(t *testing.T) {
+	h := newTestHandlers(t, `{"@odata.count":137,"value":[{"url":"https://example.com/post","title":"A post"}]}`)
+
+	rec := get(t, h, "/api/search?q=go&offset=20")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got status %d, want 200", rec.Code)
+	}
+
+	var body searchResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if body.Count != 1 || body.Total != 137 || body.Offset != 20 {
+		t.Errorf("got count=%d total=%d offset=%d, want 1, 137 and 20", body.Count, body.Total, body.Offset)
+	}
+}
+
+func TestSearchRejectsBadPaging(t *testing.T) {
+	h := newTestHandlers(t, `{"@odata.count":0,"value":[]}`)
+
+	for _, target := range []string{
+		"/api/search?q=go&offset=-1",
+		"/api/search?q=go&offset=100000",
+		"/api/search?q=go&offset=abc",
+		"/api/search?q=go&limit=0",
+		"/api/search?q=go&limit=51",
+	} {
+		if code := get(t, h, target).Code; code != http.StatusBadRequest {
+			t.Errorf("%s: got status %d, want 400", target, code)
+		}
+	}
+}

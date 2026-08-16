@@ -71,13 +71,13 @@ flowchart TD
 
 Key properties:
 
-| Property | How |
-| --- | --- |
-| Bounded runtime | Fixed batch of blogs per run, never the whole list |
-| Resumable | Cursor stores the last source **ID**, so it survives list regeneration |
-| Polite | robots.txt respected; concurrency capped per registrable domain |
-| Idempotent | Article IDs are a hash of the URL, so re-crawling updates rather than duplicates |
-| Fault isolated | One failing blog is logged and skipped; the pass continues |
+| Property        | How                                                                              |
+| --------------- | -------------------------------------------------------------------------------- |
+| Bounded runtime | Fixed batch of blogs per run, never the whole list                               |
+| Resumable       | Cursor stores the last source **ID**, so it survives list regeneration           |
+| Polite          | robots.txt respected; concurrency capped per registrable domain                  |
+| Idempotent      | Article IDs are a hash of the URL, so re-crawling updates rather than duplicates |
+| Fault isolated  | One failing blog is logged and skipped; the pass continues                       |
 
 The per-domain cap matters more than it looks: shared platforms host thousands of the
 sources, with `bearblog.dev` alone accounting for over a thousand. Limiting by hostname
@@ -95,7 +95,7 @@ sequenceDiagram
     U->>P: load gitpaulo.moe/blogme
     P-->>U: static HTML, JS, CSS
     U->>F: GET /api/search?q=...
-    Note over F: validate q and limit
+    Note over F: validate q, limit and offset
     F->>S: full-text query, ranked
     S-->>F: matching documents
     F-->>U: JSON results
@@ -107,18 +107,18 @@ with a managed identity, so no keys exist in the browser or in the repository.
 
 ## Where each stage lives
 
-| Stage | Code |
-| --- | --- |
-| Build the blog list | [`sources/tools/`](../sources/tools/) |
-| Publish the list | [`infra/upload-sources.sh`](../infra/upload-sources.sh) |
-| Load and cache the list | [`api/internal/sources`](../api/internal/sources) |
-| Batching and cursor | [`api/internal/discovery/discovery.go`](../api/internal/discovery/discovery.go) |
-| Feeds, fetching, robots | [`api/internal/discovery`](../api/internal/discovery) |
-| Text extraction | [`api/internal/discovery/extract.go`](../api/internal/discovery/extract.go) |
-| Canonical storage | [`api/internal/store`](../api/internal/store) |
-| Index and query | [`api/internal/index`](../api/internal/index) |
-| HTTP handlers | [`api/internal/httpapi`](../api/internal/httpapi) |
-| Web UI | [`web/src`](../web/src) |
+| Stage                   | Code                                                                            |
+| ----------------------- | ------------------------------------------------------------------------------- |
+| Build the blog list     | [`sources/tools/`](../sources/tools/)                                           |
+| Publish the list        | [`infra/upload-sources.sh`](../infra/upload-sources.sh)                         |
+| Load and cache the list | [`api/internal/sources`](../api/internal/sources)                               |
+| Batching and cursor     | [`api/internal/discovery/discovery.go`](../api/internal/discovery/discovery.go) |
+| Feeds, fetching, robots | [`api/internal/discovery`](../api/internal/discovery)                           |
+| Text extraction         | [`api/internal/discovery/extract.go`](../api/internal/discovery/extract.go)     |
+| Canonical storage       | [`api/internal/store`](../api/internal/store)                                   |
+| Index and query         | [`api/internal/index`](../api/internal/index)                                   |
+| HTTP handlers           | [`api/internal/httpapi`](../api/internal/httpapi)                               |
+| Web UI                  | [`web/src`](../web/src)                                                         |
 
 ## Data at each stage
 

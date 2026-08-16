@@ -105,6 +105,7 @@ func (i *Index) Upsert(ctx context.Context, articles []article.Article) error {
 }
 
 type searchResponse struct {
+	Total int `json:"@odata.count"`
 	Value []struct {
 		Score       float64  `json:"@search.score"`
 		URL         string   `json:"url"`
@@ -116,11 +117,14 @@ type searchResponse struct {
 	} `json:"value"`
 }
 
-// Query runs a full-text search and returns ranked results.
-func (i *Index) Query(ctx context.Context, q string, limit int) ([]article.Result, error) {
+// Query runs a full-text search and returns one page of ranked results along with
+// the number of matches across the whole corpus.
+func (i *Index) Query(ctx context.Context, q string, limit, offset int) ([]article.Result, int, error) {
 	body := map[string]any{
 		"search":     q,
 		"top":        limit,
+		"skip":       offset,
+		"count":      true,
 		"queryType":  "simple",
 		"searchMode": "any",
 		"select":     "url,title,author,summary,topics,publishedAt",
@@ -128,7 +132,7 @@ func (i *Index) Query(ctx context.Context, q string, limit int) ([]article.Resul
 
 	var resp searchResponse
 	if err := i.do(ctx, http.MethodPost, "/docs/search", body, &resp); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	results := make([]article.Result, 0, len(resp.Value))
@@ -149,7 +153,7 @@ func (i *Index) Query(ctx context.Context, q string, limit int) ([]article.Resul
 		results = append(results, r)
 	}
 
-	return results, nil
+	return results, resp.Total, nil
 }
 
 func (i *Index) do(ctx context.Context, method, path string, body, out any) error {

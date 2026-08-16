@@ -13,6 +13,7 @@
 	import { bookmarks } from '$lib/bookmarks/store.svelte';
 	import { download } from '$lib/bookmarks/export';
 	import { safeHttpUrl } from '$lib/api';
+	import { formatDate } from '$lib/date';
 	import type { Bookmark } from '$lib/bookmarks/db';
 
 	const ROW_HEIGHT = 88;
@@ -95,6 +96,7 @@
 		<div class="mt-2 min-h-0 flex-1" bind:clientHeight={listHeight}>
 			<VirtualList {items} height={listHeight} minItemHeight={ROW_HEIGHT} contained>
 				{#snippet children(item: Bookmark)}
+					{@const published = formatDate(item.publishedAt)}
 					<div class="flex h-22 items-center gap-2 border-b border-gray-200 dark:border-gray-700">
 						<div class="min-w-0 flex-1">
 							<a
@@ -106,7 +108,10 @@
 								{item.title}
 							</a>
 							<span class="mt-1 block truncate text-xs text-gray-500 dark:text-gray-400">
-								{host(item.url)}
+								{host(item.url)}{#if published}
+									&middot;
+									<time datetime={item.publishedAt}>{published}</time>
+								{/if}
 							</span>
 						</div>
 						<Button
