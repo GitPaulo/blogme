@@ -2,24 +2,29 @@ package store
 
 import (
 	"context"
-	"log/slog"
+	"encoding/json"
+	"fmt"
 
 	"github.com/GitPaulo/blogme/api/internal/article"
+	"github.com/GitPaulo/blogme/api/internal/blob"
 )
 
 // Store persists canonical article JSON. Azure Blob Storage is the source of
 // truth; the search index is rebuildable from it.
 type Store struct {
+	client    *blob.Client
 	container string
 }
 
-func New(container string) *Store {
-	return &Store{container: container}
+func New(client *blob.Client, container string) *Store {
+	return &Store{client: client, container: container}
 }
 
-// Save writes the canonical article JSON for a single article.
+// Save writes the canonical JSON for a single article.
 func (s *Store) Save(ctx context.Context, a article.Article) error {
-	// TODO: upload to Azure Blob Storage (container s.container, blob a.ID+".json").
-	slog.InfoContext(ctx, "store.save not implemented", "container", s.container, "id", a.ID)
-	return nil
+	data, err := json.Marshal(a)
+	if err != nil {
+		return fmt.Errorf("marshal %s: %w", a.ID, err)
+	}
+	return s.client.Upload(ctx, s.container, a.ID+".json", data)
 }

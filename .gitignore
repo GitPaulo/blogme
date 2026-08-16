@@ -22,6 +22,7 @@ __pycache__/
 *.py[cod]
 
 # Source extractor output (blogs.yml is committed, these are not)
+sources/blogs.sample.yml
 sources/tools/link-audit.csv
 sources/tools/build.log
 

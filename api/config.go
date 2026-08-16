@@ -1,31 +1,52 @@
 package main
 
-import "os"
+import (
+	"os"
+	"strconv"
+)
 
 // config holds the app settings read from the environment. In Azure these come from
 // Function App application settings; locally from local.settings.json.
 type config struct {
-	sourcesPath       string
+	storageAccount    string
+	sourcesContainer  string
+	sourcesBlob       string
+	cursorBlob        string
 	articlesContainer string
+	// When set, the source list is read from this local file instead of blob storage.
+	sourcesPath       string
 	searchEndpoint    string
 	searchIndex       string
 	searchAPIKey      string
 	discoverySchedule string
+	discoveryBatch    int
 }
 
 func loadConfig() config {
 	return config{
-		sourcesPath:       env("BLOGME_SOURCES_PATH", "../sources/blogs.yml"),
+		storageAccount:    os.Getenv("BLOGME_STORAGE_ACCOUNT"),
+		sourcesContainer:  env("BLOGME_SOURCES_CONTAINER", "sources"),
+		sourcesBlob:       env("BLOGME_SOURCES_BLOB", "blogs.yml"),
+		cursorBlob:        env("BLOGME_CURSOR_BLOB", "discovery-cursor"),
 		articlesContainer: env("BLOGME_ARTICLES_CONTAINER", "articles"),
+		sourcesPath:       os.Getenv("BLOGME_SOURCES_PATH"),
 		searchEndpoint:    os.Getenv("BLOGME_SEARCH_ENDPOINT"),
 		searchIndex:       env("BLOGME_SEARCH_INDEX", "articles"),
 		searchAPIKey:      os.Getenv("BLOGME_SEARCH_API_KEY"),
 		discoverySchedule: env("BLOGME_DISCOVERY_SCHEDULE", "0 0 */6 * * *"),
+		discoveryBatch:    envInt("BLOGME_DISCOVERY_BATCH", 200),
 	}
 }
 
 func env(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func envInt(key string, fallback int) int {
+	if v, err := strconv.Atoi(os.Getenv(key)); err == nil && v > 0 {
 		return v
 	}
 	return fallback

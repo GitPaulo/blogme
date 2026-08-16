@@ -10,8 +10,12 @@ export GITHUB_TOKEN
 
 SOURCES_LOG := sources/tools/build.log
 
+# Match the defaults in infra/provision.sh.
+RESOURCE_GROUP ?= rg-blogme
+FUNCTION_APP ?= func-blogme-b3d38b
+
 .PHONY: help setup dev check build clean \
-        check-api check-web build-api build-web fmt sources sources-status
+        check-api check-web build-api build-web fmt sources sources-status sources-upload
 
 help: ## List available targets
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -66,6 +70,20 @@ sources-status: ## Show progress of the background source rebuild
 		&& echo "status: running" \
 		|| echo "status: not running"
 	@tail -n 3 $(SOURCES_LOG) 2>/dev/null || echo "no log at $(SOURCES_LOG) yet"
+
+sources-upload: ## Publish sources/blogs.yml to blob storage (no redeploy needed)
+	@STORAGE=$$(az functionapp config appsettings list --name $(FUNCTION_APP) \
+		--resource-group $(RESOURCE_GROUP) \
+		--query "[?name=='BLOGME_STORAGE_ACCOUNT'].value | [0]" -o tsv) \
+		&& az storage blob upload \
+			--account-name $$STORAGE \
+			--container-name sources \
+			--name blogs.yml \
+			--file sources/blogs.yml \
+			--auth-mode login \
+			--overwrite \
+			--output none \
+		&& echo "uploaded sources/blogs.yml to $$STORAGE/sources/blogs.yml"
 
 clean: ## Remove build output and local emulator state
 	rm -rf api/bin api/*.zip web/build web/.svelte-kit .azurite

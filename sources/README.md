@@ -122,3 +122,35 @@ make sources
 The full run checks tens of thousands of links and takes a couple of hours. Review the
 diff before committing; the audit CSV explains anything that went missing. See
 [`tools/README.md`](tools/README.md) for flags, layout and shorter trial runs.
+
+## Publishing
+
+Generating the list does not put it in front of the discovery job. The job reads
+`blogs.yml` from blob storage, so a rebuilt list has to be published:
+
+```bash
+make sources-upload
+```
+
+```mermaid
+flowchart LR
+    A[make sources] -->|writes| B[blogs.yml<br/>in Git]
+    B -->|make sources-upload| C[Blob Storage<br/>sources/blogs.yml]
+    C -->|read each run| D[Discovery job]
+```
+
+Publishing is deliberately separate from deploying. The list changes far more often than
+the code does, so uploading it is all that is needed — **no rebuild and no redeploy**, and
+the running job picks the new list up on its next pass.
+
+Two consequences worth knowing:
+
+- **Locally, nothing is published.** `make dev` reads `blogs.yml` straight off disk via
+  `BLOGME_SOURCES_PATH`, so the development loop needs no storage account at all.
+- **The job does not re-read the file every run.** It compares the blob's ETag first and
+  only downloads and parses again when the list has actually changed, which matters at
+  this file's size.
+
+The job also works through the list in slices of a few hundred sources per run, recording
+the last source it handled, rather than attempting the whole list in one pass. See
+[system design](../docs/system-design.md).
