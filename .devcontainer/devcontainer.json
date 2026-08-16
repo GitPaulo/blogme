@@ -8,6 +8,9 @@
 		"ghcr.io/devcontainers/features/node:1": {
 			"version": "24"
 		},
+		"ghcr.io/devcontainers/features/python:1": {
+			"version": "3.12"
+		},
 		"ghcr.io/devcontainers/features/azure-cli:1": {
 			"version": "latest"
 		}
@@ -20,16 +23,36 @@
 				"svelte.svelte-vscode",
 				"bradlc.vscode-tailwindcss",
 				"esbenp.prettier-vscode",
+				"ms-python.python",
 				"ms-azuretools.vscode-azurefunctions",
 				"ms-azuretools.vscode-bicep",
+				"azurite.azurite",
+				"redhat.vscode-yaml",
+				"github.vscode-github-actions",
+				"ms-vscode.makefile-tools",
 				"editorconfig.editorconfig"
 			],
 			"settings": {
 				"go.lintTool": "golangci-lint",
+				"svelte.enable-ts-plugin": true,
+				"python.defaultInterpreterPath": "${workspaceFolder}/sources/tools/.venv/bin/python",
+				"makefile.configureOnOpen": false,
+				"editor.formatOnSave": true,
+				"[go]": { "editor.defaultFormatter": "golang.go" },
 				"[svelte]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
-				"[typescript]": { "editor.defaultFormatter": "esbenp.prettier-vscode" }
+				"[typescript]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+				"[javascript]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+				"[css]": { "editor.defaultFormatter": "esbenp.prettier-vscode" }
 			}
 		}
 	},
-	"forwardPorts": [5173, 7071, 10000]
+	// 10000-10002 are Azurite blob, queue and table.
+	"forwardPorts": [5173, 7071, 10000, 10001, 10002],
+	"portsAttributes": {
+		"5173": { "label": "web (vite)", "onAutoForward": "notify" },
+		"7071": { "label": "api (functions)", "onAutoForward": "silent" },
+		"10000": { "label": "azurite blob", "onAutoForward": "silent" },
+		"10001": { "label": "azurite queue", "onAutoForward": "silent" },
+		"10002": { "label": "azurite table", "onAutoForward": "silent" }
+	}
 }

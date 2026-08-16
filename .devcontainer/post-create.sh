@@ -6,8 +6,9 @@ set -euo pipefail
 npm install -g "azure-functions-core-tools@4" azurite
 
 corepack enable
-corepack prepare pnpm@latest --activate
+corepack prepare pnpm@10.32.1 --activate
 
-go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+# Pinned to the version CI runs, so lint results match locally.
+go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
 
 make setup
