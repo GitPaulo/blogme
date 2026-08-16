@@ -9,8 +9,9 @@
 		Tooltip,
 		VirtualList
 	} from 'flowbite-svelte';
-	import { BookmarkSolid, TrashBinOutline } from 'flowbite-svelte-icons';
+	import { BookmarkSolid, DownloadOutline, TrashBinOutline } from 'flowbite-svelte-icons';
 	import { bookmarks } from '$lib/bookmarks/store.svelte';
+	import { download } from '$lib/bookmarks/export';
 	import type { Bookmark } from '$lib/bookmarks/db';
 
 	const ROW_HEIGHT = 88;
@@ -82,7 +83,15 @@
 			No bookmarks yet. Save a result to find it here later.
 		</P>
 	{:else}
-		<VirtualList {items} height={innerHeight - 120} minItemHeight={ROW_HEIGHT} contained>
+		<div class="mt-2 mb-3 flex justify-end">
+			<Button color="alternative" size="xs" class="gap-2" onclick={() => download(items)}>
+				<DownloadOutline class="h-4 w-4" />
+				Export
+			</Button>
+			<Tooltip>Download your bookmarks as JSON</Tooltip>
+		</div>
+
+		<VirtualList {items} height={innerHeight - 170} minItemHeight={ROW_HEIGHT} contained>
 			{#snippet children(item: Bookmark)}
 				<div class="flex h-22 items-center gap-2 border-b border-gray-200 dark:border-gray-700">
 					<div class="min-w-0 flex-1">
