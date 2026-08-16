@@ -9,6 +9,9 @@ import * as db from './db';
  */
 const saved = new SvelteSet<string>();
 
+/** Keeps a runaway script or an accidental loop from filling the user's disk. */
+const MAX_BOOKMARKS = 5_000;
+
 let ready = $state(false);
 let error = $state('');
 
@@ -53,6 +56,11 @@ export const bookmarks = {
 	async toggle(result: SearchResult) {
 		const url = result.url;
 		const wasSaved = saved.has(url);
+
+		if (!wasSaved && saved.size >= MAX_BOOKMARKS) {
+			error = `You can save up to ${MAX_BOOKMARKS} bookmarks. Remove some to add more.`;
+			return;
+		}
 
 		// Applied up front so the button responds on the same frame as the click.
 		if (wasSaved) saved.delete(url);

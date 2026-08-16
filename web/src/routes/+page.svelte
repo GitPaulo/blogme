@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Alert, Badge, Button, Card, Heading, P, Search } from 'flowbite-svelte';
 	import BookmarkButton from '$lib/components/BookmarkButton.svelte';
-	import { search, type SearchResult } from '$lib/api';
+	import { MAX_QUERY_LENGTH, MIN_QUERY_LENGTH, search, type SearchResult } from '$lib/api';
 
 	const DEBOUNCE_MS = 300;
 
@@ -10,45 +10,69 @@
 	let status = $state<'idle' | 'loading' | 'done' | 'error'>('idle');
 	let error = $state('');
 
-	let timer: ReturnType<typeof setTimeout>;
+	let timer: ReturnType<typeof setTimeout> | undefined;
 	let controller: AbortController | undefined;
 
-	async function run(term: string) {
+	const term = $derived(query.trim().slice(0, MAX_QUERY_LENGTH));
+	const searchable = $derived(term.length >= MIN_QUERY_LENGTH);
+	const tooShort = $derived(term.length > 0 && !searchable);
+
+	function cancel() {
+		clearTimeout(timer);
+		timer = undefined;
 		controller?.abort();
+		controller = undefined;
+	}
+
+	async function run(value: string) {
+		cancel();
 		const current = new AbortController();
 		controller = current;
 
 		status = 'loading';
 		error = '';
 		try {
-			const response = await search(term, current.signal);
+			const response = await search(value, current.signal);
+			// A newer search (or a cleared query) owns the UI now, so drop this answer.
+			if (controller !== current) return;
 			results = response.results;
 			status = 'done';
 		} catch (e) {
-			if (current.signal.aborted) return;
+			if (controller !== current) return;
+			results = [];
 			error = e instanceof Error ? e.message : 'Something went wrong.';
 			status = 'error';
+		} finally {
+			if (controller === current) controller = undefined;
 		}
 	}
 
 	$effect(() => {
-		const term = query.trim();
-		if (!term) {
-			controller?.abort();
+		if (!searchable) {
+			cancel();
 			results = [];
+			error = '';
 			status = 'idle';
 			return;
 		}
-		timer = setTimeout(() => run(term), DEBOUNCE_MS);
+
+		const value = term;
+		// The pending debounce is still work in progress, so the button stays busy throughout.
+		status = 'loading';
+		clearTimeout(timer);
+		timer = setTimeout(() => run(value), DEBOUNCE_MS);
 		return () => clearTimeout(timer);
 	});
+
+	// Leaving the page should not keep a request alive.
+	$effect(() => () => cancel());
 
 	// Submitting skips the pending debounce rather than queueing a second request.
 	function onsubmit(event: SubmitEvent) {
 		event.preventDefault();
 		clearTimeout(timer);
-		const term = query.trim();
-		if (term) run(term);
+		if (!searchable) return;
+		run(term);
 	}
 </script>
 
@@ -66,10 +90,19 @@
 			size="md"
 			placeholder="something you want to read about..."
 			classes={{ input: 'placeholder-gray-400' }}
+			maxlength={MAX_QUERY_LENGTH}
 			aria-label="Search query"
 		/>
-		<Button type="submit" loading={status === 'loading'} class="shrink-0">Search</Button>
+		<Button type="submit" loading={status === 'loading'} disabled={!searchable} class="shrink-0">
+			Search
+		</Button>
 	</form>
+
+	{#if tooShort}
+		<P size="sm" class="mt-2 text-gray-500 dark:text-gray-400">
+			Type at least {MIN_QUERY_LENGTH} characters to search.
+		</P>
+	{/if}
 
 	<p class="sr-only" role="status">
 		{#if status === 'loading'}
@@ -97,24 +130,24 @@
 									href={result.url}
 									target="_blank"
 									rel="noopener noreferrer"
-									class="rounded-sm text-gray-900 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 dark:text-white"
+									class="line-clamp-2 rounded-sm break-words text-gray-900 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 dark:text-white"
 								>
 									{result.title}
 								</a>
 							</Heading>
 							{#if result.author}
-								<P size="sm" class="text-gray-500 dark:text-gray-400">{result.author}</P>
+								<P size="sm" class="truncate text-gray-500 dark:text-gray-400">{result.author}</P>
 							{/if}
 						</div>
 						<BookmarkButton {result} />
 					</div>
 					{#if result.summary}
-						<P class="mt-2">{result.summary}</P>
+						<P class="mt-2 line-clamp-3 break-words">{result.summary}</P>
 					{/if}
 					{#if result.topics?.length}
 						<div class="mt-3 flex flex-wrap gap-2">
 							{#each result.topics as topic (topic)}
-								<Badge>{topic}</Badge>
+								<Badge class="max-w-full truncate">{topic}</Badge>
 							{/each}
 						</div>
 					{/if}

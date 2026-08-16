@@ -11,12 +11,22 @@ function preferred(): Theme {
 	return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
+// Storage access throws when cookies are blocked, which must not break the toggle.
 export function readTheme(): Theme {
-	const stored = localStorage.getItem(STORAGE_KEY);
-	return stored === 'light' || stored === 'dark' ? stored : preferred();
+	try {
+		const stored = localStorage.getItem(STORAGE_KEY);
+		if (stored === 'light' || stored === 'dark') return stored;
+	} catch {
+		// Fall through to the system preference.
+	}
+	return preferred();
 }
 
 export function setTheme(theme: Theme) {
-	localStorage.setItem(STORAGE_KEY, theme);
+	try {
+		localStorage.setItem(STORAGE_KEY, theme);
+	} catch {
+		// The choice still applies for this session.
+	}
 	apply(theme);
 }
