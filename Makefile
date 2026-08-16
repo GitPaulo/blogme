@@ -72,18 +72,7 @@ sources-status: ## Show progress of the background source rebuild
 	@tail -n 3 $(SOURCES_LOG) 2>/dev/null || echo "no log at $(SOURCES_LOG) yet"
 
 sources-upload: ## Publish sources/blogs.yml to blob storage (no redeploy needed)
-	@STORAGE=$$(az functionapp config appsettings list --name $(FUNCTION_APP) \
-		--resource-group $(RESOURCE_GROUP) \
-		--query "[?name=='BLOGME_STORAGE_ACCOUNT'].value | [0]" -o tsv) \
-		&& az storage blob upload \
-			--account-name $$STORAGE \
-			--container-name sources \
-			--name blogs.yml \
-			--file sources/blogs.yml \
-			--auth-mode login \
-			--overwrite \
-			--output none \
-		&& echo "uploaded sources/blogs.yml to $$STORAGE/sources/blogs.yml"
+	@RESOURCE_GROUP=$(RESOURCE_GROUP) FUNCTION_APP=$(FUNCTION_APP) ./infra/upload-sources.sh
 
 clean: ## Remove build output and local emulator state
 	rm -rf api/bin api/*.zip web/build web/.svelte-kit .azurite
