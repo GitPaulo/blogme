@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button, Input, Modal, MultiSelect } from 'flowbite-svelte';
+	import { Badge, Button, Input, Label, Modal, MultiSelect } from 'flowbite-svelte';
 	import { BookmarkSolid, CalendarMonthOutline, CloseOutline } from 'flowbite-svelte-icons';
 	import type { SearchResult } from '$lib/api';
 	import { formatDate } from '$lib/date';
@@ -44,18 +44,24 @@
 	{#if tagItems.length > 0}
 		<MultiSelect
 			size="sm"
-			class="w-64"
+			class="w-full min-w-0 sm:w-64"
 			items={tagItems}
 			bind:value={filters.tags}
 			placeholder="All tags"
 			aria-label="Filter by tag"
-		/>
+		>
+			{#snippet children({ item, clear })}
+				<Badge color="gray" dismissable onclose={clear} class="mx-0.5 px-2 py-0">
+					<span class="block max-w-32 truncate">{item.name}</span>
+				</Badge>
+			{/snippet}
+		</MultiSelect>
 	{/if}
 
 	<Button
 		size="sm"
 		color={hasDateFilter(filters) ? 'primary' : 'alternative'}
-		class="max-w-64 gap-2"
+		class="max-w-64 shrink-0 gap-2"
 		aria-haspopup="dialog"
 		aria-expanded={dateOpen}
 		onclick={() => (dateOpen = true)}
@@ -67,7 +73,7 @@
 	<Button
 		size="sm"
 		color={filters.bookmarkedOnly ? 'primary' : 'alternative'}
-		class="gap-2"
+		class="shrink-0 gap-2"
 		aria-pressed={filters.bookmarkedOnly}
 		onclick={() => (filters.bookmarkedOnly = !filters.bookmarkedOnly)}
 	>
@@ -79,12 +85,13 @@
 		size="sm"
 		color="red"
 		outline
-		class="ms-auto gap-1.5"
+		class="ms-auto shrink-0 gap-1.5"
 		disabled={!active}
+		aria-label="Clear filters"
 		onclick={() => (filters = emptyFilters())}
 	>
 		<CloseOutline class="h-4 w-4" />
-		Clear
+		<span class="hidden sm:inline">Clear</span>
 	</Button>
 </div>
 
@@ -105,25 +112,28 @@
 
 	<div class="mt-4 border-t border-gray-200 pt-4 dark:border-gray-700">
 		<p class="mb-2 text-sm text-gray-500 dark:text-gray-400">Or pick an exact range</p>
-		<div class="flex items-center gap-2">
-			<Input
-				type="date"
-				size="sm"
-				value={filters.from}
-				max={filters.to || today}
-				oninput={(event) => setBound('from', event)}
-				aria-label="Published from"
-			/>
-			<span class="text-sm text-gray-500 dark:text-gray-400">to</span>
-			<Input
-				type="date"
-				size="sm"
-				value={filters.to}
-				min={filters.from || undefined}
-				max={today}
-				oninput={(event) => setBound('to', event)}
-				aria-label="Published until"
-			/>
+		<div class="grid grid-cols-2 gap-2">
+			<Label class="space-y-1 text-xs font-normal text-gray-500 dark:text-gray-400">
+				From
+				<Input
+					type="date"
+					size="sm"
+					value={filters.from}
+					max={filters.to || today}
+					oninput={(event) => setBound('from', event)}
+				/>
+			</Label>
+			<Label class="space-y-1 text-xs font-normal text-gray-500 dark:text-gray-400">
+				To
+				<Input
+					type="date"
+					size="sm"
+					value={filters.to}
+					min={filters.from || undefined}
+					max={today}
+					oninput={(event) => setBound('to', event)}
+				/>
+			</Label>
 		</div>
 	</div>
 </Modal>
