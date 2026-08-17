@@ -5,11 +5,18 @@
 		Drawer,
 		Drawerhead,
 		Heading,
+		Input,
+		Modal,
 		P,
 		Tooltip,
 		VirtualList
 	} from 'flowbite-svelte';
-	import { BookmarkSolid, DownloadOutline, TrashBinOutline } from 'flowbite-svelte-icons';
+	import {
+		BookmarkSolid,
+		DownloadOutline,
+		SearchOutline,
+		TrashBinOutline
+	} from 'flowbite-svelte-icons';
 	import { bookmarks } from '$lib/bookmarks/store.svelte';
 	import { download } from '$lib/bookmarks/export';
 	import { safeHttpUrl } from '$lib/api';
@@ -20,6 +27,8 @@
 
 	let open = $state(false);
 	let items = $state<Bookmark[]>([]);
+	let filter = $state('');
+	let confirming = $state(false);
 	let loading = $state(false);
 	let listHeight = $state(0);
 	let reads = 0;
@@ -31,6 +40,7 @@
 	// Full records are only read when the drawer is actually opened.
 	$effect(() => {
 		if (!open) return;
+		filter = ''; // A filter left over from last time would hide the list on arrival.
 		const read = ++reads; // A reopen while a read is in flight must win.
 		loading = true;
 		bookmarks
@@ -51,6 +61,12 @@
 		items = items.filter((item) => item.url !== url);
 	}
 
+	async function removeAll() {
+		confirming = false;
+		await bookmarks.clear();
+		items = [];
+	}
+
 	function host(url: string) {
 		try {
 			return new URL(url).hostname.replace(/^www\./, '');
@@ -61,6 +77,21 @@
 
 	const label = $derived(
 		bookmarks.count === 1 ? 'Bookmarks, 1 saved' : `Bookmarks, ${bookmarks.count} saved`
+	);
+	// Split out so an untouched filter keeps handing the list the same array, and the
+	// virtual list has nothing to recompute.
+	const needle = $derived(filter.trim().toLowerCase());
+	const visible = $derived(
+		needle
+			? items.filter((item) => `${item.title} ${host(item.url)}`.toLowerCase().includes(needle))
+			: items
+	);
+	const savedLabel = $derived(
+		needle
+			? `${visible.length} of ${items.length} shown`
+			: items.length === 1
+				? '1 saved'
+				: `${items.length} saved`
 	);
 </script>
 
@@ -92,50 +123,83 @@
 			No bookmarks yet. Save a result to find it here later.
 		</P>
 	{:else}
-		<!-- The list takes the leftover space so the action bar can sit on the bottom edge. -->
-		<div class="mt-2 min-h-0 flex-1" bind:clientHeight={listHeight}>
-			<VirtualList {items} height={listHeight} minItemHeight={ROW_HEIGHT} contained>
-				{#snippet children(item: Bookmark)}
-					{@const published = formatDate(item.publishedAt)}
-					<div class="flex h-22 items-center gap-2 border-b border-gray-200 dark:border-gray-700">
-						<div class="min-w-0 flex-1">
-							<a
-								href={safeHttpUrl(item.url) ?? '#'}
-								target="_blank"
-								rel="noopener noreferrer"
-								data-preview
-								class="line-clamp-2 rounded-sm text-sm font-medium break-words text-gray-900 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 dark:text-white"
-							>
-								{item.title}
-							</a>
-							<span class="mt-1 flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
-								<span class="truncate">{host(item.url)}</span>
-								{#if published}
-									<span aria-hidden="true">&middot;</span>
-									<time datetime={item.publishedAt} class="shrink-0">{published}</time>
-								{/if}
-							</span>
-						</div>
-						<Button
-							color="alternative"
-							class="shrink-0 !p-2"
-							pill
-							onclick={() => removeOne(item.url)}
-							aria-label="Remove {item.title} from bookmarks"
-						>
-							<TrashBinOutline class="h-4 w-4" />
-						</Button>
-					</div>
+		<!-- Nothing to narrow until something is saved, so the field only exists alongside a list. -->
+		<div class="mt-2 shrink-0">
+			<Input
+				type="search"
+				bind:value={filter}
+				size="sm"
+				placeholder="Filter saved posts..."
+				class="ps-9 placeholder-gray-400"
+				aria-label="Filter bookmarks"
+			>
+				{#snippet left()}
+					<SearchOutline class="h-4 w-4" aria-hidden="true" />
 				{/snippet}
-			</VirtualList>
+			</Input>
 		</div>
 
+		{#if visible.length === 0}
+			<P class="mt-4 text-sm text-gray-500 dark:text-gray-400">No saved posts match that filter.</P>
+		{:else}
+			<!-- The list takes the leftover space so the action bar can sit on the bottom edge. -->
+			<div class="mt-2 min-h-0 flex-1" bind:clientHeight={listHeight}>
+				<VirtualList items={visible} height={listHeight} minItemHeight={ROW_HEIGHT} contained>
+					{#snippet children(item: Bookmark)}
+						{@const published = formatDate(item.publishedAt)}
+						<!-- pe-3 keeps the remove button clear of the scrollbar, which overlays the
+						content rather than reserving a gutter of its own. -->
+						<div
+							class="flex h-22 items-center gap-2 border-b border-gray-200 pe-3 dark:border-gray-700"
+						>
+							<div class="min-w-0 flex-1">
+								<a
+									href={safeHttpUrl(item.url) ?? '#'}
+									target="_blank"
+									rel="noopener noreferrer"
+									class="line-clamp-2 rounded-sm text-sm font-medium break-words text-gray-900 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 dark:text-white"
+								>
+									{item.title}
+								</a>
+								<span
+									class="mt-1 flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400"
+								>
+									<span class="truncate">{host(item.url)}</span>
+									{#if published}
+										<span aria-hidden="true">&middot;</span>
+										<time datetime={item.publishedAt} class="shrink-0">{published}</time>
+									{/if}
+								</span>
+							</div>
+							<Button
+								color="alternative"
+								class="shrink-0 !p-2"
+								pill
+								onclick={() => removeOne(item.url)}
+								aria-label="Remove {item.title} from bookmarks"
+							>
+								<TrashBinOutline class="h-4 w-4" />
+							</Button>
+						</div>
+					{/snippet}
+				</VirtualList>
+			</div>
+		{/if}
+
 		<div
-			class="mt-3 flex shrink-0 items-center justify-between gap-2 border-t border-gray-200 pt-3 dark:border-gray-700"
+			class="mt-3 flex shrink-0 items-center gap-2 border-t border-gray-200 pt-3 dark:border-gray-700"
 		>
-			<span class="text-xs text-gray-500 tabular-nums dark:text-gray-400">
-				{items.length === 1 ? '1 saved' : `${items.length} saved`}
-			</span>
+			<span class="text-xs text-gray-500 tabular-nums dark:text-gray-400">{savedLabel}</span>
+			<Button
+				color="red"
+				outline
+				size="xs"
+				class="ms-auto gap-2"
+				onclick={() => (confirming = true)}
+			>
+				<TrashBinOutline class="h-4 w-4" />
+				Remove all
+			</Button>
 			<Button color="alternative" size="xs" class="gap-2" onclick={() => download(items)}>
 				<DownloadOutline class="h-4 w-4" />
 				Export
@@ -144,3 +208,14 @@
 		</div>
 	{/if}
 </Drawer>
+
+<!-- Emptying the store is the one action here that cannot be undone from the panel. -->
+<Modal title="Remove all bookmarks?" bind:open={confirming} size="xs">
+	<P class="text-sm text-gray-500 dark:text-gray-400">
+		This deletes the {items.length} posts saved in this browser and cannot be undone.
+	</P>
+	<div class="flex justify-end gap-2 pt-2">
+		<Button color="alternative" size="sm" onclick={() => (confirming = false)}>Cancel</Button>
+		<Button color="red" size="sm" onclick={removeAll}>Remove all</Button>
+	</div>
+</Modal>

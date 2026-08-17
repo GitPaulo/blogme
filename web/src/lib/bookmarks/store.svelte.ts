@@ -89,5 +89,19 @@ export const bookmarks = {
 		}
 	},
 
+	async clear() {
+		if (saved.size === 0) return;
+		// The keys are cheap to hold and are the only way back if the write fails.
+		const previous = [...saved];
+		saved.clear();
+		try {
+			error = '';
+			await db.clear();
+		} catch {
+			for (const url of previous) saved.add(url);
+			error = 'Could not save your change.';
+		}
+	},
+
 	list: db.all
 };

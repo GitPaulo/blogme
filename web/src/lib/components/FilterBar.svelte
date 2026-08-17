@@ -51,70 +51,70 @@
 	}
 </script>
 
-<div class="mt-3 flex items-start gap-2">
-	<!-- The controls wrap inside this group, so Clear always stays on the first line. -->
-	<div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-		{#if tagItems.length > 0}
-			<!-- Takes the width the buttons leave rather than a fixed one: a wrapping row
+<!-- Clear sits in the same wrapping row as the rest rather than in a column beside it:
+outside, it anchored to the top of a group whose own items are centred, so every tag
+that made the select taller pulled it further out of line. -->
+<div class="mt-3 flex flex-wrap items-center gap-2">
+	{#if tagItems.length > 0}
+		<!-- Takes the width the buttons leave rather than a fixed one: a wrapping row
 			breaks on each item's natural size, so any width wide enough to push the last
 			button onto a second line would do so before the select ever gave any back. -->
-			<MultiSelect
-				size="sm"
-				class="w-full min-w-0 sm:w-auto sm:flex-1"
-				items={tagItems}
-				bind:value={filters.tags}
-				placeholder="All tags"
-				aria-label="Filter by tag"
-			>
-				{#snippet children({ item, clear })}
-					<Badge color="gray" dismissable onclose={clear} class="mx-0.5 px-2 py-0">
-						<span class="block max-w-32 truncate">{item.name}</span>
-					</Badge>
-				{/snippet}
-			</MultiSelect>
-		{/if}
-
-		<Button
+		<MultiSelect
 			size="sm"
-			color={hasDateFilter(filters) ? 'primary' : 'alternative'}
-			class="max-w-64 shrink-0 gap-2"
-			aria-haspopup="dialog"
-			aria-expanded={dateOpen}
-			onclick={() => (dateOpen = true)}
+			class="w-full min-w-0 sm:w-auto sm:flex-1"
+			items={tagItems}
+			bind:value={filters.tags}
+			placeholder="All tags"
+			aria-label="Filter by tag"
 		>
-			<CalendarMonthOutline class="h-4 w-4 shrink-0" />
-			<span class="truncate">{dateLabel}</span>
-		</Button>
+			{#snippet children({ item, clear })}
+				<Badge color="gray" dismissable onclose={clear} class="mx-0.5 px-2 py-0">
+					<span class="block max-w-32 truncate">{item.name}</span>
+				</Badge>
+			{/snippet}
+		</MultiSelect>
+	{/if}
 
-		<Button
-			size="sm"
-			color={filters.bookmarkedOnly ? 'primary' : 'alternative'}
-			class="shrink-0 gap-2"
-			aria-pressed={filters.bookmarkedOnly}
-			aria-label="Bookmarked"
-			onclick={() => (filters.bookmarkedOnly = !filters.bookmarkedOnly)}
-		>
-			<BookmarkSolid class="h-4 w-4" />
-			<span class="hidden sm:inline">Bookmarked</span>
-		</Button>
+	<Button
+		size="sm"
+		color={hasDateFilter(filters) ? 'primary' : 'alternative'}
+		class="max-w-64 shrink-0 gap-2"
+		aria-haspopup="dialog"
+		aria-expanded={dateOpen}
+		onclick={() => (dateOpen = true)}
+	>
+		<CalendarMonthOutline class="h-4 w-4 shrink-0" />
+		<span class="truncate">{dateLabel}</span>
+	</Button>
 
-		<Button
-			size="sm"
-			color={sitemapped ? 'primary' : 'alternative'}
-			class="shrink-0 gap-2"
-			aria-pressed={sitemapped}
-			aria-label="Sitemapped"
-			onclick={() => (sitemapped = !sitemapped)}
-		>
-			<!-- A globe, not a branch: these came off the open site, and the branch read as
+	<Button
+		size="sm"
+		color={filters.bookmarkedOnly ? 'primary' : 'alternative'}
+		class="shrink-0 gap-2"
+		aria-pressed={filters.bookmarkedOnly}
+		aria-label="Bookmarked"
+		onclick={() => (filters.bookmarkedOnly = !filters.bookmarkedOnly)}
+	>
+		<BookmarkSolid class="h-4 w-4" />
+		<span class="hidden sm:inline">Bookmarked</span>
+	</Button>
+
+	<Button
+		size="sm"
+		color={sitemapped ? 'primary' : 'alternative'}
+		class="shrink-0 gap-2"
+		aria-pressed={sitemapped}
+		aria-label="Sitemapped"
+		onclick={() => (sitemapped = !sitemapped)}
+	>
+		<!-- A globe, not a branch: these came off the open site, and the branch read as
 			version control. -->
-			<GlobeOutline class="h-4 w-4" />
-			<span class="hidden sm:inline">Sitemapped</span>
-		</Button>
-		<Tooltip class="max-w-64 text-center">
-			Show only posts found through a site's page list instead of its feed.
-		</Tooltip>
-	</div>
+		<GlobeOutline class="h-4 w-4" />
+		<span class="hidden sm:inline">Sitemapped</span>
+	</Button>
+	<Tooltip class="max-w-64 text-center">
+		Show only posts found through a site's page list instead of its feed.
+	</Tooltip>
 
 	<Button
 		size="sm"

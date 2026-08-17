@@ -1,6 +1,11 @@
 <script lang="ts">
 	import { Alert, Badge, Button, Card, Heading, Input, P, Spinner, Tooltip } from 'flowbite-svelte';
-	import { SearchOutline, WandMagicSparklesOutline } from 'flowbite-svelte-icons';
+	import {
+		ChevronDoubleUpOutline,
+		SearchOutline,
+		WandMagicSparklesOutline
+	} from 'flowbite-svelte-icons';
+	import { prefersReducedMotion } from 'svelte/motion';
 	import BookmarkButton from '$lib/components/BookmarkButton.svelte';
 	import FilterBar from '$lib/components/FilterBar.svelte';
 	import {
@@ -39,6 +44,9 @@
 	let status = $state<'idle' | 'loading' | 'done' | 'error'>('idle');
 	let loadingMore = $state(false);
 	let error = $state('');
+	// Whether the document is taller than the window, which is the only thing that makes
+	// a shortcut back to the top worth offering.
+	let scrollable = $state(false);
 
 	let searchInput = $state<HTMLInputElement>();
 
@@ -89,6 +97,21 @@
 	// The page is a search box with a page around it, so the caret starts in it.
 	$effect(() => {
 		searchInput?.focus();
+	});
+
+	// Watching the document rather than recomputing per render: every filter, page and
+	// window resize changes the answer, and the observer already fires on all of them.
+	$effect(() => {
+		const measure = () => {
+			scrollable = document.documentElement.scrollHeight > window.innerHeight;
+		};
+		const observer = new ResizeObserver(measure);
+		observer.observe(document.documentElement);
+		window.addEventListener('resize', measure);
+		return () => {
+			observer.disconnect();
+			window.removeEventListener('resize', measure);
+		};
 	});
 
 	function cancel() {
@@ -151,6 +174,10 @@
 	function loadMore() {
 		if (!hasMore || loadingMore) return;
 		run(term, nextOffset, origin, rank);
+	}
+
+	function toTop() {
+		window.scrollTo({ top: 0, behavior: prefersReducedMotion.current ? 'auto' : 'smooth' });
 	}
 
 	$effect(() => {
@@ -329,9 +356,27 @@
 				{/each}
 			</div>
 
-			{#if hasMore}
-				<div class="mt-6 flex justify-center">
-					<Button color="alternative" loading={loadingMore} onclick={loadMore}>Load more</Button>
+			{#if loaded > 0}
+				<div class="mt-6 flex items-center justify-center gap-2">
+					<!-- Present for as long as there are results, so the end of the list is a
+					disabled button rather than a control that vanishes from under the pointer. -->
+					<Button color="alternative" loading={loadingMore} disabled={!hasMore} onclick={loadMore}>
+						Load more
+					</Button>
+					{#if scrollable}
+						<!-- Same button, squared off around the icon: a shortcut back is a peer of
+						the way forward, not a different kind of control. The icon is sized to the
+						text line box beside it so both buttons come out the same height. -->
+						<Button
+							color="alternative"
+							class="shrink-0 !px-3"
+							onclick={toTop}
+							aria-label="Back to top"
+						>
+							<ChevronDoubleUpOutline class="h-5 w-5" />
+						</Button>
+						<Tooltip>Back to top</Tooltip>
+					{/if}
 				</div>
 			{/if}
 		</div>
