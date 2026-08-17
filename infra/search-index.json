@@ -93,9 +93,10 @@
       "text": {
         "weights": {
           "title": 4,
-          "topics": 2,
+          "author": 3,
           "summary": 2,
-          "content": 1
+          "content": 1,
+          "topics": 1
         }
       }
     }

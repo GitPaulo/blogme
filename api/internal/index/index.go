@@ -121,8 +121,18 @@ type searchResponse struct {
 		Summary     string   `json:"summary"`
 		Topics      []string `json:"topics"`
 		PublishedAt string   `json:"publishedAt"`
+		SourceID    string   `json:"sourceId"`
 	} `json:"value"`
 }
+
+// maxPerSource caps how much of one page a single blog may occupy.
+//
+// Three posts from one site is rarely what a reader wanted, so this earns its
+// place on ordinary queries; it also means a source that stuffs its posts with
+// popular terms takes three rows rather than the page. Applied to the page that
+// came back rather than by over-fetching, so a page can come back short but the
+// paging arithmetic is untouched.
+const maxPerSource = 3
 
 // Ranking modes. Semantic reranks the top keyword matches with a language model, which
 // is what makes a query phrased as a sentence work. Keyword is plain relevance scoring:
@@ -146,6 +156,8 @@ type QueryOptions struct {
 // Query runs a full-text search and returns one page of ranked results along with
 // the number of matches across the whole corpus.
 func (i *Index) Query(ctx context.Context, q string, opts QueryOptions) ([]article.Result, int, error) {
+	// sourceId is selected but never returned to the caller: it is there so one blog
+	// can be stopped from filling the page. See maxPerSource.
 	body := map[string]any{
 		"search":     q,
 		"top":        opts.Limit,
@@ -153,7 +165,7 @@ func (i *Index) Query(ctx context.Context, q string, opts QueryOptions) ([]artic
 		"count":      true,
 		"queryType":  "simple",
 		"searchMode": "any",
-		"select":     "url,title,author,origin,summary,topics,publishedAt",
+		"select":     "url,title,author,origin,summary,topics,publishedAt,sourceId",
 	}
 
 	// Built from a fixed set rather than from the caller's string, so a filter can
@@ -196,7 +208,18 @@ func (i *Index) Query(ctx context.Context, q string, opts QueryOptions) ([]artic
 // results projects the wire response onto the shape the API returns.
 func results(resp searchResponse) []article.Result {
 	out := make([]article.Result, 0, len(resp.Value))
+	perSource := make(map[string]int, len(resp.Value))
+
 	for _, v := range resp.Value {
+		// Documents indexed before sourceId was selected carry none, and an unknown
+		// source cannot be shown to be over its share.
+		if v.SourceID != "" {
+			if perSource[v.SourceID] >= maxPerSource {
+				continue
+			}
+			perSource[v.SourceID]++
+		}
+
 		r := article.Result{
 			URL:     v.URL,
 			Title:   v.Title,

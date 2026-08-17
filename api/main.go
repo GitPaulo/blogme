@@ -22,7 +22,7 @@ func main() {
 	cfg := loadConfig()
 
 	idx := index.New(cfg.searchEndpoint, cfg.searchIndex, cfg.searchAPIKey, cfg.searchSemantic)
-	handlers := httpapi.New(idx)
+	handlers := httpapi.New(idx, cfg.searchLimits)
 
 	app := sdk.FunctionApp()
 

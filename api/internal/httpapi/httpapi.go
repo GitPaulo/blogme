@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/GitPaulo/blogme/api/internal/article"
 	"github.com/GitPaulo/blogme/api/internal/index"
@@ -25,6 +26,17 @@ const (
 	maxKeywordOffset = 1000
 )
 
+// allowSemantic spends from the reranking budgets, the caller's own first. Order
+// matters: checking the service-wide budget first would let a caller who is
+// already over their own limit go on draining the allowance everyone shares.
+func (h *Handlers) allowSemantic(caller string, now time.Time) bool {
+	if ok, _ := h.semanticClient.allow(caller, now); !ok {
+		return false
+	}
+	ok, _ := h.semanticAll.allow(globalKey, now)
+	return ok
+}
+
 // maxOffsetFor reports how deep the given ranking mode is allowed to page.
 func maxOffsetFor(rank string) int {
 	if rank == index.RankKeyword {
@@ -35,10 +47,23 @@ func maxOffsetFor(rank string) int {
 
 type Handlers struct {
 	index *index.Index
+
+	// The endpoint is anonymous by design, so these are the only bound on what a
+	// single caller can spend. See ratelimit.go for what each one protects.
+	limits         Limits
+	perClient      *limiter
+	semanticClient *limiter
+	semanticAll    *limiter
 }
 
-func New(idx *index.Index) *Handlers {
-	return &Handlers{index: idx}
+func New(idx *index.Index, limits Limits) *Handlers {
+	return &Handlers{
+		index:          idx,
+		limits:         limits,
+		perClient:      newLimiter(float64(limits.PerMinute), limits.Burst),
+		semanticClient: newLimiter(float64(limits.SemanticPerMinute), limits.SemanticBurst),
+		semanticAll:    newLimiter(float64(limits.SemanticPerHour)/60, limits.SemanticHourBurst),
+	}
 }
 
 type searchResponse struct {
@@ -52,6 +77,14 @@ type searchResponse struct {
 
 // Search handles GET /api/search?q=...&limit=...&offset=...&origin=...
 func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
+	// Before any work, including validation: an execution costs money whatever the
+	// request turns out to say.
+	caller, now := clientKey(r), time.Now()
+	if ok, wait := h.perClient.allow(caller, now); !ok {
+		writeRateLimited(w, h.limits.PerMinute, wait)
+		return
+	}
+
 	q := r.URL.Query().Get("q")
 	if q == "" {
 		writeError(w, http.StatusBadRequest, "query parameter 'q' is required")
@@ -84,6 +117,19 @@ func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		writeError(w, http.StatusBadRequest, "query parameter 'offset' must be between 0 and "+strconv.Itoa(maxOffset))
 		return
+	}
+
+	// Reranking is the metered resource, so it carries its own tighter allowance,
+	// per caller and across the service. Exhausting it downgrades the query to
+	// keyword ranking rather than refusing it — the same trade the index client
+	// already makes when the reranker is unavailable, because worse ranking is a
+	// disappointment and no search at all is an outage.
+	//
+	// Deliberately after the offset check, so the depth a caller is allowed still
+	// follows the mode they asked for rather than the one throttling gave them.
+	if rank == index.RankSemantic && !h.allowSemantic(caller, now) {
+		slog.InfoContext(r.Context(), "semantic budget spent, using keyword ranking")
+		rank = index.RankKeyword
 	}
 
 	origin := r.URL.Query().Get("origin")

@@ -18,7 +18,7 @@ func newTestHandlers(t *testing.T, body string) *Handlers {
 	}))
 	t.Cleanup(srv.Close)
 
-	return New(index.New(srv.URL, "articles", "test-key", ""))
+	return New(index.New(srv.URL, "articles", "test-key", ""), DefaultLimits())
 }
 
 func get(t *testing.T, h *Handlers, target string) *httptest.ResponseRecorder {

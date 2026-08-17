@@ -3,6 +3,8 @@ package main
 import (
 	"os"
 	"strconv"
+
+	"github.com/GitPaulo/blogme/api/internal/httpapi"
 )
 
 // config holds the app settings read from the environment. In Azure these come from
@@ -26,6 +28,9 @@ type config struct {
 	maxPostsPerSource int
 	contentWords      int
 	crawlConcurrency  int
+	// Search throttling. The endpoint is anonymous, so these bound what one caller
+	// can spend; see api/internal/httpapi/ratelimit.go.
+	searchLimits httpapi.Limits
 }
 
 func loadConfig() config {
@@ -45,6 +50,21 @@ func loadConfig() config {
 		maxPostsPerSource: envInt("BLOGME_MAX_POSTS_PER_SOURCE", 15),
 		contentWords:      envInt("BLOGME_CONTENT_WORDS", 1000),
 		crawlConcurrency:  envInt("BLOGME_CRAWL_CONCURRENCY", 16),
+		searchLimits:      searchLimits(),
+	}
+}
+
+// searchLimits reads the throttling settings, falling back to the defaults one
+// at a time so raising a single limit does not mean restating all six.
+func searchLimits() httpapi.Limits {
+	d := httpapi.DefaultLimits()
+	return httpapi.Limits{
+		PerMinute:         envInt("BLOGME_SEARCH_RATE_PER_MINUTE", d.PerMinute),
+		Burst:             envInt("BLOGME_SEARCH_RATE_BURST", d.Burst),
+		SemanticPerMinute: envInt("BLOGME_SEMANTIC_RATE_PER_MINUTE", d.SemanticPerMinute),
+		SemanticBurst:     envInt("BLOGME_SEMANTIC_RATE_BURST", d.SemanticBurst),
+		SemanticPerHour:   envInt("BLOGME_SEMANTIC_RATE_PER_HOUR", d.SemanticPerHour),
+		SemanticHourBurst: envInt("BLOGME_SEMANTIC_RATE_HOUR_BURST", d.SemanticHourBurst),
 	}
 }
 

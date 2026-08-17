@@ -125,14 +125,39 @@ API offers — `origin`, which narrows results to feed or sitemap discoveries �
 from a fixed set of expressions rather than from the caller's string, so no filter can be
 injected through the query.
 
+The endpoint is anonymous, so there is no key to revoke and a **rate limit** is what
+stands between a script and the bill. Callers are identified by the address Azure appends
+to `X-Forwarded-For`, and a throttled request is answered with `429`, `Retry-After` and
+the `RateLimit-*` headers. Semantic queries carry a second, tighter allowance — per caller
+and across the service — because reranking spends from a metered monthly quota rather than
+from capacity that renews by the minute.
+
+| Setting                            | Default | Applies to             |
+| ---------------------------------- | ------- | ---------------------- |
+| `BLOGME_SEARCH_RATE_PER_MINUTE`    | 60      | One caller, any search |
+| `BLOGME_SEARCH_RATE_BURST`         | 30      | One caller, any search |
+| `BLOGME_SEMANTIC_RATE_PER_MINUTE`  | 10      | One caller, semantic   |
+| `BLOGME_SEMANTIC_RATE_BURST`       | 5       | One caller, semantic   |
+| `BLOGME_SEMANTIC_RATE_PER_HOUR`    | 60      | Everyone, semantic     |
+| `BLOGME_SEMANTIC_RATE_HOUR_BURST`  | 15      | Everyone, semantic     |
+
+These are per instance, and Flex Consumption scales out, so they bound the blast radius
+rather than enforce a budget: they turn "burn the month's reranking in a minute" into
+"burn it over many hours", which is long enough to notice. A global cap is what a
+budget would need, and only a paid semantic plan makes one worth setting.
+
+A page also carries at most three results from any one blog. Three posts from one site is
+rarely what a reader wanted, and it means a source that stuffs its posts with popular
+terms takes three rows rather than the whole page.
+
 Ranking happens in two stages. Keyword scoring picks the candidates, weighted towards the
 title, and then Azure AI Search's **semantic ranker** reorders them with a language model
 — which is what makes a query phrased as a sentence work rather than only a bag of
 keywords. The reranker only reaches the top 50 keyword matches, so that window is also
 the entire result set the API offers: past it, ordering would quietly revert to keyword
-scoring part-way down a scroll. Reranking is metered, so if its quota or capacity runs
-out the query is retried without it and search degrades to keyword ranking instead of
-failing.
+scoring part-way down a scroll. Reranking is metered, so a query is downgraded to keyword
+ranking when the throttle says the budget is spent, and retried without it if the service
+refuses anyway. Search degrades rather than failing, either way.
 
 ## Where each stage lives
 
