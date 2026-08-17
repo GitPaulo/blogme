@@ -14,10 +14,24 @@ const (
 	maxQueryLen  = 512
 	defaultLimit = 20
 	maxLimit     = 50
-	// Deep paging costs the index more with every page and relevance is long gone by
-	// this depth, so the tail is simply not offered.
-	maxOffset = 1000
+	// Semantic reranking only reorders the top 50 keyword matches, so that window is
+	// the entire result set worth offering in that mode: past it the ordering
+	// silently reverts to keyword scoring part-way down a scroll, which reads as the
+	// results getting worse for no reason.
+	semanticWindow    = 50
+	maxSemanticOffset = semanticWindow - defaultLimit
+	// Keyword ranking scores the whole result set, so it can page as deep as is worth
+	// paying for. Relevance is long gone by this depth, so the tail stops here.
+	maxKeywordOffset = 1000
 )
+
+// maxOffsetFor reports how deep the given ranking mode is allowed to page.
+func maxOffsetFor(rank string) int {
+	if rank == index.RankKeyword {
+		return maxKeywordOffset
+	}
+	return maxSemanticOffset
+}
 
 type Handlers struct {
 	index *index.Index
@@ -54,6 +68,18 @@ func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The ranking mode decides how deep paging may go, so it is read before the offset.
+	rank := index.RankSemantic
+	switch r.URL.Query().Get("mode") {
+	case "", index.RankSemantic:
+	case index.RankKeyword:
+		rank = index.RankKeyword
+	default:
+		writeError(w, http.StatusBadRequest, "query parameter 'mode' must be 'semantic' or 'keyword'")
+		return
+	}
+
+	maxOffset := maxOffsetFor(rank)
 	offset, ok := queryInt(r, "offset", 0, 0, maxOffset)
 	if !ok {
 		writeError(w, http.StatusBadRequest, "query parameter 'offset' must be between 0 and "+strconv.Itoa(maxOffset))
@@ -70,6 +96,7 @@ func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
 		Limit:  limit,
 		Offset: offset,
 		Origin: origin,
+		Rank:   rank,
 	})
 	if err != nil {
 		slog.ErrorContext(r.Context(), "search failed", "error", err)

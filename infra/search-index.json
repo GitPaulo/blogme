@@ -64,7 +64,7 @@
       "name": "content",
       "type": "Edm.String",
       "searchable": true,
-      "retrievable": false,
+      "retrievable": true,
       "filterable": false,
       "sortable": false,
       "facetable": false,
@@ -92,13 +92,26 @@
       "name": "relevance",
       "text": {
         "weights": {
-          "title": 5,
-          "topics": 3,
+          "title": 4,
+          "topics": 2,
           "summary": 2,
           "content": 1
         }
       }
     }
   ],
-  "defaultScoringProfile": "relevance"
+  "defaultScoringProfile": "relevance",
+  "semantic": {
+    "defaultConfiguration": "blogme-semantic",
+    "configurations": [
+      {
+        "name": "blogme-semantic",
+        "prioritizedFields": {
+          "titleField": { "fieldName": "title" },
+          "prioritizedContentFields": [{ "fieldName": "summary" }, { "fieldName": "content" }],
+          "prioritizedKeywordsFields": [{ "fieldName": "topics" }]
+        }
+      }
+    ]
+  }
 }

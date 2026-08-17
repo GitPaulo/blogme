@@ -1,15 +1,16 @@
 <script lang="ts">
 	import { Alert, Badge, Button, Card, Heading, Input, P, Spinner, Tooltip } from 'flowbite-svelte';
-	import { SearchOutline } from 'flowbite-svelte-icons';
+	import { SearchOutline, WandMagicSparklesOutline } from 'flowbite-svelte-icons';
 	import BookmarkButton from '$lib/components/BookmarkButton.svelte';
 	import FilterBar from '$lib/components/FilterBar.svelte';
 	import {
-		MAX_OFFSET,
 		MAX_QUERY_LENGTH,
+		maxOffsetFor,
 		MIN_QUERY_LENGTH,
 		PAGE_SIZE,
 		search,
 		type Origin,
+		type Rank,
 		type SearchResult
 	} from '$lib/api';
 	import { bookmarks } from '$lib/bookmarks/store.svelte';
@@ -29,6 +30,9 @@
 	// Unlike the other filters this one narrows the corpus, not the loaded page, so it
 	// travels with the request rather than living in Filters.
 	let sitemappedOnly = $state(false);
+	// Which ranking the search box asks for. Semantic understands a query phrased as a
+	// sentence; keyword is literal, and is the one that can page deep.
+	let semanticRanking = $state(true);
 	let total = $state(0);
 	let nextOffset = $state(0);
 	let status = $state<'idle' | 'loading' | 'done' | 'error'>('idle');
@@ -44,7 +48,12 @@
 	const origin = $derived<Origin | undefined>(sitemappedOnly ? 'sitemap' : undefined);
 	const searchable = $derived(term.length >= MIN_QUERY_LENGTH);
 	const tooShort = $derived(term.length > 0 && !searchable);
-	const hasMore = $derived(status === 'done' && nextOffset < total && nextOffset <= MAX_OFFSET);
+	const rank = $derived<Rank>(semanticRanking ? 'semantic' : 'keyword');
+	// How deep "load more" may go depends on the mode, because only semantic ranking
+	// has a reranked window to run out of.
+	const hasMore = $derived(
+		status === 'done' && nextOffset < total && nextOffset <= maxOffsetFor(rank)
+	);
 	const filtered = $derived(applyFilters(results, filters, (url) => bookmarks.has(url)));
 	// The counts and the formatted total are their own deriveds so the summary string
 	// is rebuilt only when a number it actually shows changes. Re-running the filter
@@ -57,6 +66,11 @@
 		isFiltered(filters)
 			? `Showing ${shown} of ${loaded} loaded ${loaded === 1 ? 'result' : 'results'}`
 			: `Showing ${loaded} of ${totalLabel} ${total === 1 ? 'result' : 'results'}`
+	);
+	const rankLabel = $derived(
+		semanticRanking
+			? 'Semantic ranking: finds posts about the idea. Switch to keyword ranking.'
+			: 'Keyword ranking: matches the words you typed. Switch to semantic ranking.'
 	);
 	// An empty corpus-narrowing filter reads as an empty index unless we say otherwise.
 	const emptyMessage = $derived(
@@ -90,7 +104,7 @@
 		return [...existing, ...incoming.filter((result) => !seen.has(result.url))];
 	}
 
-	async function run(value: string, offset: number, only?: Origin) {
+	async function run(value: string, offset: number, only: Origin | undefined, ranking: Rank) {
 		cancel();
 		const current = new AbortController();
 		controller = current;
@@ -102,7 +116,12 @@
 		} else loadingMore = true;
 		error = '';
 		try {
-			const response = await search(value, { offset, origin: only, signal: current.signal });
+			const response = await search(value, {
+				offset,
+				origin: only,
+				rank: ranking,
+				signal: current.signal
+			});
 			// A newer search (or a cleared query) owns the UI now, so drop this answer.
 			if (controller !== current) return;
 			results = offset === 0 ? response.results : merge(results, response.results);
@@ -130,7 +149,7 @@
 
 	function loadMore() {
 		if (!hasMore || loadingMore) return;
-		run(term, nextOffset, origin);
+		run(term, nextOffset, origin, rank);
 	}
 
 	$effect(() => {
@@ -147,10 +166,13 @@
 
 		const value = term;
 		const only = origin;
+		// Read inside the effect so flipping the ranking mode re-runs the current search
+		// rather than only affecting the next one the user types.
+		const ranking = rank;
 		// The pending debounce is still work in progress, so the spinner stays up throughout.
 		status = 'loading';
 		clearTimeout(timer);
-		timer = setTimeout(() => run(value, 0, only), DEBOUNCE_MS);
+		timer = setTimeout(() => run(value, 0, only, ranking), DEBOUNCE_MS);
 		return () => clearTimeout(timer);
 	});
 
@@ -162,7 +184,7 @@
 		event.preventDefault();
 		clearTimeout(timer);
 		if (!searchable) return;
-		run(term, 0, origin);
+		run(term, 0, origin, rank);
 	}
 </script>
 
@@ -187,11 +209,29 @@
 			aria-busy={status === 'loading'}
 		>
 			{#snippet left()}
-				{#if status === 'loading'}
-					<Spinner size="4" aria-hidden="true" />
-				{:else}
-					<SearchOutline class="h-4 w-4" aria-hidden="true" />
-				{/if}
+				<!--
+					pointer-events-auto is load-bearing: Flowbite's left slot is
+					pointer-events-none so the icon never eats a click meant for the field.
+					type="button" keeps it from submitting the form it sits inside.
+				-->
+				<button
+					type="button"
+					onclick={() => (semanticRanking = !semanticRanking)}
+					aria-pressed={semanticRanking}
+					aria-label={rankLabel}
+					class="pointer-events-auto -m-1 rounded-sm p-1 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 {semanticRanking
+						? 'text-primary-600 dark:text-primary-400'
+						: 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}"
+				>
+					{#if status === 'loading'}
+						<Spinner size="4" aria-hidden="true" />
+					{:else if semanticRanking}
+						<WandMagicSparklesOutline class="h-4 w-4" aria-hidden="true" />
+					{:else}
+						<SearchOutline class="h-4 w-4" aria-hidden="true" />
+					{/if}
+				</button>
+				<Tooltip>{rankLabel}</Tooltip>
 			{/snippet}
 		</Input>
 	</form>

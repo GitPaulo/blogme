@@ -93,8 +93,9 @@ split, but it is not worth the complexity until measurements justify it.
 which is why the service now runs on Basic; see [tech-stack.md](tech-stack.md). Cadence
 sets how fast the next ceiling arrives, so check index size against the
 [service limits](https://learn.microsoft.com/en-us/azure/search/search-limits-quotas-capacity)
-before raising it. Truncating articles to 500 words is what keeps a document small enough
-for this to stay a slow problem.
+before raising it. Truncating articles to 1,000 words is what keeps a document small
+enough for this to stay a slow problem — that cap is the main lever on index size, so
+raising it for recall and raising cadence for freshness both spend the same budget.
 
 ## Changing it
 

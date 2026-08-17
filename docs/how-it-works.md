@@ -68,7 +68,7 @@ flowchart TD
     LONG -->|no| SKIP
     LONG -->|yes| X
 
-    X --> TRUNC["Clean and truncate<br/>500 words"]
+    X --> TRUNC["Clean and truncate<br/>1,000 words"]
     TRUNC --> SAVE["Save article JSON<br/>to blob"]
     TRUNC --> IDX["Upsert to search index<br/>batches of 1,000"]
     SAVE --> CUR["Write cursor"]
@@ -124,6 +124,15 @@ Every query parameter is validated before it reaches the index, and the one filt
 API offers — `origin`, which narrows results to feed or sitemap discoveries — is built
 from a fixed set of expressions rather than from the caller's string, so no filter can be
 injected through the query.
+
+Ranking happens in two stages. Keyword scoring picks the candidates, weighted towards the
+title, and then Azure AI Search's **semantic ranker** reorders them with a language model
+— which is what makes a query phrased as a sentence work rather than only a bag of
+keywords. The reranker only reaches the top 50 keyword matches, so that window is also
+the entire result set the API offers: past it, ordering would quietly revert to keyword
+scoring part-way down a scroll. Reranking is metered, so if its quota or capacity runs
+out the query is retried without it and search degrades to keyword ranking instead of
+failing.
 
 ## Where each stage lives
 

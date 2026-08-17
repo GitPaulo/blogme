@@ -21,7 +21,7 @@ import (
 func main() {
 	cfg := loadConfig()
 
-	idx := index.New(cfg.searchEndpoint, cfg.searchIndex, cfg.searchAPIKey)
+	idx := index.New(cfg.searchEndpoint, cfg.searchIndex, cfg.searchAPIKey, cfg.searchSemantic)
 	handlers := httpapi.New(idx)
 
 	app := sdk.FunctionApp()

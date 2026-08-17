@@ -28,8 +28,20 @@ export const MIN_QUERY_LENGTH = 3;
 export const MAX_QUERY_LENGTH = 512;
 /** Mirrors defaultLimit in api/internal/httpapi. */
 export const PAGE_SIZE = 20;
-/** Mirrors maxOffset in api/internal/httpapi: the deep tail is not offered. */
-export const MAX_OFFSET = 1000;
+/** How results are ranked. Mirrors the Rank constants in api/internal/index. */
+export type Rank = 'semantic' | 'keyword';
+
+/**
+ * How deep each mode may page, mirroring maxOffsetFor in api/internal/httpapi.
+ * Semantic reranking only reorders the top 50 matches, so its tail is not offered
+ * rather than served with quietly worse ranking; keyword ranking scores the whole
+ * result set and can go deeper.
+ */
+export const MAX_OFFSET_SEMANTIC = 30;
+export const MAX_OFFSET_KEYWORD = 1000;
+
+export const maxOffsetFor = (rank: Rank): number =>
+	rank === 'keyword' ? MAX_OFFSET_KEYWORD : MAX_OFFSET_SEMANTIC;
 
 /** Mirrors maxLimit in api/internal/httpapi. */
 const MAX_RESULTS = 50;
@@ -107,15 +119,17 @@ function toResponse(body: unknown, query: string, offset: number): SearchRespons
 
 export async function search(
 	query: string,
-	options: { offset?: number; origin?: Origin; signal?: AbortSignal } = {}
+	options: { offset?: number; origin?: Origin; rank?: Rank; signal?: AbortSignal } = {}
 ): Promise<SearchResponse> {
-	const { signal, origin } = options;
+	const { signal, origin, rank = 'semantic' } = options;
 	const term = query.trim().slice(0, MAX_QUERY_LENGTH);
-	const offset = Math.min(Math.max(Math.trunc(options.offset ?? 0), 0), MAX_OFFSET);
+	const offset = Math.min(Math.max(Math.trunc(options.offset ?? 0), 0), maxOffsetFor(rank));
 
 	const params = new URLSearchParams({ q: term, limit: String(PAGE_SIZE) });
 	if (offset > 0) params.set('offset', String(offset));
 	if (origin) params.set('origin', origin);
+	// Semantic is the server's default, so only the departure from it travels.
+	if (rank === 'keyword') params.set('mode', rank);
 	const url = `${API_BASE}/api/search?${params}`;
 
 	// A hung request would otherwise leave the UI loading forever.

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 	"time"
 
@@ -33,7 +34,7 @@ func TestQueryRequestsPageAndTotal(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	results, total, err := New(srv.URL, "articles", "test-key").
+	results, total, err := New(srv.URL, "articles", "test-key", "").
 		Query(context.Background(), "go", QueryOptions{Limit: 20, Offset: 40})
 	if err != nil {
 		t.Fatalf("query: %v", err)
@@ -69,7 +70,7 @@ func TestQueryLeavesMissingDateZero(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	results, _, err := New(srv.URL, "articles", "test-key").
+	results, _, err := New(srv.URL, "articles", "test-key", "").
 		Query(context.Background(), "go", QueryOptions{Limit: 20})
 	if err != nil {
 		t.Fatalf("query: %v", err)
@@ -80,6 +81,99 @@ func TestQueryLeavesMissingDateZero(t *testing.T) {
 	}
 	if !results[0].PublishedAt.IsZero() {
 		t.Errorf("got publishedAt %v, want zero", results[0].PublishedAt)
+	}
+}
+
+// Reranking is requested by naming the index's semantic configuration. searchMode
+// stays "any" on purpose: wide keyword recall is what feeds the reranker.
+func TestQueryRequestsSemanticRanking(t *testing.T) {
+	var sent map[string]any
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		_, _ = io.WriteString(w, `{"@odata.count":1,"value":[{"url":"https://example.com/p","title":"A post"}]}`)
+	}))
+	defer srv.Close()
+
+	_, _, err := New(srv.URL, "articles", "test-key", "blogme-semantic").
+		Query(context.Background(), "scaling single threaded servers", QueryOptions{Limit: 20})
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+
+	if sent["queryType"] != "semantic" {
+		t.Errorf("queryType = %v, want semantic", sent["queryType"])
+	}
+	if sent["semanticConfiguration"] != "blogme-semantic" {
+		t.Errorf("semanticConfiguration = %v", sent["semanticConfiguration"])
+	}
+	if sent["searchMode"] != "any" {
+		t.Errorf("searchMode = %v, want any so the reranker gets a wide candidate set", sent["searchMode"])
+	}
+}
+
+// Keyword ranking is the deliberate opt-out, so a configured index must still send a
+// plain query when it is asked for.
+func TestQueryKeywordRankSkipsSemantic(t *testing.T) {
+	var sent map[string]any
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		_, _ = io.WriteString(w, `{"@odata.count":1,"value":[{"url":"https://example.com/p","title":"A post"}]}`)
+	}))
+	defer srv.Close()
+
+	_, _, err := New(srv.URL, "articles", "test-key", "blogme-semantic").
+		Query(context.Background(), "go", QueryOptions{Limit: 20, Rank: RankKeyword})
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+
+	if sent["queryType"] != "simple" {
+		t.Errorf("queryType = %v, want simple", sent["queryType"])
+	}
+	if _, ok := sent["semanticConfiguration"]; ok {
+		t.Error("semanticConfiguration was sent for a keyword-ranked query")
+	}
+}
+
+// The free plan stops at 1,000 queries a month and the service sheds load under
+// concurrency. Losing the reranker must degrade ranking, not take search down.
+func TestQueryFallsBackWhenSemanticFails(t *testing.T) {
+	var attempts []string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		queryType, _ := body["queryType"].(string)
+		attempts = append(attempts, queryType)
+
+		if queryType == "semantic" {
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = io.WriteString(w, `{"error":{"message":"semantic quota exceeded"}}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"@odata.count":7,"value":[{"url":"https://example.com/p","title":"A post"}]}`)
+	}))
+	defer srv.Close()
+
+	res, total, err := New(srv.URL, "articles", "test-key", "blogme-semantic").
+		Query(context.Background(), "go", QueryOptions{Limit: 20})
+	if err != nil {
+		t.Fatalf("query should have fallen back, got error: %v", err)
+	}
+
+	if want := []string{"semantic", "simple"}; !slices.Equal(attempts, want) {
+		t.Errorf("attempts = %v, want %v", attempts, want)
+	}
+	if total != 7 || len(res) != 1 {
+		t.Errorf("got total=%d results=%d, want 7 and 1", total, len(res))
 	}
 }
 
@@ -102,7 +196,7 @@ func TestQueryFiltersByOrigin(t *testing.T) {
 			_, _ = io.WriteString(w, `{"@odata.count":0,"value":[]}`)
 		}))
 
-		_, _, err := New(srv.URL, "articles", "test-key").
+		_, _, err := New(srv.URL, "articles", "test-key", "").
 			Query(context.Background(), "go", QueryOptions{Limit: 20, Origin: tc.origin})
 		srv.Close()
 		if err != nil {

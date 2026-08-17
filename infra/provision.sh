@@ -80,6 +80,18 @@ else
 	echo "created: $SEARCH_SERVICE"
 fi
 
+log "Semantic ranker"
+# Reranking is billed separately from the tier and is off until the service opts in.
+# The free plan allows 1,000 queries a month, which is enough to judge whether the
+# quality gain is worth the standard plan. Switch with SEMANTIC_PLAN=standard.
+SEMANTIC_PLAN="${SEMANTIC_PLAN:-free}"
+az search service update \
+	--name "$SEARCH_SERVICE" \
+	--resource-group "$RESOURCE_GROUP" \
+	--semantic-search "$SEMANTIC_PLAN" \
+	--output none
+echo "ok: semantic-search=$SEMANTIC_PLAN"
+
 log "Function app (Flex Consumption, Go)"
 if az functionapp show --name "$FUNCTION_APP" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
 	echo "exists: $FUNCTION_APP"
@@ -166,6 +178,7 @@ az functionapp config appsettings set \
 	--settings \
 	"BLOGME_SEARCH_ENDPOINT=https://${SEARCH_SERVICE}.search.windows.net" \
 	"BLOGME_SEARCH_INDEX=${SEARCH_INDEX}" \
+	"BLOGME_SEARCH_SEMANTIC_CONFIG=blogme-semantic" \
 	"BLOGME_ARTICLES_CONTAINER=${ARTICLES_CONTAINER}" \
 	"BLOGME_SOURCES_CONTAINER=${SOURCES_CONTAINER}" \
 	"BLOGME_SOURCES_BLOB=blogs.yml" \

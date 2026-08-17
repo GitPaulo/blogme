@@ -18,7 +18,7 @@ func newTestHandlers(t *testing.T, body string) *Handlers {
 	}))
 	t.Cleanup(srv.Close)
 
-	return New(index.New(srv.URL, "articles", "test-key"))
+	return New(index.New(srv.URL, "articles", "test-key", ""))
 }
 
 func get(t *testing.T, h *Handlers, target string) *httptest.ResponseRecorder {
@@ -61,6 +61,31 @@ func TestSearchRejectsBadPaging(t *testing.T) {
 	} {
 		if code := get(t, h, target).Code; code != http.StatusBadRequest {
 			t.Errorf("%s: got status %d, want 400", target, code)
+		}
+	}
+}
+
+// The ranking mode decides how deep paging may go: semantic can only offer the window
+// its reranker actually reaches, while keyword ranking scores everything.
+func TestSearchPagingDependsOnRankingMode(t *testing.T) {
+	h := newTestHandlers(t, `{"@odata.count":0,"value":[]}`)
+
+	for _, tc := range []struct {
+		target string
+		want   int
+	}{
+		{"/api/search?q=go&mode=keyword", http.StatusOK},
+		{"/api/search?q=go&mode=semantic", http.StatusOK},
+		{"/api/search?q=go&mode=hybrid", http.StatusBadRequest},
+		// Past the reranked window: fine for keyword, refused for semantic.
+		{"/api/search?q=go&offset=200&mode=keyword", http.StatusOK},
+		{"/api/search?q=go&offset=200", http.StatusBadRequest},
+		{"/api/search?q=go&offset=200&mode=semantic", http.StatusBadRequest},
+		// Beyond even the keyword tail.
+		{"/api/search?q=go&offset=5000&mode=keyword", http.StatusBadRequest},
+	} {
+		if code := get(t, h, tc.target).Code; code != tc.want {
+			t.Errorf("%s: got status %d, want %d", tc.target, code, tc.want)
 		}
 	}
 }

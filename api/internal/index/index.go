@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/url"
 	"strings"
@@ -33,15 +34,18 @@ type Index struct {
 	endpoint string
 	name     string
 	apiKey   string
+	// semantic names the index's semantic configuration. Empty turns reranking off.
+	semantic string
 	cred     *azidentity.DefaultAzureCredential
 	http     *http.Client
 }
 
-func New(endpoint, name, apiKey string) *Index {
+func New(endpoint, name, apiKey, semantic string) *Index {
 	idx := &Index{
 		endpoint: strings.TrimSuffix(endpoint, "/"),
 		name:     name,
 		apiKey:   apiKey,
+		semantic: semantic,
 		http:     &http.Client{Timeout: 30 * time.Second},
 	}
 
@@ -120,12 +124,23 @@ type searchResponse struct {
 	} `json:"value"`
 }
 
+// Ranking modes. Semantic reranks the top keyword matches with a language model, which
+// is what makes a query phrased as a sentence work. Keyword is plain relevance scoring:
+// worse at intent, but it ranks the whole result set rather than a 50-document window,
+// so it is the one that can page deep.
+const (
+	RankSemantic = "semantic"
+	RankKeyword  = "keyword"
+)
+
 // QueryOptions narrows a search beyond the query text itself.
 type QueryOptions struct {
 	Limit  int
 	Offset int
 	// Origin, when set to a known discovery method, restricts results to it.
 	Origin string
+	// Rank selects the ranking mode. Empty means semantic, which is the default.
+	Rank string
 }
 
 // Query runs a full-text search and returns one page of ranked results along with
@@ -151,12 +166,36 @@ func (i *Index) Query(ctx context.Context, q string, opts QueryOptions) ([]artic
 		body["filter"] = "origin eq 'feed' or origin eq null"
 	}
 
+	if i.semantic != "" && opts.Rank != RankKeyword {
+		semantic := maps.Clone(body)
+		// Keyword scoring picks the candidates, the reranker decides their order. That
+		// division is why searchMode stays "any": a wide net is exactly what the
+		// reranker wants to sort out, and it is what made "any" a liability before.
+		semantic["queryType"] = "semantic"
+		semantic["semanticConfiguration"] = i.semantic
+
+		var resp searchResponse
+		err := i.do(ctx, http.MethodPost, "/docs/search", semantic, &resp)
+		if err == nil {
+			return results(resp), resp.Total, nil
+		}
+		// Reranking is a metered, throttled resource: the free plan stops at 1,000
+		// queries a month and the service sheds load above roughly ten concurrent
+		// queries. Worse ranking is a disappointment, no search at all is an outage,
+		// so a failure here falls through to the plain keyword query.
+		slog.WarnContext(ctx, "semantic ranking unavailable, using keyword ranking", "error", err)
+	}
+
 	var resp searchResponse
 	if err := i.do(ctx, http.MethodPost, "/docs/search", body, &resp); err != nil {
 		return nil, 0, err
 	}
+	return results(resp), resp.Total, nil
+}
 
-	results := make([]article.Result, 0, len(resp.Value))
+// results projects the wire response onto the shape the API returns.
+func results(resp searchResponse) []article.Result {
+	out := make([]article.Result, 0, len(resp.Value))
 	for _, v := range resp.Value {
 		r := article.Result{
 			URL:     v.URL,
@@ -172,10 +211,9 @@ func (i *Index) Query(ctx context.Context, q string, opts QueryOptions) ([]artic
 				r.PublishedAt = t
 			}
 		}
-		results = append(results, r)
+		out = append(out, r)
 	}
-
-	return results, resp.Total, nil
+	return out
 }
 
 func (i *Index) do(ctx context.Context, method, path string, body, out any) error {

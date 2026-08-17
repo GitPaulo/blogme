@@ -14,10 +14,13 @@ type config struct {
 	cursorBlob        string
 	articlesContainer string
 	// When set, the source list is read from this local file instead of blob storage.
-	sourcesPath       string
-	searchEndpoint    string
-	searchIndex       string
-	searchAPIKey      string
+	sourcesPath    string
+	searchEndpoint string
+	searchIndex    string
+	searchAPIKey   string
+	// Name of the index's semantic configuration. Empty turns reranking off, which is
+	// the escape hatch if the metered quota becomes a problem.
+	searchSemantic    string
 	discoverySchedule string
 	discoveryBatch    int
 	maxPostsPerSource int
@@ -36,10 +39,11 @@ func loadConfig() config {
 		searchEndpoint:    os.Getenv("BLOGME_SEARCH_ENDPOINT"),
 		searchIndex:       env("BLOGME_SEARCH_INDEX", "articles"),
 		searchAPIKey:      os.Getenv("BLOGME_SEARCH_API_KEY"),
+		searchSemantic:    env("BLOGME_SEARCH_SEMANTIC_CONFIG", "blogme-semantic"),
 		discoverySchedule: env("BLOGME_DISCOVERY_SCHEDULE", "0 0 */6 * * *"),
 		discoveryBatch:    envInt("BLOGME_DISCOVERY_BATCH", 200),
 		maxPostsPerSource: envInt("BLOGME_MAX_POSTS_PER_SOURCE", 15),
-		contentWords:      envInt("BLOGME_CONTENT_WORDS", 500),
+		contentWords:      envInt("BLOGME_CONTENT_WORDS", 1000),
 		crawlConcurrency:  envInt("BLOGME_CRAWL_CONCURRENCY", 16),
 	}
 }

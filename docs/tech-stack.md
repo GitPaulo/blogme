@@ -104,6 +104,10 @@ App is configured to allow the Pages origin.
 **Azure Blob Storage** holds canonical article JSON and is the source of truth.
 
 **Azure AI Search** holds the searchable projection, and is treated as rebuildable from Blob at any time.
+Queries use the **semantic ranker**, which reranks the top keyword matches with a language model. It needs
+no embeddings, no re-indexing and no extra pipeline, which is why it comes before vector search rather
+than after it. It is billed separately from the tier and starts on the free plan (1,000 queries a month);
+`BLOGME_SEARCH_SEMANTIC_CONFIG=""` turns it off without a redeploy.
 
 We run on **Dedicated Basic**. The Free tier carried the early build, but its 50 MB ceiling is far
 below what a corpus of this size needs, and it supports no managed identity. Azure cannot upgrade a
