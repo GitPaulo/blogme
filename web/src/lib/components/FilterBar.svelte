@@ -51,66 +51,69 @@
 	}
 </script>
 
-<div class="mt-3 flex flex-wrap items-center gap-2">
-	{#if tagItems.length > 0}
-		<MultiSelect
+<div class="mt-3 flex items-start gap-2">
+	<!-- The controls wrap inside this group, so Clear always stays on the first line. -->
+	<div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+		{#if tagItems.length > 0}
+			<MultiSelect
+				size="sm"
+				class="w-full min-w-0 sm:w-64"
+				items={tagItems}
+				bind:value={filters.tags}
+				placeholder="All tags"
+				aria-label="Filter by tag"
+			>
+				{#snippet children({ item, clear })}
+					<Badge color="gray" dismissable onclose={clear} class="mx-0.5 px-2 py-0">
+						<span class="block max-w-32 truncate">{item.name}</span>
+					</Badge>
+				{/snippet}
+			</MultiSelect>
+		{/if}
+
+		<Button
 			size="sm"
-			class="w-full min-w-0 sm:w-64"
-			items={tagItems}
-			bind:value={filters.tags}
-			placeholder="All tags"
-			aria-label="Filter by tag"
+			color={hasDateFilter(filters) ? 'primary' : 'alternative'}
+			class="max-w-64 shrink-0 gap-2"
+			aria-haspopup="dialog"
+			aria-expanded={dateOpen}
+			onclick={() => (dateOpen = true)}
 		>
-			{#snippet children({ item, clear })}
-				<Badge color="gray" dismissable onclose={clear} class="mx-0.5 px-2 py-0">
-					<span class="block max-w-32 truncate">{item.name}</span>
-				</Badge>
-			{/snippet}
-		</MultiSelect>
-	{/if}
+			<CalendarMonthOutline class="h-4 w-4 shrink-0" />
+			<span class="truncate">{dateLabel}</span>
+		</Button>
 
-	<Button
-		size="sm"
-		color={hasDateFilter(filters) ? 'primary' : 'alternative'}
-		class="max-w-64 shrink-0 gap-2"
-		aria-haspopup="dialog"
-		aria-expanded={dateOpen}
-		onclick={() => (dateOpen = true)}
-	>
-		<CalendarMonthOutline class="h-4 w-4 shrink-0" />
-		<span class="truncate">{dateLabel}</span>
-	</Button>
+		<Button
+			size="sm"
+			color={filters.bookmarkedOnly ? 'primary' : 'alternative'}
+			class="shrink-0 gap-2"
+			aria-pressed={filters.bookmarkedOnly}
+			onclick={() => (filters.bookmarkedOnly = !filters.bookmarkedOnly)}
+		>
+			<BookmarkSolid class="h-4 w-4" />
+			Bookmarked
+		</Button>
 
-	<Button
-		size="sm"
-		color={filters.bookmarkedOnly ? 'primary' : 'alternative'}
-		class="shrink-0 gap-2"
-		aria-pressed={filters.bookmarkedOnly}
-		onclick={() => (filters.bookmarkedOnly = !filters.bookmarkedOnly)}
-	>
-		<BookmarkSolid class="h-4 w-4" />
-		Bookmarked
-	</Button>
-
-	<Button
-		size="sm"
-		color={sitemapped ? 'primary' : 'alternative'}
-		class="shrink-0 gap-2"
-		aria-pressed={sitemapped}
-		onclick={() => (sitemapped = !sitemapped)}
-	>
-		<CodeBranchOutline class="h-4 w-4" />
-		Sitemapped
-	</Button>
-	<Tooltip class="max-w-64 text-center">
-		Show only posts found through a site's page list instead of its feed.
-	</Tooltip>
+		<Button
+			size="sm"
+			color={sitemapped ? 'primary' : 'alternative'}
+			class="shrink-0 gap-2"
+			aria-pressed={sitemapped}
+			onclick={() => (sitemapped = !sitemapped)}
+		>
+			<CodeBranchOutline class="h-4 w-4" />
+			Sitemapped
+		</Button>
+		<Tooltip class="max-w-64 text-center">
+			Show only posts found through a site's page list instead of its feed.
+		</Tooltip>
+	</div>
 
 	<Button
 		size="sm"
 		color="red"
 		outline
-		class="ms-auto shrink-0 gap-1.5"
+		class="shrink-0 gap-1.5"
 		disabled={!active}
 		aria-label="Clear filters"
 		onclick={() => {
