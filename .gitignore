@@ -26,6 +26,7 @@ sources/blogs.sample.yml
 sources/tools/link-audit.csv
 sources/tools/build.log
 
-# Editors and OS
+# Editors and OS (web/.vscode is shared and stays committed)
+/.vscode/
 .DS_Store
 Thumbs.db

@@ -11,6 +11,10 @@ indent_style = tab
 indent_style = space
 indent_size = 2
 
+# Prettier formats the web app, and its useTabs wins over EditorConfig.
+[web/**.json]
+indent_style = tab
+
 [*.py]
 indent_style = space
 indent_size = 4
