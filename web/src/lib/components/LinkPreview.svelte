@@ -40,12 +40,22 @@
 		return node instanceof Element && node.closest('[data-preview-panel]') !== null;
 	}
 
-	function place(rect: DOMRect) {
-		const clamp = (value: number, limit: number) =>
-			Math.max(MARGIN, Math.min(value, limit - MARGIN));
+	const clamp = (value: number, limit: number) => Math.max(MARGIN, Math.min(value, limit - MARGIN));
 
-		// Beside the link where the viewport has room, so the card being previewed stays
-		// readable; otherwise below it, or above when the bottom edge is the closer one.
+	// Anchored to the pointer, offset by GAP and flipped to whichever side of the cursor
+	// has room, the way native tooltips and floating-ui popovers avoid clipping.
+	function placeAtPoint(x: number, y: number) {
+		const left = x + GAP + WIDTH + MARGIN <= window.innerWidth ? x + GAP : x - GAP - WIDTH;
+		const top = y + GAP + HEIGHT + MARGIN <= window.innerHeight ? y + GAP : y - GAP - HEIGHT;
+		return {
+			left: clamp(left, window.innerWidth - WIDTH),
+			top: clamp(top, window.innerHeight - HEIGHT)
+		};
+	}
+
+	// Keyboard focus has no pointer position to anchor to, so it falls back to the link's
+	// own rect, beside it where the viewport has room and below or above otherwise.
+	function placeAtRect(rect: DOMRect) {
 		const beside =
 			rect.right + GAP + WIDTH + MARGIN <= window.innerWidth
 				? rect.right + GAP
@@ -75,14 +85,16 @@
 		document.head.append(link);
 	}
 
-	function openLater(anchor: HTMLAnchorElement) {
+	function openLater(anchor: HTMLAnchorElement, point?: { x: number; y: number }) {
 		if (anchor.href === target?.url) return;
 		warm(anchor.href);
 		clearTimeout(openTimer);
 		openTimer = setTimeout(() => {
 			const url = safeHttpUrl(anchor.href);
 			if (!url) return;
-			const { left, top } = place(anchor.getBoundingClientRect());
+			const { left, top } = point
+				? placeAtPoint(point.x, point.y)
+				: placeAtRect(anchor.getBoundingClientRect());
 			loading = true;
 			target = { url, host: new URL(url).hostname.replace(/^www\./, ''), left, top };
 		}, DWELL_MS);
@@ -109,7 +121,7 @@
 		const anchor = anchorFrom(event.target);
 		if (anchor) {
 			clearTimeout(closeTimer);
-			openLater(anchor);
+			openLater(anchor, { x: event.clientX, y: event.clientY });
 			return;
 		}
 		clearTimeout(openTimer);

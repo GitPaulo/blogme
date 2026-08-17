@@ -31,8 +31,9 @@
 	// travels with the request rather than living in Filters.
 	let sitemappedOnly = $state(false);
 	// Which ranking the search box asks for. Semantic understands a query phrased as a
-	// sentence; keyword is literal, and is the one that can page deep.
-	let semanticRanking = $state(true);
+	// sentence; keyword is literal, and is the one that can page deep. Keyword is the
+	// default: it needs no reranker call and has no page-depth limit.
+	let semanticRanking = $state(false);
 	let total = $state(0);
 	let nextOffset = $state(0);
 	let status = $state<'idle' | 'loading' | 'done' | 'error'>('idle');

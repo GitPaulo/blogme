@@ -77,9 +77,9 @@ func TestSearchPagingDependsOnRankingMode(t *testing.T) {
 		{"/api/search?q=go&mode=keyword", http.StatusOK},
 		{"/api/search?q=go&mode=semantic", http.StatusOK},
 		{"/api/search?q=go&mode=hybrid", http.StatusBadRequest},
-		// Past the reranked window: fine for keyword, refused for semantic.
+		// Past the reranked window: fine for keyword (the default), refused for semantic.
 		{"/api/search?q=go&offset=200&mode=keyword", http.StatusOK},
-		{"/api/search?q=go&offset=200", http.StatusBadRequest},
+		{"/api/search?q=go&offset=200", http.StatusOK},
 		{"/api/search?q=go&offset=200&mode=semantic", http.StatusBadRequest},
 		// Beyond even the keyword tail.
 		{"/api/search?q=go&offset=5000&mode=keyword", http.StatusBadRequest},

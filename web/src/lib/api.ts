@@ -121,15 +121,15 @@ export async function search(
 	query: string,
 	options: { offset?: number; origin?: Origin; rank?: Rank; signal?: AbortSignal } = {}
 ): Promise<SearchResponse> {
-	const { signal, origin, rank = 'semantic' } = options;
+	const { signal, origin, rank = 'keyword' } = options;
 	const term = query.trim().slice(0, MAX_QUERY_LENGTH);
 	const offset = Math.min(Math.max(Math.trunc(options.offset ?? 0), 0), maxOffsetFor(rank));
 
 	const params = new URLSearchParams({ q: term, limit: String(PAGE_SIZE) });
 	if (offset > 0) params.set('offset', String(offset));
 	if (origin) params.set('origin', origin);
-	// Semantic is the server's default, so only the departure from it travels.
-	if (rank === 'keyword') params.set('mode', rank);
+	// Keyword is the server's default, so only the departure from it travels.
+	if (rank === 'semantic') params.set('mode', rank);
 	const url = `${API_BASE}/api/search?${params}`;
 
 	// A hung request would otherwise leave the UI loading forever.

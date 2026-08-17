@@ -69,11 +69,11 @@ func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// The ranking mode decides how deep paging may go, so it is read before the offset.
-	rank := index.RankSemantic
+	rank := index.RankKeyword
 	switch r.URL.Query().Get("mode") {
-	case "", index.RankSemantic:
-	case index.RankKeyword:
-		rank = index.RankKeyword
+	case "", index.RankKeyword:
+	case index.RankSemantic:
+		rank = index.RankSemantic
 	default:
 		writeError(w, http.StatusBadRequest, "query parameter 'mode' must be 'semantic' or 'keyword'")
 		return
