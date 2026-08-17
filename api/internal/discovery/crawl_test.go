@@ -103,7 +103,7 @@ func TestExtractTextPrefersArticleAndDropsChrome(t *testing.T) {
 		<footer>Copyright notice</footer>
 	</body></html>`
 
-	got := extractText(doc)
+	got := extractText(parseHTML(doc))
 	if !strings.Contains(got, "The real content.") {
 		t.Errorf("extractText() lost the article body: %q", got)
 	}

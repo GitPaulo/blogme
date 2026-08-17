@@ -21,7 +21,7 @@ puts 'hello'.is_a?(String)
 </article></body></html>`
 
 func TestExtractSummarySkipsCodeAnchorsAndMarkdown(t *testing.T) {
-	got := extractSummary(noisyPost, summaryWords)
+	got := extractSummary(parseHTML(noisyPost), summaryWords)
 
 	for _, unwanted := range []string{
 		"Link to heading",       // anchor decoration
@@ -41,7 +41,7 @@ func TestExtractSummarySkipsCodeAnchorsAndMarkdown(t *testing.T) {
 }
 
 func TestExtractTextSkipsCodeAndAnchors(t *testing.T) {
-	got := extractText(noisyPost)
+	got := extractText(parseHTML(noisyPost))
 
 	for _, unwanted := range []string{"Link to heading", "puts 'hello'", "frozen_string_literal"} {
 		if strings.Contains(got, unwanted) {
@@ -71,8 +71,36 @@ func TestExtractSummaryPrefersParagraphsOverHeadings(t *testing.T) {
 		<p>The opening paragraph of the article.</p>
 	</article>`
 
-	got := extractSummary(doc, summaryWords)
+	got := extractSummary(parseHTML(doc), summaryWords)
 	if !strings.HasPrefix(got, "The opening paragraph") {
 		t.Errorf("summary = %q, want it to start with the first paragraph", got)
+	}
+}
+
+// A '<' reaching stripTags has already been entity-decoded, so it is content. Titles
+// like "Why 5 < 10" used to lose everything from the '<' onward.
+func TestStripTagsKeepsUnmatchedAngleBrackets(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"<p>A short <b>summary</b>.</p>", "A short summary."},
+		{"Why 5 < 10 matters", "Why 5 < 10 matters"},
+		{"Go < Rust?", "Go < Rust?"},
+		{"a > b", "a > b"},
+		{`<a title="x<y">text</a>`, "text"},
+		{"no markup at all", "no markup at all"},
+	} {
+		if got := stripTags(tc.in); got != tc.want {
+			t.Errorf("stripTags(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// The same truncation reached article titles through the feed and HTML parsers, both
+// of which hand cleanText text that is already decoded.
+func TestCleanTextKeepsLessThanInTitles(t *testing.T) {
+	if got := cleanText("Why 5 < 10"); got != "Why 5 < 10" {
+		t.Errorf("cleanText() = %q, want the title intact", got)
+	}
+	if got := cleanText("&lt;p&gt;A post&lt;/p&gt;"); got != "<p>A post</p>" {
+		t.Errorf("cleanText() = %q, want entities decoded after stripping", got)
 	}
 }

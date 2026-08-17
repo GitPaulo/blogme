@@ -4,7 +4,7 @@
 		BookmarkSolid,
 		CalendarMonthOutline,
 		CloseOutline,
-		CodeBranchOutline
+		GlobeOutline
 	} from 'flowbite-svelte-icons';
 	import type { SearchResult } from '$lib/api';
 	import { formatDate } from '$lib/date';
@@ -55,9 +55,12 @@
 	<!-- The controls wrap inside this group, so Clear always stays on the first line. -->
 	<div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
 		{#if tagItems.length > 0}
+			<!-- Takes the width the buttons leave rather than a fixed one: a wrapping row
+			breaks on each item's natural size, so any width wide enough to push the last
+			button onto a second line would do so before the select ever gave any back. -->
 			<MultiSelect
 				size="sm"
-				class="w-full min-w-0 sm:w-64"
+				class="w-full min-w-0 sm:w-auto sm:flex-1"
 				items={tagItems}
 				bind:value={filters.tags}
 				placeholder="All tags"
@@ -103,7 +106,9 @@
 			aria-label="Sitemapped"
 			onclick={() => (sitemapped = !sitemapped)}
 		>
-			<CodeBranchOutline class="h-4 w-4" />
+			<!-- A globe, not a branch: these came off the open site, and the branch read as
+			version control. -->
+			<GlobeOutline class="h-4 w-4" />
 			<span class="hidden sm:inline">Sitemapped</span>
 		</Button>
 		<Tooltip class="max-w-64 text-center">
@@ -128,7 +133,9 @@
 	</Button>
 </div>
 
-<Modal title="Published" bind:open={dateOpen} size="xs">
+<!-- sm rather than xs: two date inputs plus their picker icons do not fit the
+narrower body without crowding. -->
+<Modal title="Select a time window" bind:open={dateOpen} size="sm">
 	<div class="grid grid-cols-2 gap-2">
 		{#each PERIODS as option (option.days)}
 			{@const selected = !ranged && filters.days === option.days}
@@ -143,7 +150,10 @@
 		{/each}
 	</div>
 
-	<div class="mt-4 border-t border-gray-200 pt-4 dark:border-gray-700">
+	<!-- The heading carries the split between the two ways of picking rather than a
+	rule, which only works if the break between them is the widest gap in the body:
+	padding, because the body's own spacing owns the margin. -->
+	<div class="pt-2">
 		<p class="mb-2 text-sm text-gray-500 dark:text-gray-400">Or pick an exact range</p>
 		<div class="grid grid-cols-2 gap-2">
 			<Label class="space-y-1 text-xs font-normal text-gray-500 dark:text-gray-400">

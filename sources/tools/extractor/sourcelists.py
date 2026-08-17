@@ -23,6 +23,11 @@ from .urls import NON_PAGE_EXTENSIONS, canonical_site, clean_url
 
 USER_AGENT = "blog-source-extractor"
 
+# Rate limits and transient server errors are worth another try; anything else is an
+# answer, including a 404.
+RETRY_STATUSES = {403, 429, 500, 502, 503, 504}
+MAX_ATTEMPTS = 4
+
 URL_RE = re.compile(r"""https?://[^\s<>"'`\]\)\}]+""", re.IGNORECASE)
 MD_LINK_RE = re.compile(r"""\[([^\]]{1,160})\]\((https?://[^\s)]+)\)""", re.IGNORECASE)
 
@@ -200,25 +205,25 @@ class GitHubClient:
             headers["Authorization"] = f"Bearer {self.token}"
         return headers
 
-    async def get_json(self, url: str) -> Any:
-        for attempt in range(4):
-            r = await self.client.get(url, headers=self.headers, follow_redirects=True)
-            if r.status_code in {403, 429} and attempt < 3:
-                await asyncio.sleep(2 ** attempt)
-                continue
-            r.raise_for_status()
-            return r.json()
+    async def _get(self, url: str, headers: dict[str, str]) -> httpx.Response:
+        """GET with exponential backoff on the statuses worth retrying."""
+        for attempt in range(MAX_ATTEMPTS - 1):
+            r = await self.client.get(url, headers=headers, follow_redirects=True)
+            if r.status_code not in RETRY_STATUSES:
+                r.raise_for_status()
+                return r
+            await asyncio.sleep(2 ** attempt)
+
+        # Out of retries: whatever the last attempt returns is the answer.
+        r = await self.client.get(url, headers=headers, follow_redirects=True)
         r.raise_for_status()
+        return r
+
+    async def get_json(self, url: str) -> Any:
+        return (await self._get(url, self.headers)).json()
 
     async def get_text(self, url: str) -> str:
-        for attempt in range(4):
-            r = await self.client.get(url, headers={"User-Agent": USER_AGENT}, follow_redirects=True)
-            if r.status_code in {403, 429, 500, 502, 503, 504} and attempt < 3:
-                await asyncio.sleep(2 ** attempt)
-                continue
-            r.raise_for_status()
-            return r.text
-        r.raise_for_status()
+        return (await self._get(url, {"User-Agent": USER_AGENT})).text
 
     async def default_branch(self, owner: str, repo: str) -> str:
         data = await self.get_json(f"https://api.github.com/repos/{owner}/{repo}")

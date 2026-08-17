@@ -9,17 +9,27 @@ import (
 	"golang.org/x/net/html/atom"
 )
 
-// extractText pulls readable prose out of an HTML document.
+// parseHTML parses a page into the tree the extractors below all read from.
+//
+// Every extractor takes the tree rather than the source, because a page is parsed on
+// the crawler's hottest path and its body can be megabytes: parsing it once per field
+// cost three times as much for exactly the same result.
+func parseHTML(doc string) *html.Node {
+	node, err := html.Parse(strings.NewReader(doc))
+	if err != nil {
+		// Unreachable with a strings.Reader, which cannot fail a read. An empty
+		// document keeps every caller free of nil checks.
+		return &html.Node{Type: html.DocumentNode}
+	}
+	return node
+}
+
+// extractText pulls readable prose out of a parsed page.
 //
 // This is deliberately not a full readability implementation: it drops the elements
 // that reliably contain no prose, prefers <article>/<main> when present, and takes
 // the document body otherwise. Good enough to index, cheap to run.
-func extractText(doc string) string {
-	node, err := html.Parse(strings.NewReader(doc))
-	if err != nil {
-		return normaliseSpace(stripTags(doc))
-	}
-
+func extractText(node *html.Node) string {
 	if main := findContentRoot(node); main != nil {
 		node = main
 	}
@@ -111,19 +121,16 @@ func collectText(n *html.Node, sb *strings.Builder) {
 // extractSummary returns the article's opening prose, taken from paragraphs only.
 // Using <p> rather than all text avoids headings, navigation crumbs and code
 // listings leaking into the description shown on a result card.
-func extractSummary(doc string, words int) string {
-	node, err := html.Parse(strings.NewReader(doc))
-	if err != nil {
-		return ""
-	}
+func extractSummary(node *html.Node, words int) string {
 	if root := findContentRoot(node); root != nil {
 		node = root
 	}
 
 	var sb strings.Builder
+	kept := 0 // Tracked rather than recounted: sb is re-scanned at every node otherwise.
 	var walk func(*html.Node)
 	walk = func(n *html.Node) {
-		if skipNode(n) || wordCount(sb.String()) >= words {
+		if skipNode(n) || kept >= words {
 			return
 		}
 		if n.Type == html.ElementNode && n.DataAtom == atom.P {
@@ -132,6 +139,7 @@ func extractSummary(doc string, words int) string {
 			if text := cleanProse(para.String()); text != "" {
 				sb.WriteString(text)
 				sb.WriteByte(' ')
+				kept += wordCount(text)
 			}
 			return
 		}
@@ -161,13 +169,8 @@ var publishedKeys = []string{
 // has the site name bolted on, so it is the last resort.
 var titleKeys = []string{"og:title", "twitter:title"}
 
-// extractMeta reads the page's title and publication date in one parse.
-func extractMeta(doc string) pageMeta {
-	node, err := html.Parse(strings.NewReader(doc))
-	if err != nil {
-		return pageMeta{}
-	}
-
+// extractMeta reads the page's title and publication date in one walk.
+func extractMeta(node *html.Node) pageMeta {
 	metas := make(map[string]string)
 	var title, heading, timestamp string
 
@@ -248,21 +251,25 @@ func cleanProse(s string) string {
 
 // stripTags removes markup without parsing, for short fields where a full parse is
 // not worth the cost.
+//
+// Only a '<' that has a matching '>' opens a tag. The text reaching this point has
+// already been entity-decoded by the feed or HTML parser, so a bare '<' is content:
+// titles like "Why 5 < 10" must survive rather than be truncated at the '<'.
 func stripTags(s string) string {
 	var sb strings.Builder
-	depth := 0
-	for _, r := range s {
-		switch {
-		case r == '<':
-			depth++
-		case r == '>':
-			if depth > 0 {
-				depth--
-			}
-		case depth == 0:
-			sb.WriteRune(r)
+	for {
+		open := strings.IndexByte(s, '<')
+		if open < 0 {
+			break
 		}
+		end := strings.IndexByte(s[open:], '>')
+		if end < 0 {
+			break
+		}
+		sb.WriteString(s[:open])
+		s = s[open+end+1:]
 	}
+	sb.WriteString(s)
 	return sb.String()
 }
 

@@ -17,9 +17,14 @@
 	import { applyFilters, emptyFilters, isFiltered } from '$lib/filters';
 
 	const DEBOUNCE_MS = 300;
+	// Hoisted: building a formatter is the expensive half of rendering the total.
+	const decimal = new Intl.NumberFormat();
 
 	let query = $state('');
-	let results = $state<SearchResult[]>([]);
+	// Raw, because a page is only ever replaced or appended as a whole and never
+	// edited in place. Deep state would instead proxy every row and charge a
+	// subscription for each field the filter pass touches.
+	let results = $state.raw<SearchResult[]>([]);
 	let filters = $state(emptyFilters());
 	// Unlike the other filters this one narrows the corpus, not the loaded page, so it
 	// travels with the request rather than living in Filters.
@@ -30,6 +35,8 @@
 	let loadingMore = $state(false);
 	let error = $state('');
 
+	let searchInput = $state<HTMLInputElement>();
+
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let controller: AbortController | undefined;
 
@@ -39,16 +46,34 @@
 	const tooShort = $derived(term.length > 0 && !searchable);
 	const hasMore = $derived(status === 'done' && nextOffset < total && nextOffset <= MAX_OFFSET);
 	const filtered = $derived(applyFilters(results, filters, (url) => bookmarks.has(url)));
+	// The counts and the formatted total are their own deriveds so the summary string
+	// is rebuilt only when a number it actually shows changes. Re-running the filter
+	// pass — which a bookmark toggle or a half-typed date bound does — usually leaves
+	// both counts where they were, and the total moves only on a new page.
+	const loaded = $derived(results.length);
+	const shown = $derived(filtered.length);
+	const totalLabel = $derived(decimal.format(total));
 	const summary = $derived(
 		isFiltered(filters)
-			? `Showing ${filtered.length} of ${results.length} loaded ${results.length === 1 ? 'result' : 'results'}`
-			: `Showing ${results.length} of ${total.toLocaleString()} ${total === 1 ? 'result' : 'results'}`
+			? `Showing ${shown} of ${loaded} loaded ${loaded === 1 ? 'result' : 'results'}`
+			: `Showing ${loaded} of ${totalLabel} ${total === 1 ? 'result' : 'results'}`
+	);
+	// An empty corpus-narrowing filter reads as an empty index unless we say otherwise.
+	const emptyMessage = $derived(
+		sitemappedOnly
+			? 'No sitemapped results found. Turn off Sitemapped, or try a different search.'
+			: 'No results found. Try a different search.'
 	);
 
 	// The bookmarked filter needs the saved keys, which the drawer would otherwise only
 	// load on its own schedule.
 	$effect(() => {
 		bookmarks.load();
+	});
+
+	// The page is a search box with a page around it, so the caret starts in it.
+	$effect(() => {
+		searchInput?.focus();
 	});
 
 	function cancel() {
@@ -153,6 +178,7 @@
 		<Input
 			type="search"
 			bind:value={query}
+			bind:elementRef={searchInput}
 			size="md"
 			placeholder="something you want to read about..."
 			class="ps-10 placeholder-gray-400"
@@ -180,7 +206,7 @@
 		{#if status === 'loading'}
 			Searching
 		{:else if status === 'done'}
-			{filtered.length === 0 && !isFiltered(filters) ? 'No results found' : summary}
+			{loaded === 0 ? emptyMessage : summary}
 		{/if}
 	</p>
 
@@ -188,77 +214,84 @@
 		<Alert color="red" class="mt-6">{error}</Alert>
 	{/if}
 
-	{#if status === 'done' && results.length === 0}
-		<Alert color="gray" class="mt-6">No results found. Try a different search.</Alert>
-	{:else if results.length > 0}
-		<P size="sm" class="mt-8 text-gray-500 tabular-nums dark:text-gray-400" aria-hidden="true">
-			{summary}
-		</P>
+	<!-- Tied to there being a search rather than to there being results: a filter
+	narrow enough to return nothing would otherwise unmount the bar that holds the
+	control for undoing it. -->
+	{#if searchable}
+		<div class="mt-8">
+			{#if loaded > 0}
+				<P size="sm" class="text-gray-500 tabular-nums dark:text-gray-400" aria-hidden="true">
+					{summary}
+				</P>
+			{/if}
 
-		<FilterBar {results} bind:filters bind:sitemapped={sitemappedOnly} />
+			<FilterBar {results} bind:filters bind:sitemapped={sitemappedOnly} />
 
-		{#if filtered.length === 0}
-			<Alert color="gray" class="mt-4">No loaded results match these filters.</Alert>
-		{/if}
+			{#if status === 'done' && loaded === 0}
+				<Alert color="gray" class="mt-4">{emptyMessage}</Alert>
+			{:else if loaded > 0 && shown === 0}
+				<Alert color="gray" class="mt-4">No loaded results match these filters.</Alert>
+			{/if}
 
-		<div class="mt-3 space-y-4">
-			{#each filtered as result (result.url)}
-				{@const published = formatDate(result.publishedAt)}
-				<Card class="max-w-none p-4">
-					<div class="flex items-start gap-3">
-						<div class="min-w-0 flex-1">
-							<Heading tag="h2" class="text-lg font-semibold">
-								<a
-									href={result.url}
-									target="_blank"
-									rel="noopener noreferrer"
-									class="line-clamp-2 rounded-sm break-words text-gray-900 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 dark:text-white"
-								>
-									{result.title}
-								</a>
-							</Heading>
-							{#if result.author || published}
-								<div class="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
-									{#if result.author}
-										<span class="truncate">{result.author}</span>
-									{/if}
-									{#if result.author && published}
-										<span aria-hidden="true">&middot;</span>
-									{/if}
-									{#if published}
-										<time datetime={result.publishedAt} class="shrink-0 tabular-nums">
-											{published}
-										</time>
-									{/if}
-								</div>
-							{/if}
+			<div class="mt-3 space-y-4">
+				{#each filtered as result (result.url)}
+					{@const published = formatDate(result.publishedAt)}
+					<Card class="max-w-none p-4">
+						<div class="flex items-start gap-3">
+							<div class="min-w-0 flex-1">
+								<Heading tag="h2" class="text-lg font-semibold">
+									<a
+										href={result.url}
+										target="_blank"
+										rel="noopener noreferrer"
+										class="line-clamp-2 rounded-sm break-words text-gray-900 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 dark:text-white"
+									>
+										{result.title}
+									</a>
+								</Heading>
+								{#if result.author || published}
+									<div class="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
+										{#if result.author}
+											<span class="truncate">{result.author}</span>
+										{/if}
+										{#if result.author && published}
+											<span aria-hidden="true">&middot;</span>
+										{/if}
+										{#if published}
+											<time datetime={result.publishedAt} class="shrink-0 tabular-nums">
+												{published}
+											</time>
+										{/if}
+									</div>
+								{/if}
+							</div>
+							<BookmarkButton {result} />
 						</div>
-						<BookmarkButton {result} />
-					</div>
-					{#if result.summary}
-						<P class="mt-2 line-clamp-3 break-words">{result.summary}</P>
-					{/if}
-					{#if result.origin === 'sitemap' || result.topics?.length}
-						<div class="mt-3 flex flex-wrap items-center gap-2">
-							{#if result.origin === 'sitemap'}
-								<Badge color="purple">Sitemapped</Badge>
-								<Tooltip class="max-w-64 text-center">
-									Found through the site's page list, not a feed, so details may be less exact.
-								</Tooltip>
-							{/if}
-							{#each result.topics ?? [] as topic (topic)}
-								<Badge class="max-w-full truncate">{topic}</Badge>
-							{/each}
-						</div>
-					{/if}
-				</Card>
-			{/each}
-		</div>
-
-		{#if hasMore}
-			<div class="mt-6 flex justify-center">
-				<Button color="alternative" loading={loadingMore} onclick={loadMore}>Load more</Button>
+						{#if result.summary}
+							<P class="mt-2 line-clamp-3 break-words">{result.summary}</P>
+						{/if}
+						{#if result.origin === 'sitemap' || result.topics?.length}
+							<div class="mt-3 flex flex-wrap items-center gap-2">
+								{#if result.origin === 'sitemap'}
+									<Badge color="purple">Sitemapped</Badge>
+									<Tooltip class="max-w-64 text-center">
+										Found through the site's page list, not a feed, so details may be less exact.
+									</Tooltip>
+								{/if}
+								{#each result.topics ?? [] as topic (topic)}
+									<Badge class="max-w-full truncate">{topic}</Badge>
+								{/each}
+							</div>
+						{/if}
+					</Card>
+				{/each}
 			</div>
-		{/if}
+
+			{#if hasMore}
+				<div class="mt-6 flex justify-center">
+					<Button color="alternative" loading={loadingMore} onclick={loadMore}>Load more</Button>
+				</div>
+			{/if}
+		</div>
 	{/if}
 </main>

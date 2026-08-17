@@ -21,11 +21,8 @@ type feedItem struct {
 // feedDoc covers RSS 2.0 and Atom in one shape. The two formats overlap enough that
 // separate parsers would be redundant.
 type feedDoc struct {
-	XMLName xml.Name `xml:"-"`
-
 	// RSS
 	Channel struct {
-		Title string `xml:"title"`
 		Items []struct {
 			Title       string `xml:"title"`
 			Link        string `xml:"link"`
@@ -39,7 +36,6 @@ type feedDoc struct {
 	} `xml:"channel"`
 
 	// Atom
-	Title   string `xml:"title"`
 	Entries []struct {
 		Title string `xml:"title"`
 		Links []struct {

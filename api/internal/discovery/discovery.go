@@ -115,6 +115,18 @@ func (d *Discoverer) Run(ctx context.Context) error {
 		return nil
 	}
 
+	// save persists one source's articles and queues them for the index. Blob storage
+	// is written per article, so a failure here is that source's problem alone.
+	save := func(articles []article.Article) error {
+		for _, a := range articles {
+			if err := d.store.Save(ctx, a); err != nil {
+				return fmt.Errorf("save %s: %w", a.ID, err)
+			}
+			pending = append(pending, a)
+		}
+		return nil
+	}
+
 	// Crawling is almost entirely network wait, so run sources in parallel. Each
 	// source is a different host, so this stays polite to any individual site.
 	results := make(chan sourceResult, len(batch))
@@ -139,30 +151,37 @@ func (d *Discoverer) Run(ctx context.Context) error {
 	}()
 
 	for res := range results {
-		if res.err != nil {
-			// One bad source must not abort the whole pass.
-			slog.WarnContext(ctx, "source failed", "source", res.source.ID, "error", res.err)
+		// One bad source must not abort the whole pass, whether it failed while being
+		// crawled or while being stored.
+		err := res.err
+		if err == nil {
+			err = save(res.articles)
+		}
+		if err != nil {
+			slog.WarnContext(ctx, "source failed", "source", res.source.ID, "error", err)
 			failed++
 			continue
 		}
 
-		for _, a := range res.articles {
-			if err := d.store.Save(ctx, a); err != nil {
-				return fmt.Errorf("save %s: %w", a.ID, err)
-			}
-			pending = append(pending, a)
-			if len(pending) >= indexBatchSize {
-				if err := flush(); err != nil {
-					return err
-				}
+		processed += len(res.articles)
+
+		// The index is a shared sink, so unlike a per-source failure its errors will
+		// recur for every remaining source; stopping leaves the cursor where it is.
+		if len(pending) >= indexBatchSize {
+			if err := flush(); err != nil {
+				return err
 			}
 		}
-
-		processed += len(res.articles)
 	}
 
 	if err := flush(); err != nil {
 		return err
+	}
+
+	// Nothing succeeding is a systemic failure rather than a batch of bad blogs, so
+	// the cursor stays put and the same slice is retried instead of being skipped.
+	if failed > 0 && failed == len(batch) {
+		return fmt.Errorf("all %d sources in the batch failed", failed)
 	}
 
 	if err := d.cursor.write(ctx, next); err != nil {

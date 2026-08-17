@@ -88,18 +88,18 @@ func (d *Discoverer) toArticle(ctx context.Context, s sources.Source, it feedIte
 		return article.Article{}, false
 	}
 
-	// Keep the markup around: summaries read far better when taken from paragraphs
+	// Keep the parsed tree around: summaries read far better when taken from paragraphs
 	// than from the flattened text.
-	markup := it.Content
-	content := extractText(markup)
+	doc := parseHTML(it.Content)
+	content := extractText(doc)
 
 	// Fall back to fetching the page only when the feed gave a stub, which keeps the
 	// common case to one request per blog rather than one per post.
 	if wordCount(content) < feedContentWords && d.robots.allowed(ctx, link) {
 		if body, err := d.fetcher.get(ctx, link.String(), maxPageBytes); err == nil {
-			if full := extractText(string(body)); wordCount(full) > wordCount(content) {
-				content = full
-				markup = string(body)
+			page := parseHTML(string(body))
+			if full := extractText(page); wordCount(full) > wordCount(content) {
+				content, doc = full, page
 			}
 		}
 	}
@@ -108,7 +108,7 @@ func (d *Discoverer) toArticle(ctx context.Context, s sources.Source, it feedIte
 	// description, which is often a machine-generated blurb built from raw Markdown.
 	// Both extracted forms have been sanitised; the feed description has not, so it
 	// is the last resort.
-	summary := extractSummary(markup, summaryWords)
+	summary := extractSummary(doc, summaryWords)
 	if wordCount(summary) < minSummaryWords && wordCount(content) > wordCount(summary) {
 		summary = content
 	}

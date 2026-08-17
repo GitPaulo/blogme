@@ -84,7 +84,7 @@ func TestExtractMetaReadsTitleAndDate(t *testing.T) {
 		<meta property="article:published_time" content="2024-11-02T08:00:00Z">
 	</head><body><h1>A post</h1></body></html>`
 
-	meta := extractMeta(doc)
+	meta := extractMeta(parseHTML(doc))
 	if meta.Title != "A post" {
 		t.Errorf("Title = %q, want the og:title without the site name", meta.Title)
 	}
@@ -97,7 +97,7 @@ func TestExtractMetaFallsBackToHeadingAndTimeElement(t *testing.T) {
 	doc := `<html><head><title>Fallback — Example</title></head>
 		<body><h1>Fallback</h1><time datetime="2020-04-21">21 April</time></body></html>`
 
-	meta := extractMeta(doc)
+	meta := extractMeta(parseHTML(doc))
 	if meta.Title != "Fallback" {
 		t.Errorf("Title = %q, want the h1", meta.Title)
 	}
@@ -107,7 +107,7 @@ func TestExtractMetaFallsBackToHeadingAndTimeElement(t *testing.T) {
 }
 
 func TestExtractMetaLeavesUnknownDateZero(t *testing.T) {
-	meta := extractMeta(`<html><head><title>No date</title></head><body></body></html>`)
+	meta := extractMeta(parseHTML(`<html><head><title>No date</title></head><body></body></html>`))
 	if meta.Title != "No date" {
 		t.Errorf("Title = %q", meta.Title)
 	}

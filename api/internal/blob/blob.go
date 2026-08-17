@@ -83,13 +83,6 @@ func (c *Client) Upload(ctx context.Context, container, name string, data []byte
 	return nil
 }
 
-func (c *Client) UploadStream(ctx context.Context, container, name string, r io.Reader) error {
-	if _, err := c.svc.UploadStream(ctx, container, name, r, nil); err != nil {
-		return fmt.Errorf("upload %s/%s: %w", container, name, err)
-	}
-	return nil
-}
-
 // DownloadString is a convenience wrapper for small text blobs such as cursors.
 func (c *Client) DownloadString(ctx context.Context, container, name string) (string, error) {
 	data, _, err := c.Download(ctx, container, name)

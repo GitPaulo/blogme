@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"log"
 	"log/slog"
 
 	"github.com/azure/azure-functions-golang-worker/sdk"
@@ -37,17 +36,19 @@ func main() {
 		sdk.WithAuth("anonymous"),
 	)
 
-	discoverer, err := newDiscoverer(cfg, idx)
-	if err != nil {
-		log.Fatalf("configure discovery: %v", err)
+	// The write path must not be able to take the read path down with it: a discovery
+	// that cannot be configured leaves search serving whatever is already indexed, and
+	// simply registers no timer.
+	if discoverer, err := newDiscoverer(cfg, idx); err != nil {
+		slog.Error("discovery disabled", "error", err)
+	} else {
+		app.Timer("discover", func(ctx context.Context, timer bindings.TimerInfo) error {
+			if timer.IsPastDue {
+				slog.WarnContext(ctx, "discovery run is past due")
+			}
+			return discoverer.Run(ctx)
+		}, sdk.WithSchedule(cfg.discoverySchedule))
 	}
-
-	app.Timer("discover", func(ctx context.Context, timer bindings.TimerInfo) error {
-		if timer.IsPastDue {
-			slog.WarnContext(ctx, "discovery run is past due")
-		}
-		return discoverer.Run(ctx)
-	}, sdk.WithSchedule(cfg.discoverySchedule))
 
 	worker.Start(app)
 }

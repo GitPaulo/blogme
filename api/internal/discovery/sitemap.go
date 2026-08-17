@@ -130,9 +130,9 @@ func (d *Discoverer) sitemapLinks(ctx context.Context, site *url.URL) ([]sitemap
 			return parseTime(children[i].LastMod).After(parseTime(children[j].LastMod))
 		})
 
-		var fetched []string
+		fetched := 0
 		for _, child := range children {
-			if len(fetched) >= maxSitemapDocs || len(entries) >= maxSitemapEntries {
+			if fetched >= maxSitemapDocs || len(entries) >= maxSitemapEntries {
 				break
 			}
 			childURL, err := base.Parse(strings.TrimSpace(child.Loc))
@@ -143,7 +143,7 @@ func (d *Discoverer) sitemapLinks(ctx context.Context, site *url.URL) ([]sitemap
 			if err != nil {
 				continue
 			}
-			fetched = append(fetched, childURL.String())
+			fetched++
 			entries = append(entries, nested.URLs...)
 		}
 	}
@@ -277,18 +277,18 @@ func (d *Discoverer) sitemapArticle(ctx context.Context, s sources.Source, link 
 		return article.Article{}, false
 	}
 
-	markup := string(body)
-	content := extractText(markup)
+	doc := parseHTML(string(body))
+	content := extractText(doc)
 	if wordCount(content) < minSitemapWords {
 		return article.Article{}, false
 	}
 
-	meta := extractMeta(markup)
+	meta := extractMeta(doc)
 	if meta.Title == "" {
 		return article.Article{}, false
 	}
 
-	summary := extractSummary(markup, summaryWords)
+	summary := extractSummary(doc, summaryWords)
 	if wordCount(summary) < minSummaryWords && wordCount(content) > wordCount(summary) {
 		summary = content
 	}
