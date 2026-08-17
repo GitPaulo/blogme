@@ -44,6 +44,14 @@
       "facetable": true
     },
     {
+      "name": "origin",
+      "type": "Edm.String",
+      "searchable": false,
+      "filterable": true,
+      "sortable": false,
+      "facetable": true
+    },
+    {
       "name": "summary",
       "type": "Edm.String",
       "searchable": true,

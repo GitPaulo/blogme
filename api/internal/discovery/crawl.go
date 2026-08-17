@@ -32,15 +32,18 @@ const (
 	minSummaryWords = 12
 )
 
-// crawl turns one approved blog into articles, using its feed.
+// crawl turns one approved blog into articles.
 //
-// Blogs without a feed are skipped: sitemap discovery is a separate mechanism and
-// two thirds of the corpus has a feed already.
+// A feed describes its own posts, so it is both cheaper and more accurate; the
+// sitemap path exists for the third of the corpus that publishes no feed.
 func (d *Discoverer) crawl(ctx context.Context, s sources.Source) ([]article.Article, error) {
 	if s.Feed == "" {
-		return nil, nil
+		return d.crawlSitemap(ctx, s)
 	}
+	return d.crawlFeed(ctx, s)
+}
 
+func (d *Discoverer) crawlFeed(ctx context.Context, s sources.Source) ([]article.Article, error) {
 	feedURL, err := url.Parse(s.Feed)
 	if err != nil || !isHTTP(feedURL) {
 		return nil, fmt.Errorf("invalid feed url %q", s.Feed)
@@ -121,6 +124,7 @@ func (d *Discoverer) toArticle(ctx context.Context, s sources.Source, it feedIte
 		Title:       it.Title,
 		Author:      firstNonEmpty(it.Author, s.Name),
 		SourceID:    s.ID,
+		Origin:      article.OriginFeed,
 		Summary:     truncateWords(summary, summaryWords),
 		Content:     truncateWords(content, d.contentWords),
 		Topics:      s.Tags,

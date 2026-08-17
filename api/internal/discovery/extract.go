@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"strings"
+	"time"
 	"unicode"
 
 	"golang.org/x/net/html"
@@ -141,6 +142,94 @@ func extractSummary(doc string, words int) string {
 	walk(node)
 
 	return truncateWords(sb.String(), words)
+}
+
+// pageMeta is what a bare HTML page can say about itself. A sitemap entry has no
+// feed record behind it, so the page's own metadata is all there is.
+type pageMeta struct {
+	Title     string
+	Published time.Time
+}
+
+// Meta names and properties that carry a publication date, best first.
+var publishedKeys = []string{
+	"article:published_time", "datepublished", "article:published",
+	"date", "dc.date.issued", "dc.date", "pubdate", "publish_date",
+}
+
+// Meta names and properties that carry a clean title. The <title> element usually
+// has the site name bolted on, so it is the last resort.
+var titleKeys = []string{"og:title", "twitter:title"}
+
+// extractMeta reads the page's title and publication date in one parse.
+func extractMeta(doc string) pageMeta {
+	node, err := html.Parse(strings.NewReader(doc))
+	if err != nil {
+		return pageMeta{}
+	}
+
+	metas := make(map[string]string)
+	var title, heading, timestamp string
+
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode {
+			switch n.DataAtom {
+			case atom.Meta:
+				var key, content string
+				for _, attr := range n.Attr {
+					switch attr.Key {
+					case "name", "property", "itemprop":
+						key = strings.ToLower(strings.TrimSpace(attr.Val))
+					case "content":
+						content = attr.Val
+					}
+				}
+				if key != "" && content != "" && metas[key] == "" {
+					metas[key] = content
+				}
+			case atom.Title:
+				if title == "" {
+					var sb strings.Builder
+					collectText(n, &sb)
+					title = cleanText(sb.String())
+				}
+			case atom.H1:
+				if heading == "" {
+					var sb strings.Builder
+					collectText(n, &sb)
+					heading = cleanText(sb.String())
+				}
+			case atom.Time:
+				for _, attr := range n.Attr {
+					if attr.Key == "datetime" && timestamp == "" {
+						timestamp = attr.Val
+					}
+				}
+			}
+		}
+
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(node)
+
+	meta := pageMeta{Title: firstNonEmpty(metaValue(metas, titleKeys), heading, title)}
+
+	if raw := firstNonEmpty(metaValue(metas, publishedKeys), timestamp); raw != "" {
+		meta.Published = parseTime(cleanText(raw))
+	}
+	return meta
+}
+
+func metaValue(metas map[string]string, keys []string) string {
+	for _, key := range keys {
+		if v := strings.TrimSpace(metas[key]); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // cleanProse removes leftover Markdown markers, which appear when a feed publishes

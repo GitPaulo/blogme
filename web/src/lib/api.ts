@@ -1,8 +1,12 @@
+/** How an article was discovered. Mirrors the origin constants in api/internal/article. */
+export type Origin = 'feed' | 'sitemap';
+
 /** Mirrors api/internal/article.Result. */
 export type SearchResult = {
 	url: string;
 	title: string;
 	author?: string;
+	origin?: Origin;
 	summary?: string;
 	topics?: string[];
 	publishedAt?: string;
@@ -72,6 +76,7 @@ function toResult(value: unknown): SearchResult | undefined {
 		url,
 		title: text(raw.title, 300) ?? url,
 		author: text(raw.author, 120),
+		origin: raw.origin === 'sitemap' || raw.origin === 'feed' ? raw.origin : undefined,
 		summary: text(raw.summary),
 		topics: topics?.length ? topics : undefined,
 		publishedAt: text(raw.publishedAt, 40),
@@ -102,14 +107,15 @@ function toResponse(body: unknown, query: string, offset: number): SearchRespons
 
 export async function search(
 	query: string,
-	options: { offset?: number; signal?: AbortSignal } = {}
+	options: { offset?: number; origin?: Origin; signal?: AbortSignal } = {}
 ): Promise<SearchResponse> {
-	const { signal } = options;
+	const { signal, origin } = options;
 	const term = query.trim().slice(0, MAX_QUERY_LENGTH);
 	const offset = Math.min(Math.max(Math.trunc(options.offset ?? 0), 0), MAX_OFFSET);
 
 	const params = new URLSearchParams({ q: term, limit: String(PAGE_SIZE) });
 	if (offset > 0) params.set('offset', String(offset));
+	if (origin) params.set('origin', origin);
 	const url = `${API_BASE}/api/search?${params}`;
 
 	// A hung request would otherwise leave the UI loading forever.

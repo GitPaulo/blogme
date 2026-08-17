@@ -56,9 +56,25 @@ func TestSearchRejectsBadPaging(t *testing.T) {
 		"/api/search?q=go&offset=abc",
 		"/api/search?q=go&limit=0",
 		"/api/search?q=go&limit=51",
+		"/api/search?q=go&origin=everything",
+		"/api/search?q=go&origin=%27%20or%20true",
 	} {
 		if code := get(t, h, target).Code; code != http.StatusBadRequest {
 			t.Errorf("%s: got status %d, want 400", target, code)
+		}
+	}
+}
+
+func TestSearchAcceptsKnownOrigins(t *testing.T) {
+	h := newTestHandlers(t, `{"@odata.count":0,"value":[]}`)
+
+	for _, target := range []string{
+		"/api/search?q=go",
+		"/api/search?q=go&origin=feed",
+		"/api/search?q=go&origin=sitemap",
+	} {
+		if code := get(t, h, target).Code; code != http.StatusOK {
+			t.Errorf("%s: got status %d, want 200", target, code)
 		}
 	}
 }

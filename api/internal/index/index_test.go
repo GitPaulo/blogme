@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/GitPaulo/blogme/api/internal/article"
 )
 
 // Paging is what the "load more" control rides on, so the request has to carry the
@@ -32,7 +34,7 @@ func TestQueryRequestsPageAndTotal(t *testing.T) {
 	defer srv.Close()
 
 	results, total, err := New(srv.URL, "articles", "test-key").
-		Query(context.Background(), "go", 20, 40)
+		Query(context.Background(), "go", QueryOptions{Limit: 20, Offset: 40})
 	if err != nil {
 		t.Fatalf("query: %v", err)
 	}
@@ -42,6 +44,9 @@ func TestQueryRequestsPageAndTotal(t *testing.T) {
 	}
 	if sent["count"] != true {
 		t.Errorf("got count=%v, want true", sent["count"])
+	}
+	if _, ok := sent["filter"]; ok {
+		t.Errorf("got filter=%v, want none when no origin is requested", sent["filter"])
 	}
 	if total != 137 {
 		t.Errorf("got total %d, want 137", total)
@@ -65,7 +70,7 @@ func TestQueryLeavesMissingDateZero(t *testing.T) {
 	defer srv.Close()
 
 	results, _, err := New(srv.URL, "articles", "test-key").
-		Query(context.Background(), "go", 20, 0)
+		Query(context.Background(), "go", QueryOptions{Limit: 20})
 	if err != nil {
 		t.Fatalf("query: %v", err)
 	}
@@ -75,5 +80,38 @@ func TestQueryLeavesMissingDateZero(t *testing.T) {
 	}
 	if !results[0].PublishedAt.IsZero() {
 		t.Errorf("got publishedAt %v, want zero", results[0].PublishedAt)
+	}
+}
+
+// The filter is built from a fixed set, so a query parameter can never inject one.
+// Documents predating the origin field came from feeds and must stay reachable.
+func TestQueryFiltersByOrigin(t *testing.T) {
+	for _, tc := range []struct {
+		origin string
+		want   string
+	}{
+		{article.OriginSitemap, "origin eq 'sitemap'"},
+		{article.OriginFeed, "origin eq 'feed' or origin eq null"},
+		{"' or true or '", ""},
+	} {
+		var sent map[string]any
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
+				t.Error(err)
+			}
+			_, _ = io.WriteString(w, `{"@odata.count":0,"value":[]}`)
+		}))
+
+		_, _, err := New(srv.URL, "articles", "test-key").
+			Query(context.Background(), "go", QueryOptions{Limit: 20, Origin: tc.origin})
+		srv.Close()
+		if err != nil {
+			t.Fatalf("query: %v", err)
+		}
+
+		got, _ := sent["filter"].(string)
+		if got != tc.want {
+			t.Errorf("origin %q: filter = %q, want %q", tc.origin, got, tc.want)
+		}
 	}
 }

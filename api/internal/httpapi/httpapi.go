@@ -36,7 +36,7 @@ type searchResponse struct {
 	Results []article.Result `json:"results"`
 }
 
-// Search handles GET /api/search?q=...&limit=...&offset=...
+// Search handles GET /api/search?q=...&limit=...&offset=...&origin=...
 func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query().Get("q")
 	if q == "" {
@@ -60,7 +60,17 @@ func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	results, total, err := h.index.Query(r.Context(), q, limit, offset)
+	origin := r.URL.Query().Get("origin")
+	if origin != "" && origin != article.OriginFeed && origin != article.OriginSitemap {
+		writeError(w, http.StatusBadRequest, "query parameter 'origin' must be 'feed' or 'sitemap'")
+		return
+	}
+
+	results, total, err := h.index.Query(r.Context(), q, index.QueryOptions{
+		Limit:  limit,
+		Offset: offset,
+		Origin: origin,
+	})
 	if err != nil {
 		slog.ErrorContext(r.Context(), "search failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "search failed")

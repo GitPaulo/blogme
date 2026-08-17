@@ -65,6 +65,7 @@ type document struct {
 	Title       string   `json:"title"`
 	Author      string   `json:"author,omitempty"`
 	SourceID    string   `json:"sourceId"`
+	Origin      string   `json:"origin,omitempty"`
 	Summary     string   `json:"summary,omitempty"`
 	Content     string   `json:"content,omitempty"`
 	Topics      []string `json:"topics,omitempty"`
@@ -85,6 +86,7 @@ func (i *Index) Upsert(ctx context.Context, articles []article.Article) error {
 				Title:    a.Title,
 				Author:   a.Author,
 				SourceID: a.SourceID,
+				Origin:   a.Origin,
 				Summary:  a.Summary,
 				Content:  a.Content,
 				Topics:   a.Topics,
@@ -111,23 +113,42 @@ type searchResponse struct {
 		URL         string   `json:"url"`
 		Title       string   `json:"title"`
 		Author      string   `json:"author"`
+		Origin      string   `json:"origin"`
 		Summary     string   `json:"summary"`
 		Topics      []string `json:"topics"`
 		PublishedAt string   `json:"publishedAt"`
 	} `json:"value"`
 }
 
+// QueryOptions narrows a search beyond the query text itself.
+type QueryOptions struct {
+	Limit  int
+	Offset int
+	// Origin, when set to a known discovery method, restricts results to it.
+	Origin string
+}
+
 // Query runs a full-text search and returns one page of ranked results along with
 // the number of matches across the whole corpus.
-func (i *Index) Query(ctx context.Context, q string, limit, offset int) ([]article.Result, int, error) {
+func (i *Index) Query(ctx context.Context, q string, opts QueryOptions) ([]article.Result, int, error) {
 	body := map[string]any{
 		"search":     q,
-		"top":        limit,
-		"skip":       offset,
+		"top":        opts.Limit,
+		"skip":       opts.Offset,
 		"count":      true,
 		"queryType":  "simple",
 		"searchMode": "any",
-		"select":     "url,title,author,summary,topics,publishedAt",
+		"select":     "url,title,author,origin,summary,topics,publishedAt",
+	}
+
+	// Built from a fixed set rather than from the caller's string, so a filter can
+	// never be injected through the query parameter.
+	switch opts.Origin {
+	case article.OriginSitemap:
+		body["filter"] = "origin eq 'sitemap'"
+	case article.OriginFeed:
+		// Documents indexed before origin existed came from feeds.
+		body["filter"] = "origin eq 'feed' or origin eq null"
 	}
 
 	var resp searchResponse
@@ -141,6 +162,7 @@ func (i *Index) Query(ctx context.Context, q string, limit, offset int) ([]artic
 			URL:     v.URL,
 			Title:   v.Title,
 			Author:  v.Author,
+			Origin:  v.Origin,
 			Summary: v.Summary,
 			Topics:  v.Topics,
 			Score:   v.Score,

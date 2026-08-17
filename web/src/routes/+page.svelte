@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Alert, Badge, Button, Card, Heading, Input, P, Spinner } from 'flowbite-svelte';
+	import { Alert, Badge, Button, Card, Heading, Input, P, Spinner, Tooltip } from 'flowbite-svelte';
 	import { SearchOutline } from 'flowbite-svelte-icons';
 	import BookmarkButton from '$lib/components/BookmarkButton.svelte';
 	import FilterBar from '$lib/components/FilterBar.svelte';
@@ -9,6 +9,7 @@
 		MIN_QUERY_LENGTH,
 		PAGE_SIZE,
 		search,
+		type Origin,
 		type SearchResult
 	} from '$lib/api';
 	import { bookmarks } from '$lib/bookmarks/store.svelte';
@@ -20,6 +21,9 @@
 	let query = $state('');
 	let results = $state<SearchResult[]>([]);
 	let filters = $state(emptyFilters());
+	// Unlike the other filters this one narrows the corpus, not the loaded page, so it
+	// travels with the request rather than living in Filters.
+	let sitemappedOnly = $state(false);
 	let total = $state(0);
 	let nextOffset = $state(0);
 	let status = $state<'idle' | 'loading' | 'done' | 'error'>('idle');
@@ -30,6 +34,7 @@
 	let controller: AbortController | undefined;
 
 	const term = $derived(query.trim().slice(0, MAX_QUERY_LENGTH));
+	const origin = $derived<Origin | undefined>(sitemappedOnly ? 'sitemap' : undefined);
 	const searchable = $derived(term.length >= MIN_QUERY_LENGTH);
 	const tooShort = $derived(term.length > 0 && !searchable);
 	const hasMore = $derived(status === 'done' && nextOffset < total && nextOffset <= MAX_OFFSET);
@@ -60,7 +65,7 @@
 		return [...existing, ...incoming.filter((result) => !seen.has(result.url))];
 	}
 
-	async function run(value: string, offset: number) {
+	async function run(value: string, offset: number, only?: Origin) {
 		cancel();
 		const current = new AbortController();
 		controller = current;
@@ -72,7 +77,7 @@
 		} else loadingMore = true;
 		error = '';
 		try {
-			const response = await search(value, { offset, signal: current.signal });
+			const response = await search(value, { offset, origin: only, signal: current.signal });
 			// A newer search (or a cleared query) owns the UI now, so drop this answer.
 			if (controller !== current) return;
 			results = offset === 0 ? response.results : merge(results, response.results);
@@ -100,7 +105,7 @@
 
 	function loadMore() {
 		if (!hasMore || loadingMore) return;
-		run(term, nextOffset);
+		run(term, nextOffset, origin);
 	}
 
 	$effect(() => {
@@ -116,10 +121,11 @@
 		}
 
 		const value = term;
+		const only = origin;
 		// The pending debounce is still work in progress, so the spinner stays up throughout.
 		status = 'loading';
 		clearTimeout(timer);
-		timer = setTimeout(() => run(value, 0), DEBOUNCE_MS);
+		timer = setTimeout(() => run(value, 0, only), DEBOUNCE_MS);
 		return () => clearTimeout(timer);
 	});
 
@@ -131,7 +137,7 @@
 		event.preventDefault();
 		clearTimeout(timer);
 		if (!searchable) return;
-		run(term, 0);
+		run(term, 0, origin);
 	}
 </script>
 
@@ -192,7 +198,7 @@
 			{summary}
 		</P>
 
-		<FilterBar {results} bind:filters />
+		<FilterBar {results} bind:filters bind:sitemapped={sitemappedOnly} />
 
 		{#if filtered.length === 0}
 			<Alert color="gray" class="mt-4">No loaded results match these filters.</Alert>
@@ -235,9 +241,15 @@
 					{#if result.summary}
 						<P class="mt-2 line-clamp-3 break-words">{result.summary}</P>
 					{/if}
-					{#if result.topics?.length}
-						<div class="mt-3 flex flex-wrap gap-2">
-							{#each result.topics as topic (topic)}
+					{#if result.origin === 'sitemap' || result.topics?.length}
+						<div class="mt-3 flex flex-wrap items-center gap-2">
+							{#if result.origin === 'sitemap'}
+								<Badge color="purple">Sitemapped</Badge>
+								<Tooltip class="max-w-64 text-center">
+									Found through the site's page list, not a feed, so details may be less exact.
+								</Tooltip>
+							{/if}
+							{#each result.topics ?? [] as topic (topic)}
 								<Badge class="max-w-full truncate">{topic}</Badge>
 							{/each}
 						</div>

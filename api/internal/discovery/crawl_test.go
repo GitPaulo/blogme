@@ -148,8 +148,8 @@ func TestArticleIDIsStableAndSafe(t *testing.T) {
 }
 
 func TestRobotsDisallow(t *testing.T) {
-	r := &robots{hosts: map[string][]string{
-		"https://example.com": {"/private", "/tmp"},
+	r := &robots{hosts: map[string]robotRules{
+		"https://example.com": {disallow: []string{"/private", "/tmp"}},
 	}}
 
 	for _, tc := range []struct {
@@ -179,6 +179,8 @@ Disallow: /drafts   # comment
 
 User-agent: blogme
 Disallow: /nope
+
+Sitemap: https://example.com/sitemap.xml
 `
 	rules, err := parseRobots(body)
 	if err != nil {
@@ -186,13 +188,18 @@ Disallow: /nope
 	}
 
 	want := map[string]bool{"/admin": true, "/drafts": true, "/nope": true}
-	if len(rules) != len(want) {
-		t.Fatalf("rules = %v, want %v", rules, want)
+	if len(rules.disallow) != len(want) {
+		t.Fatalf("disallow = %v, want %v", rules.disallow, want)
 	}
-	for _, got := range rules {
+	for _, got := range rules.disallow {
 		if !want[got] {
 			t.Errorf("unexpected rule %q (must not apply the badbot group)", got)
 		}
+	}
+
+	// The scheme's colon must survive, or the sitemap URL is unusable.
+	if len(rules.sitemaps) != 1 || rules.sitemaps[0] != "https://example.com/sitemap.xml" {
+		t.Errorf("sitemaps = %v, want the full URL", rules.sitemaps)
 	}
 }
 
