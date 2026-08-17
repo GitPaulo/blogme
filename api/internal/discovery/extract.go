@@ -152,6 +152,49 @@ func extractSummary(node *html.Node, words int) string {
 	return truncateWords(sb.String(), words)
 }
 
+// noIndex reports whether the page asks not to be indexed.
+//
+// robots.txt governs whether a page may be fetched at all; this is the separate
+// request not to keep what was fetched, and it is only visible once the page has
+// been read. Honouring it costs one walk and is the difference between a crawler
+// and a scraper.
+func noIndex(node *html.Node) bool {
+	found := false
+
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if found {
+			return
+		}
+		if n.Type == html.ElementNode && n.DataAtom == atom.Meta {
+			var name, content string
+			for _, attr := range n.Attr {
+				switch attr.Key {
+				case "name":
+					name = strings.ToLower(strings.TrimSpace(attr.Val))
+				case "content":
+					content = strings.ToLower(attr.Val)
+				}
+			}
+			// The generic directive, and the form naming this crawler specifically.
+			if name == "robots" || name == userAgentToken {
+				for _, directive := range strings.Split(content, ",") {
+					if strings.TrimSpace(directive) == "noindex" {
+						found = true
+						return
+					}
+				}
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(node)
+
+	return found
+}
+
 // pageMeta is what a bare HTML page can say about itself. A sitemap entry has no
 // feed record behind it, so the page's own metadata is all there is.
 type pageMeta struct {

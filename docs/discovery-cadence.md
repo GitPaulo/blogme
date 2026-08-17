@@ -68,6 +68,12 @@ killed at 30 minutes records no progress and the same slice is retried next time
 not lost or duplicated in the index, but it is wasted. Target a run that finishes in about
 half the ceiling, and lower `BLOGME_DISCOVERY_BATCH` if runs creep up.
 
+Each source also carries its own 90-second deadline. One source can otherwise string
+together a robots fetch, several sitemap probes and a page fetch per post, each with its own
+client timeout, so its worst case was the sum of all of them — which made a run's length a
+hope rather than a calculation. Whatever a slow source gathered before its deadline is still
+kept.
+
 **Batch size is bounded by concurrency, not by the timeout alone.** Processed one at a
 time, a few hundred sources will not fit in 30 minutes. A bounded pool of concurrent
 fetches is what makes larger batches viable.
@@ -75,7 +81,10 @@ fetches is what makes larger batches viable.
 **Be polite to the sites being crawled.** Cadence is not only an internal capacity
 question:
 
-- Honour robots.txt, per [RFC 9309](https://www.rfc-editor.org/rfc/rfc9309). Done.
+- Honour robots.txt, per [RFC 9309](https://www.rfc-editor.org/rfc/rfc9309). Done, including
+  wildcards, `$` anchors, `Allow` and longest-match precedence. Matching used to be a literal
+  prefix comparison, which meant every wildcard rule silently failed to match and the crawler
+  fetched exactly what the site had asked it not to.
 - Limit concurrency per host, not just overall. Done, and by registrable domain rather
   than by hostname — shared platforms put thousands of sources on one server, each as its
   own subdomain, so a per-hostname cap would not have limited anything.

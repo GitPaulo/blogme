@@ -20,6 +20,15 @@ import (
 // Azure AI Search accepts at most 1000 documents per indexing request.
 const indexBatchSize = 1000
 
+// How long one source may take before the run moves on without it.
+//
+// A single source can string together a robots fetch, several sitemap probes and
+// a page fetch per post, each with its own client timeout, so without a deadline
+// its worst case is the sum of all of them and a run's length is a hope rather
+// than a calculation. Generous enough that no healthy blog reaches it; the
+// articles gathered before the deadline are still kept.
+const sourceTimeout = 90 * time.Second
+
 // sourceResult carries one source's crawl outcome back from a worker.
 type sourceResult struct {
 	source   sources.Source
@@ -58,7 +67,7 @@ type Options struct {
 }
 
 func New(provider sources.Provider, st *store.Store, idx *index.Index, cur *Cursor, opts Options) *Discoverer {
-	client := &http.Client{Timeout: 20 * time.Second}
+	client := newCrawlClient(20 * time.Second)
 	f := newFetcher(client)
 
 	return &Discoverer{
@@ -140,7 +149,10 @@ func (d *Discoverer) Run(ctx context.Context) error {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			found, err := d.crawl(ctx, s)
+			sourceCtx, cancel := context.WithTimeout(ctx, sourceTimeout)
+			defer cancel()
+
+			found, err := d.crawl(sourceCtx, s)
 			results <- sourceResult{source: s, articles: found, err: err}
 		}()
 	}

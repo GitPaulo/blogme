@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -88,5 +89,42 @@ func TestFetcherRejectsNonHTTP(t *testing.T) {
 	f := newFetcher(&http.Client{})
 	if _, err := f.get(context.Background(), "file:///etc/passwd", 1024); err == nil {
 		t.Error("get() must reject non-HTTP schemes")
+	}
+}
+
+// A feed decides where its own entries point, so the crawler can be aimed at the
+// function app's own network. Whatever answered would be indexed and become
+// publicly searchable, which makes this the check that keeps a bad feed from
+// reading the inside of the deployment out loud.
+func TestIsPublicIPRejectsEverythingOffThePublicInternet(t *testing.T) {
+	for _, raw := range []string{
+		"127.0.0.1",       // loopback
+		"::1",             // loopback, v6
+		"10.1.2.3",        // private
+		"172.16.5.4",      // private
+		"192.168.0.1",     // private
+		"169.254.169.254", // link-local, where cloud metadata lives
+		"fd00::1",         // unique local, v6
+		"fe80::1",         // link-local, v6
+		"0.0.0.0",         // unspecified
+		"224.0.0.1",       // multicast
+		"100.64.0.1",      // carrier-grade NAT
+		"100.127.255.255", // carrier-grade NAT, top of the range
+	} {
+		if ip := net.ParseIP(raw); ip == nil || isPublicIP(ip) {
+			t.Errorf("isPublicIP(%s) allowed an address the crawler must never dial", raw)
+		}
+	}
+
+	for _, raw := range []string{
+		"93.184.216.34", // example.com
+		"1.1.1.1",
+		"2606:4700:4700::1111",
+		"100.63.255.255", // just below the CGNAT range
+		"100.128.0.1",    // just above it
+	} {
+		if ip := net.ParseIP(raw); ip == nil || !isPublicIP(ip) {
+			t.Errorf("isPublicIP(%s) blocked an ordinary public address", raw)
+		}
 	}
 }

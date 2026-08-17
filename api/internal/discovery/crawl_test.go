@@ -149,7 +149,9 @@ func TestArticleIDIsStableAndSafe(t *testing.T) {
 
 func TestRobotsDisallow(t *testing.T) {
 	r := &robots{hosts: map[string]robotRules{
-		"https://example.com": {disallow: []string{"/private", "/tmp"}},
+		"https://example.com": {rules: []robotRule{
+			{pattern: "/private"}, {pattern: "/tmp"},
+		}},
 	}}
 
 	for _, tc := range []struct {
@@ -168,7 +170,59 @@ func TestRobotsDisallow(t *testing.T) {
 	}
 }
 
-func TestParseRobotsSelectsApplicableGroups(t *testing.T) {
+// A pattern is not a literal prefix. Every case here was fetched before, because
+// no real path begins with the characters "/*".
+func TestMatchPathHandlesWildcardsAndAnchors(t *testing.T) {
+	for _, tc := range []struct {
+		pattern string
+		path    string
+		want    bool
+	}{
+		{"/private", "/private/secret", true},
+		{"/private", "/publicity", false},
+		{"/", "/anything", true},
+		{"/*/private", "/blog/private", true},
+		{"/*/private", "/private", false},
+		{"/*.php$", "/index.php", true},
+		{"/*.php$", "/index.phps", false},
+		{"/*.php$", "/a/b/c.php", true},
+		{"/posts$", "/posts", true},
+		{"/posts$", "/posts/one", false},
+		{"/a*b$", "/axxbyyb", true},
+		{"/a*", "/abc", true},
+		{"/a*$", "/abc", true},
+		{"/*?", "/search?q=go", true},
+		{"/*?", "/search", false},
+	} {
+		if got := matchPath(tc.pattern, tc.path); got != tc.want {
+			t.Errorf("matchPath(%q, %q) = %v, want %v", tc.pattern, tc.path, got, tc.want)
+		}
+	}
+}
+
+// The longest matching pattern wins, so a site can close a tree and reopen one
+// branch of it. Previously every Allow line was discarded and the branch was lost.
+func TestRobotsAllowReopensABranch(t *testing.T) {
+	rules, err := parseRobots("User-agent: *\nDisallow: /\nAllow: /blog/\n")
+	if err != nil {
+		t.Fatalf("parseRobots() error = %v", err)
+	}
+	r := &robots{hosts: map[string]robotRules{"https://example.com": rules}}
+
+	for path, want := range map[string]bool{
+		"/blog/a-post": true,
+		"/admin":       false,
+		"/":            false,
+	} {
+		if got := r.allowed(t.Context(), mustURL(t, "https://example.com"+path)); got != want {
+			t.Errorf("allowed(%s) = %v, want %v", path, got, want)
+		}
+	}
+}
+
+// A file that addresses this crawler by name is talking to it specifically, so
+// that group replaces the wildcard rather than adding to it.
+func TestParseRobotsPrefersTheGroupAddressedToUs(t *testing.T) {
 	body := `
 User-agent: badbot
 Disallow: /
@@ -187,19 +241,38 @@ Sitemap: https://example.com/sitemap.xml
 		t.Fatalf("parseRobots() error = %v", err)
 	}
 
-	want := map[string]bool{"/admin": true, "/drafts": true, "/nope": true}
-	if len(rules.disallow) != len(want) {
-		t.Fatalf("disallow = %v, want %v", rules.disallow, want)
-	}
-	for _, got := range rules.disallow {
-		if !want[got] {
-			t.Errorf("unexpected rule %q (must not apply the badbot group)", got)
-		}
+	if len(rules.rules) != 1 || rules.rules[0].pattern != "/nope" {
+		t.Fatalf("rules = %+v, want only the blogme group's /nope", rules.rules)
 	}
 
 	// The scheme's colon must survive, or the sitemap URL is unusable.
 	if len(rules.sitemaps) != 1 || rules.sitemaps[0] != "https://example.com/sitemap.xml" {
 		t.Errorf("sitemaps = %v, want the full URL", rules.sitemaps)
+	}
+}
+
+// Stacked User-agent lines address one group. Reading them one at a time let the
+// last name win, so a group that named us alongside another crawler stopped
+// applying to us.
+func TestParseRobotsMergesStackedUserAgents(t *testing.T) {
+	rules, err := parseRobots("User-agent: *\nUser-agent: somebot\nDisallow: /admin\n")
+	if err != nil {
+		t.Fatalf("parseRobots() error = %v", err)
+	}
+	if len(rules.rules) != 1 || rules.rules[0].pattern != "/admin" {
+		t.Fatalf("rules = %+v, want the group's rule to apply through its wildcard line", rules.rules)
+	}
+}
+
+// An empty group addressed to us is a decision, not the absence of one: it says
+// we may go anywhere, and must not fall through to the wildcard group.
+func TestParseRobotsEmptyGroupForUsOverridesWildcard(t *testing.T) {
+	rules, err := parseRobots("User-agent: *\nDisallow: /\n\nUser-agent: blogme\nDisallow:\n")
+	if err != nil {
+		t.Fatalf("parseRobots() error = %v", err)
+	}
+	if len(rules.rules) != 0 {
+		t.Fatalf("rules = %+v, want none", rules.rules)
 	}
 }
 

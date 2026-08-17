@@ -30,6 +30,12 @@ const (
 
 	// Below this, a paragraph-derived summary is too thin to be worth preferring.
 	minSummaryWords = 12
+
+	// Caps on the fields taken straight from a feed. The body has always been
+	// truncated and these were not, so a feed could put its whole payload in a
+	// title and have all of it indexed.
+	maxTitleWords  = 40
+	maxAuthorWords = 15
 )
 
 // crawl turns one approved blog into articles.
@@ -98,6 +104,13 @@ func (d *Discoverer) toArticle(ctx context.Context, s sources.Source, it feedIte
 	if wordCount(content) < feedContentWords && d.robots.allowed(ctx, link) {
 		if body, err := d.fetcher.get(ctx, link.String(), maxPageBytes); err == nil {
 			page := parseHTML(string(body))
+			// A page can be fetchable and still ask not to be indexed, and the ask is
+			// only readable now that the page is in hand. Dropping the article rather
+			// than falling back to the feed stub: the request was about the post, not
+			// about which copy of it we keep.
+			if noIndex(page) {
+				return article.Article{}, false
+			}
 			if full := extractText(page); wordCount(full) > wordCount(content) {
 				content, doc = full, page
 			}
@@ -121,8 +134,8 @@ func (d *Discoverer) toArticle(ctx context.Context, s sources.Source, it feedIte
 	return article.Article{
 		ID:          articleID(s.ID, link.String()),
 		URL:         link.String(),
-		Title:       it.Title,
-		Author:      firstNonEmpty(it.Author, s.Name),
+		Title:       truncateWords(it.Title, maxTitleWords),
+		Author:      truncateWords(firstNonEmpty(it.Author, s.Name), maxAuthorWords),
 		SourceID:    s.ID,
 		Origin:      article.OriginFeed,
 		Summary:     truncateWords(summary, summaryWords),

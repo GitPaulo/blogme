@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/url"
 	"path"
 	"regexp"
@@ -102,7 +103,16 @@ func (d *Discoverer) crawlSitemap(ctx context.Context, s sources.Source) ([]arti
 		}
 		// A sitemap lists a whole archive but one run takes only a few pages, so
 		// skipping what is already stored is what lets later runs reach further in.
-		if stored, err := d.store.Has(ctx, articleID(s.ID, link.url.String())); err != nil || stored {
+		stored, err := d.store.Has(ctx, articleID(s.ID, link.url.String()))
+		if err != nil {
+			// Still skipped, so a storage blip cannot turn into a storm of re-fetches
+			// — but said out loud, because from the outside a broken store and a blog
+			// with nothing new to say look exactly alike.
+			slog.WarnContext(ctx, "store lookup failed",
+				"source", s.ID, "url", link.url.String(), "error", err)
+			continue
+		}
+		if stored {
 			continue
 		}
 		if a, ok := d.sitemapArticle(ctx, s, link); ok {
@@ -278,6 +288,10 @@ func (d *Discoverer) sitemapArticle(ctx context.Context, s sources.Source, link 
 	}
 
 	doc := parseHTML(string(body))
+	if noIndex(doc) {
+		return article.Article{}, false
+	}
+
 	content := extractText(doc)
 	if wordCount(content) < minSitemapWords {
 		return article.Article{}, false
@@ -301,8 +315,8 @@ func (d *Discoverer) sitemapArticle(ctx context.Context, s sources.Source, link 
 	return article.Article{
 		ID:       articleID(s.ID, link.url.String()),
 		URL:      link.url.String(),
-		Title:    meta.Title,
-		Author:   s.Name,
+		Title:    truncateWords(meta.Title, maxTitleWords),
+		Author:   truncateWords(s.Name, maxAuthorWords),
 		SourceID: s.ID,
 		Origin:   article.OriginSitemap,
 		Summary:  truncateWords(summary, summaryWords),
