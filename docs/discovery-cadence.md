@@ -56,9 +56,9 @@ At 35 days per pass a blog's new post could take a month to become searchable, w
 defeats the goal in the [high-level plan](blog-discovery-search-high-level-plan.md) that
 new posts appear automatically.
 
-**Recommended once the crawler exists:** batch 500, hourly. That is a full pass every
-2.4 days, which is a reasonable freshness target for long-form writing that is published
-weekly at best. Raise it only after measuring how long a real run takes.
+**Recommended:** batch 500, hourly. That is a full pass every 2.4 days, which is a
+reasonable freshness target for long-form writing that is published weekly at best. Raise
+it only after measuring how long a real run takes.
 
 ## Constraints to respect
 
@@ -74,20 +74,27 @@ fetches is what makes larger batches viable.
 **Be polite to the sites being crawled.** Cadence is not only an internal capacity
 question:
 
-- Honour robots.txt, per [RFC 9309](https://www.rfc-editor.org/rfc/rfc9309).
-- Limit concurrency per host, not just overall. Many sources share hosting.
-- Send conditional requests. Feeds normally support `ETag` and `If-Modified-Since`, so an
-  unchanged feed costs a `304` rather than a full download. This is the single largest
-  saving available and it makes a faster cadence far cheaper.
+- Honour robots.txt, per [RFC 9309](https://www.rfc-editor.org/rfc/rfc9309). Done.
+- Limit concurrency per host, not just overall. Done, and by registrable domain rather
+  than by hostname — shared platforms put thousands of sources on one server, each as its
+  own subdomain, so a per-hostname cap would not have limited anything.
+- Send conditional requests. **Not yet implemented, and the largest saving still
+  available.** Feeds normally support `ETag` and `If-Modified-Since`, so an unchanged feed
+  would cost a `304` rather than a full download. Today every pass re-fetches every feed
+  in its slice in full, and re-fetches the page behind any post whose feed entry is a
+  stub. Doing this is what makes a faster cadence cheap rather than merely possible.
 
 **Feeds and sitemaps cost differently.** 68% of sources publish a feed, which is one cheap
 request. The remaining 9,048 need a sitemap walk, which is heavier. If cadence becomes
 expensive, checking feed-backed sources more often than sitemap-only ones is the obvious
 split, but it is not worth the complexity until measurements justify it.
 
-**Storage caps bite before compute does.** On the Azure AI Search Free tier the 50 MB
-ceiling holds roughly 25,000 to 50,000 article documents. A faster cadence fills that
-sooner. See [tech-stack.md](tech-stack.md) for when to move to Basic.
+**Storage caps bite before compute does.** The 50 MB Free-tier ceiling was reached first,
+which is why the service now runs on Basic; see [tech-stack.md](tech-stack.md). Cadence
+sets how fast the next ceiling arrives, so check index size against the
+[service limits](https://learn.microsoft.com/en-us/azure/search/search-limits-quotas-capacity)
+before raising it. Truncating articles to 500 words is what keeps a document small enough
+for this to stay a slow problem.
 
 ## Changing it
 

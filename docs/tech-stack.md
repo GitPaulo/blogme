@@ -17,9 +17,9 @@ Validated against official documentation and package registries on **16 August 2
 | Frontend host | GitHub Pages |
 | Canonical storage | Azure Blob Storage |
 | Search | Azure AI Search |
-| Infrastructure as code | Bicep, applied with Azure CLI |
+| Provisioning | Re-runnable Azure CLI scripts in `infra/` |
 | Task runner | GNU Make |
-| Local emulation | Azurite (blob), Azure AI Search Free tier |
+| Local emulation | Azurite (blob); search has no emulator |
 | CI/CD | GitHub Actions |
 
 ## Backend: Go on Azure Functions
@@ -105,10 +105,10 @@ App is configured to allow the Pages origin.
 
 **Azure AI Search** holds the searchable projection, and is treated as rebuildable from Blob at any time.
 
-We start on the **Free tier** while building: no cost, and enough for a development corpus. Its limits are
-real — 50 MB, one free service per subscription, shared tenancy, no managed identity, no IP firewall, and
-the service can be reclaimed after prolonged inactivity. We move to **Dedicated Basic** when the corpus
-outgrows it or when we need managed identity, per the system design.
+We run on **Dedicated Basic**. The Free tier carried the early build, but its 50 MB ceiling is far
+below what a corpus of this size needs, and it supports no managed identity. Azure cannot upgrade a
+Free service in place, so Basic was provisioned as a separate service and the index rebuilt into it —
+cheap to do precisely because the index is a projection of blob storage rather than a source of truth.
 
 We do not use the Serverless Developer tier. As of this date it is preview, available in three regions,
 carries no SLA, and begins billing on 13 September 2026.
@@ -118,8 +118,8 @@ carries no SLA, and begins billing on 13 September 2026.
 Azurite emulates Blob Storage locally, so the same Azure SDK code path runs in development and in Azure —
 no filesystem stand-in, no second implementation.
 
-Azure AI Search has **no emulator**. The Free-tier service is the development search backend, addressed
-with an API key locally and a managed identity in Azure.
+Azure AI Search has **no emulator**, so development runs against a real service, addressed with an API
+key locally and a managed identity in Azure.
 
 Because both dependencies are reachable with their real SDKs, `store` and `index` are plain concrete
 clients. We are deliberately not introducing interfaces for them until a second implementation exists.
@@ -132,11 +132,20 @@ make build   # func pack (linux/amd64) + static web build
 
 ## Infrastructure
 
-A single `infra/main.bicep` provisions the storage account, search service, Flex Consumption plan,
-function app, and the managed identity role assignments. Applied with `az deployment group create`.
+Four bash scripts under [`infra/`](../infra/), each safe to re-run because every step checks for the
+resource before creating it:
 
-We are not using `azd`. Bicep plus two Azure CLI commands is fewer moving parts, and `azd` adds a tool
-and a config layer we do not currently need.
+| Script | What it does |
+| --- | --- |
+| `provision.sh` | Storage account, search service, Flex Consumption function app, role assignments, CORS |
+| `create-search-index.sh` | Applies [`search-index.json`](../infra/search-index.json) to the search service |
+| `github-oidc.sh` | The Entra ID app and federated credential the deploy workflows authenticate with |
+| `upload-sources.sh` | Publishes `blogs.yml` to blob storage |
+
+Not Bicep, and not `azd`. Go on Functions is in public preview and only its Azure CLI path is
+documented, so a declarative template would have to be reverse-engineered from CLI behaviour that is
+still moving. Idempotent scripts follow the documentation directly and stay readable. Revisit when
+the preview settles.
 
 ## Deliberate omissions
 
@@ -144,9 +153,9 @@ Recorded so they are re-decided consciously rather than drifted into:
 
 - **No pnpm/npm workspace.** There is one JavaScript package. A workspace is added when a second appears.
 - **No port/adapter indirection** over storage or search. One implementation each.
-- **No `azd`.**
+- **No `azd`, and no Bicep.** See [Infrastructure](#infrastructure).
 - **No Docker Compose.** Azurite is the only local service and Make starts it.
-- **No Bleve or other local search engine.** The Free tier replaces it.
+- **No Bleve or other local search engine.** Development points at the real search service.
 - **No monorepo tooling** (Nx, Turborepo). Two applications and a Makefile.
 
 ## References

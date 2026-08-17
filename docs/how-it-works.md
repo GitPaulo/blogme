@@ -29,7 +29,7 @@ flowchart LR
 
     Y -->|make sources-upload| B
     B -->|read list| D
-    D -->|fetch feeds| Blogs["The blogs<br/>themselves"]
+    D -->|feeds and sitemaps| Blogs["The blogs<br/>themselves"]
     D -->|article JSON| B
     D -->|documents| S
     U -->|/api/search| A
@@ -50,17 +50,23 @@ flowchart TD
     L --> C["Read cursor<br/>resume after last source"]
     C --> BATCH["Take next 200 blogs"]
 
-    BATCH --> P{"Has a feed?"}
-    P -->|"no — 9,048 blogs"| SKIP["Skip"]
-    P -->|"yes — 19,221 blogs"| R{"robots.txt<br/>allows it?"}
+    BATCH --> R{"robots.txt<br/>allows the fetch?"}
+    R -->|no| SKIP["Skip"]
+    R -->|yes| P{"Has a feed?"}
 
-    R -->|no| SKIP
-    R -->|yes| F["Fetch RSS/Atom feed"]
+    P -->|"yes — 19,221 blogs"| F["Fetch RSS/Atom feed"]
+    P -->|"no — 9,048 blogs"| M["Find sitemap<br/>robots.txt, then common paths"]
+
     F --> ITEMS["Parse entries<br/>title, link, date, content"]
-
     ITEMS --> FULL{"Feed content<br/>200+ words?"}
     FULL -->|yes| X["Extract text"]
     FULL -->|no| PAGE["Fetch the post page"] --> X
+
+    M --> LINKS["Article-shaped URLs,<br/>newest first, skip stored"]
+    LINKS --> FETCH["Fetch the page"]
+    FETCH --> LONG{"250+ words?"}
+    LONG -->|no| SKIP
+    LONG -->|yes| X
 
     X --> TRUNC["Clean and truncate<br/>500 words"]
     TRUNC --> SAVE["Save article JSON<br/>to blob"]
@@ -68,6 +74,14 @@ flowchart TD
     SAVE --> CUR["Write cursor"]
     IDX --> CUR
 ```
+
+A feed describes its own posts, so it is both cheaper and more accurate: one request
+usually yields every recent post, with a title, a link and a date already attached. The
+sitemap path exists for the third of the corpus that publishes no feed. It is slower by
+design — a sitemap lists every page a site has, so each candidate must be fetched before
+it can be judged, and the word count is what separates a post from a landing page. Which
+path found an article is recorded on it as its **origin**, because sitemap metadata is
+the less dependable of the two and the UI says so.
 
 Key properties:
 
@@ -77,6 +91,7 @@ Key properties:
 | Resumable       | Cursor stores the last source **ID**, so it survives list regeneration           |
 | Polite          | robots.txt respected; concurrency capped per registrable domain                  |
 | Idempotent      | Article IDs are a hash of the URL, so re-crawling updates rather than duplicates |
+| Incremental     | Sitemap pages already stored are skipped, so later runs reach deeper             |
 | Fault isolated  | One failing blog is logged and skipped; the pass continues                       |
 
 The per-domain cap matters more than it looks: shared platforms host thousands of the
@@ -95,7 +110,7 @@ sequenceDiagram
     U->>P: load gitpaulo.moe/blogme
     P-->>U: static HTML, JS, CSS
     U->>F: GET /api/search?q=...
-    Note over F: validate q, limit and offset
+    Note over F: validate q, limit, offset, origin
     F->>S: full-text query, ranked
     S-->>F: matching documents
     F-->>U: JSON results
@@ -104,6 +119,11 @@ sequenceDiagram
 
 The site is static and holds no credentials. The function app authenticates to Azure
 with a managed identity, so no keys exist in the browser or in the repository.
+
+Every query parameter is validated before it reaches the index, and the one filter the
+API offers — `origin`, which narrows results to feed or sitemap discoveries — is built
+from a fixed set of expressions rather than from the caller's string, so no filter can be
+injected through the query.
 
 ## Where each stage lives
 
@@ -114,6 +134,7 @@ with a managed identity, so no keys exist in the browser or in the repository.
 | Load and cache the list | [`api/internal/sources`](../api/internal/sources)                               |
 | Batching and cursor     | [`api/internal/discovery/discovery.go`](../api/internal/discovery/discovery.go) |
 | Feeds, fetching, robots | [`api/internal/discovery`](../api/internal/discovery)                           |
+| Sitemap fallback        | [`api/internal/discovery/sitemap.go`](../api/internal/discovery/sitemap.go)     |
 | Text extraction         | [`api/internal/discovery/extract.go`](../api/internal/discovery/extract.go)     |
 | Canonical storage       | [`api/internal/store`](../api/internal/store)                                   |
 | Index and query         | [`api/internal/index`](../api/internal/index)                                   |
@@ -126,8 +147,8 @@ One line of `blogs.yml` becomes many search results:
 
 ```mermaid
 flowchart LR
-    A["Source<br/>id, site, feed, tags"] -->|crawl| B["Article<br/>title, author, date,<br/>summary, content, topics"]
-    B -->|project| C["Result<br/>title, author, summary,<br/>topics, score"]
+    A["Source<br/>id, site, feed, tags"] -->|crawl| B["Article<br/>title, author, date, origin,<br/>summary, content, topics"]
+    B -->|project| C["Result<br/>title, author, date, origin,<br/>summary, topics, score"]
 ```
 
 Blob storage holds the canonical `Article`. The search index is a **projection** of it and
