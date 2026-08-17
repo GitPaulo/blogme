@@ -1,0 +1,4 @@
+# The repo is LF everywhere (see .editorconfig), and Prettier checks against its
+# default endOfLine of "lf". Without this, a Windows clone with core.autocrlf=true
+# gets CRLF working copies and `pnpm lint` fails on files CI considers clean.
+* text=auto eol=lf

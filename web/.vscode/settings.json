@@ -1,5 +1,8 @@
 {
 	"files.associations": {
 		"*.css": "tailwindcss"
-	}
+	},
+	// Also in .editorconfig and .gitattributes; repeated here so it holds without the
+	// EditorConfig extension, because Prettier checks against LF.
+	"files.eol": "\n"
 }
