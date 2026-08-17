@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Build sources/blogs.yml from the GitHub blog lists in source_lists.txt.
+"""Build sources/blogs.yml from the blog lists in source_lists.txt.
 
 The pipeline, one step per stage:
 
-  1. read the seed repository/topic URLs
+  1. read the seed URLs: GitHub repositories, GitHub topics and web pages
   2. pull every link out of their list files
   3. collapse each link to the blog it belongs to
   4. check each blog for reachability, a name and a feed
@@ -32,13 +32,20 @@ import httpx
 
 from extractor.checks import check_candidate_limited
 from extractor.models import Candidate
-from extractor.output import build_entries, validate_entries, write_audit_csv, write_sources_yaml
+from extractor.output import (
+    build_entries,
+    existing_ids,
+    validate_entries,
+    write_audit_csv,
+    write_sources_yaml,
+)
 from extractor.progress import Progress, log
 from extractor.sourcelists import (
     GitHubClient,
     merge_into,
     parse_github_repo,
     parse_github_topic,
+    scan_page,
     scan_repo,
 )
 
@@ -60,8 +67,24 @@ def read_seeds(path: Path) -> list[str]:
     ]
 
 
+def split_seeds(seeds: list[str]) -> tuple[list[str], list[str]]:
+    """Seeds by kind: GitHub repositories and topics, and plain list pages."""
+    github: list[str] = []
+    pages: list[str] = []
+
+    for seed in seeds:
+        if parse_github_repo(seed) or parse_github_topic(seed):
+            github.append(seed)
+        elif seed.startswith(("http://", "https://")):
+            pages.append(seed)
+        else:
+            log(f"warning: unsupported seed skipped: {seed}")
+
+    return github, pages
+
+
 async def resolve_repos(gh: GitHubClient, seeds: list[str], topic_repo_limit: int) -> dict[tuple[str, str], set[str]]:
-    """Expand seeds to repositories, remembering which seeds each one came from."""
+    """Expand GitHub seeds to repositories, remembering which seeds each one came from."""
     repos: list[tuple[str, str, str]] = []
 
     for seed in seeds:
@@ -73,8 +96,6 @@ async def resolve_repos(gh: GitHubClient, seeds: list[str], topic_repo_limit: in
             topic_repos = await gh.topic_repositories(topic, topic_repo_limit)
             log(f"topic:{topic}: discovered {len(topic_repos)} repos")
             repos.extend((owner, name, seed) for owner, name in topic_repos)
-        else:
-            log(f"warning: unsupported seed URL skipped: {seed}")
 
     by_repo: dict[tuple[str, str], set[str]] = defaultdict(set)
     for owner, repo_name, seed in repos:
@@ -83,11 +104,12 @@ async def resolve_repos(gh: GitHubClient, seeds: list[str], topic_repo_limit: in
 
 
 async def collect_candidates(gh: GitHubClient, args: argparse.Namespace) -> dict[str, Candidate]:
-    """Every link found across every seed repository, keyed by blog."""
-    by_repo = await resolve_repos(gh, read_seeds(args.input), args.topic_repo_limit)
+    """Every link found across every seed, keyed by blog."""
+    github_seeds, page_seeds = split_seeds(read_seeds(args.input))
+    by_repo = await resolve_repos(gh, github_seeds, args.topic_repo_limit)
     limit = asyncio.Semaphore(args.repo_concurrency)
 
-    async def run(owner: str, repo: str, seeds: set[str]) -> dict[str, Candidate]:
+    async def run_repo(owner: str, repo: str, seeds: set[str]) -> dict[str, Candidate]:
         async with limit:
             try:
                 return await scan_repo(gh, owner, repo, seeds, args.max_file_size)
@@ -95,8 +117,19 @@ async def collect_candidates(gh: GitHubClient, args: argparse.Namespace) -> dict
                 log(f"warning: failed repo {owner}/{repo}: {exc}")
                 return {}
 
+    async def run_page(url: str) -> dict[str, Candidate]:
+        async with limit:
+            try:
+                found = await scan_page(gh, url)
+                log(f"{url}: found {len(found)} linked blogs")
+                return found
+            except Exception as exc:
+                log(f"warning: failed page {url}: {exc}")
+                return {}
+
     results = await asyncio.gather(
-        *(run(owner, repo, seeds) for (owner, repo), seeds in sorted(by_repo.items()))
+        *(run_repo(owner, repo, seeds) for (owner, repo), seeds in sorted(by_repo.items())),
+        *(run_page(url) for url in page_seeds),
     )
 
     all_candidates: dict[str, Candidate] = {}
@@ -138,7 +171,7 @@ async def run(args: argparse.Namespace) -> int:
             )
         )
 
-    entries = build_entries([c for c in results if c is not None])
+    entries = build_entries([c for c in results if c is not None], existing_ids(args.output))
     validate_entries(entries)
     write_sources_yaml(args.output, entries)
 

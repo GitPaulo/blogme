@@ -220,3 +220,17 @@ def domain_name(site: str) -> str:
     if len(labels) >= 2:
         return labels[-2].replace("-", " ").title()
     return host.replace("-", " ").title()
+
+
+def registrable_domain(host: str) -> str:
+    """The domain a host belongs to, e.g. links.example.com -> example.com.
+
+    Used to tell a list page's own links from the blogs it lists, since the two often
+    sit on different subdomains of one site. On shared hosting one more label is kept,
+    because every *.github.io belongs to a different person and collapsing them would
+    make a list hosted there discard every blog hosted there too.
+    """
+    host = host.lower().strip(".").removeprefix("www.")
+    labels = host.split(".")
+    keep = 3 if host.endswith(MULTI_TENANT_HOST_SUFFIXES) else 2
+    return ".".join(labels[-keep:]) if len(labels) >= keep else host

@@ -61,16 +61,16 @@ sources:
 | `tags` | no | Subject tags, lowercase kebab-case |
 
 Entries can be added or corrected by hand. Keep `id` values stable: changing one changes
-the IDs of every article already discovered from that blog.
+the IDs of every article already discovered from that blog. A rebuild preserves the `id`
+of every site already in the file, so only genuinely new sites are assigned one.
 
 ## How the build works
 
-The build turns a handful of GitHub "awesome blog list" repositories into one validated
-list of blogs.
+The build turns a handful of curated blog lists into one validated list of blogs.
 
 ```mermaid
 flowchart LR
-    A[source_lists.txt<br/>GitHub list repos] --> B[Scrape every link<br/>from their files]
+    A[source_lists.txt<br/>GitHub repos and list pages] --> B[Scrape every link<br/>from their files]
     B --> C[Collapse to one URL<br/>per blog]
     C --> D{Site reachable?}
     D -->|no| X[Dropped]
@@ -79,10 +79,11 @@ flowchart LR
     D --> G[link-audit.csv<br/>every link, pass or fail]
 ```
 
-1. **Seeds.** [`tools/source_lists.txt`](tools/source_lists.txt) names the GitHub
-   repositories and topics that curate blogs.
-2. **Harvest.** Every text file in those repositories is read and every `http(s)` link
-   pulled out, roughly 49,000 of them.
+1. **Seeds.** [`tools/source_lists.txt`](tools/source_lists.txt) names the lists that
+   curate blogs: GitHub repositories and topics, and web pages that link to blogs.
+2. **Harvest.** Every text file in those repositories, and every seed page, is read and
+   every `http(s)` link pulled out, roughly 49,000 of them. On an HTML list the link
+   text is kept as a fallback name.
 3. **Collapse.** Each link becomes the blog it belongs to, so fifty article URLs from one
    site produce one entry. Code hosts, social networks, badges, shorteners and asset
    subdomains are discarded here.

@@ -10,6 +10,11 @@ export GITHUB_TOKEN
 
 SOURCES_LOG := sources/tools/build.log
 
+# A Windows venv puts its executables in Scripts/ rather than bin/, and ships no python3
+# alias — the name exists only as a Microsoft Store stub that cannot create a venv.
+VENV_BIN := $(if $(filter Windows_NT,$(OS)),Scripts,bin)
+PYTHON ?= $(if $(filter Windows_NT,$(OS)),python,python3)
+
 # Match the defaults in infra/provision.sh.
 RESOURCE_GROUP ?= rg-blogme
 FUNCTION_APP ?= func-blogme-b3d38b
@@ -60,15 +65,19 @@ fmt: ## Format all source
 	cd web && pnpm run format
 
 sources: ## Rebuild sources/blogs.yml in the background (takes hours)
-	cd sources/tools && { [[ -d .venv ]] || python3 -m venv .venv; } \
-		&& .venv/bin/pip install -q -r requirements.txt
-	cd sources/tools && nohup .venv/bin/python build_sources.py >/dev/null 2>build.log &
+	cd sources/tools && { [[ -d .venv ]] || $(PYTHON) -m venv .venv; } \
+		&& .venv/$(VENV_BIN)/pip install -q -r requirements.txt
+	cd sources/tools && nohup .venv/$(VENV_BIN)/python build_sources.py >/dev/null 2>build.log &
 	@sleep 1 && echo "Started. Check on it with: make sources-status"
 
 sources-status: ## Show progress of the background source rebuild
-	@pgrep -f build_sources.py >/dev/null \
-		&& echo "status: running" \
-		|| echo "status: not running"
+	@if ! command -v pgrep >/dev/null 2>&1; then \
+		echo "status: unknown (no pgrep here), read it from the log below"; \
+	elif pgrep -f build_sources.py >/dev/null; then \
+		echo "status: running"; \
+	else \
+		echo "status: not running"; \
+	fi
 	@tail -n 3 $(SOURCES_LOG) 2>/dev/null || echo "no log at $(SOURCES_LOG) yet"
 
 sources-upload: ## Publish sources/blogs.yml to blob storage (no redeploy needed)

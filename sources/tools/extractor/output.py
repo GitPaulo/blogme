@@ -72,7 +72,20 @@ def source_id(site: str, used: set[str]) -> str:
     return candidate
 
 
-def build_entries(checked: list[Candidate]) -> list[dict[str, Any]]:
+def existing_ids(path: Path) -> dict[str, str]:
+    """The site -> id mapping already committed, so a rebuild does not reassign ids."""
+    if not path.exists():
+        return {}
+
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return {
+        entry["site"]: entry["id"]
+        for entry in data.get("sources") or []
+        if entry.get("site") and entry.get("id")
+    }
+
+
+def build_entries(checked: list[Candidate], known: dict[str, str] | None = None) -> list[dict[str, Any]]:
     """One entry per site, sorted by name. Redirects can land several candidates on one blog."""
     by_site: dict[str, Candidate] = {}
     for candidate in checked:
@@ -86,11 +99,22 @@ def build_entries(checked: list[Candidate]) -> list[dict[str, Any]]:
         if not existing.feed and candidate.feed:
             existing.feed = candidate.feed
 
+    ordered = sorted(by_site.values(), key=lambda c: ((c.name or "").lower(), c.site))
+
+    # An article's id is derived from its source id, so reassigning one strands every
+    # article already stored for that blog. Sites that were in the last list keep their
+    # id, and every id the last list handed out is reserved before any new site may
+    # generate one. Reserving all of them, not just the ones seen again in this run,
+    # is what stops a site that was briefly unreachable from losing its id to a
+    # newcomer and coming back as a stranger.
+    known = known or {}
+    pinned = {c.site: known[c.site] for c in ordered if c.site in known}
+    used_ids: set[str] = set(known.values())
+
     entries: list[dict[str, Any]] = []
-    used_ids: set[str] = set()
-    for candidate in sorted(by_site.values(), key=lambda c: ((c.name or "").lower(), c.site)):
+    for candidate in ordered:
         entry: dict[str, Any] = {
-            "id": source_id(candidate.site, used_ids),
+            "id": pinned.get(candidate.site) or source_id(candidate.site, used_ids),
             "name": candidate.name or domain_name(candidate.site),
             "site": candidate.site,
         }

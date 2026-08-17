@@ -1,7 +1,8 @@
-"""Reading the GitHub blog lists and pulling every link out of them.
+"""Reading the blog lists and pulling every link out of them.
 
-A seed is either a repository (github.com/owner/repo) or a topic
-(github.com/topics/name), which expands to its most-starred repositories.
+A seed is a GitHub repository (github.com/owner/repo), a GitHub topic
+(github.com/topics/name), which expands to its most-starred repositories, or the URL of
+a web page that lists blogs.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from .models import Candidate
 from .naming import clean_name
 from .progress import log
 from .tags import fallback_tags_for_seed, provenance_tags_for_seed
-from .urls import NON_PAGE_EXTENSIONS, canonical_site, clean_url
+from .urls import NON_PAGE_EXTENSIONS, canonical_site, clean_url, registrable_domain
 
 USER_AGENT = "blog-source-extractor"
 
@@ -31,10 +32,22 @@ MAX_ATTEMPTS = 4
 URL_RE = re.compile(r"""https?://[^\s<>"'`\]\)\}]+""", re.IGNORECASE)
 MD_LINK_RE = re.compile(r"""\[([^\]]{1,160})\]\((https?://[^\s)]+)\)""", re.IGNORECASE)
 
+# An anchor's href together with its link text. On a linked list the text is the blog's
+# own name, which a bare URL scrape throws away. The lookbehind keeps "href" from
+# matching the tail of another attribute: a data-href would otherwise be read as the
+# link, and the real href alongside it never seen.
+ANCHOR_RE = re.compile(
+    r"""<a\s[^>]*?(?<![-\w])href\s*=\s*("[^"]*"|'[^']*'|[^\s"'>]+)[^>]*>(.*?)</a\s*>""",
+    re.IGNORECASE | re.DOTALL,
+)
+INNER_TAG_RE = re.compile(r"<[^>]+>")
+
 LIST_FILE_EXTENSIONS = {
     ".md", ".markdown", ".txt", ".rst", ".csv", ".tsv", ".json", ".jsonl",
     ".yml", ".yaml", ".xml", ".opml", ".html", ".htm",
 }
+
+HTML_EXTENSIONS = {".html", ".htm"}
 
 LIST_FILE_BASENAMES = {
     "readme", "dataset", "blogs", "blog", "sources", "source", "feeds",
@@ -120,6 +133,31 @@ def candidates_from_opml(text: str) -> list[Candidate]:
     return out
 
 
+def candidates_from_html(text: str) -> list[Candidate]:
+    """Blogs linked from an HTML page, named by their link text.
+
+    Relative hrefs fall out here because clean_url only accepts absolute URLs, which is
+    what we want: on a list page a relative link is navigation, and resolving it against
+    the page would emit the list's own site as a blog.
+
+    The link text is only taken as a name when the link pointed at the blog itself. A
+    list of posts links to articles, where the text is the article's title and would
+    name the blog after whichever post happened to be listed first.
+    """
+    out: list[Candidate] = []
+
+    for href, label in ANCHOR_RE.findall(text):
+        url = clean_url(href.strip("\"'"))
+        site = canonical_site(url) if url else None
+        if not site:
+            continue
+        linked_the_blog = url.rstrip("/") == site.rstrip("/")
+        name = clean_name(INNER_TAG_RE.sub(" ", label)) if linked_the_blog else None
+        out.append(Candidate(site=site, name=name))
+
+    return out
+
+
 def entry_lines(text: str, path: str) -> Iterator[str]:
     """The lines of a list file that hold entries, rather than prose about the list.
 
@@ -144,11 +182,16 @@ def candidates_from_file(
 ) -> dict[str, Candidate]:
     """Every listed blog in one file, keyed by the blog it belongs to."""
     candidates: dict[str, Candidate] = {}
+    own = registrable_domain(urlparse(origin).hostname or "")
 
     def add(site: str | None, name: str | None = None, feed: str | None = None) -> None:
         cleaned = clean_url(site) if site else None
         blog = canonical_site(cleaned) if cleaned else None
         if not blog:
+            return
+
+        # A list links to itself in its navigation and credits; that is not a blog.
+        if own and registrable_domain(urlparse(blog).hostname or "") == own:
             return
 
         candidate = candidates.setdefault(blog, Candidate(site=blog))
@@ -162,6 +205,11 @@ def candidates_from_file(
 
     for candidate in candidates_from_opml(text):
         add(candidate.site, candidate.name, candidate.feed)
+
+    # Before the bare-URL scan below, which finds the same links without their names.
+    if Path(path).suffix.lower() in HTML_EXTENSIONS:
+        for candidate in candidates_from_html(text):
+            add(candidate.site, candidate.name)
 
     for line in entry_lines(text, path):
         # Markdown link text is a useful fallback name, so read those before bare URLs.
@@ -222,8 +270,10 @@ class GitHubClient:
     async def get_json(self, url: str) -> Any:
         return (await self._get(url, self.headers)).json()
 
-    async def get_text(self, url: str) -> str:
-        return (await self._get(url, {"User-Agent": USER_AGENT})).text
+    async def get_text(self, url: str, headers: dict[str, str] | None = None) -> str:
+        # Defaults to no credentials: this also fetches arbitrary list pages, which must
+        # never be sent a GitHub token.
+        return (await self._get(url, headers or {"User-Agent": USER_AGENT})).text
 
     async def default_branch(self, owner: str, repo: str) -> str:
         data = await self.get_json(f"https://api.github.com/repos/{owner}/{repo}")
@@ -239,6 +289,18 @@ class GitHubClient:
 
     async def raw_file(self, owner: str, repo: str, branch: str, path: str) -> str:
         quoted_path = "/".join(quote(part) for part in path.split("/"))
+
+        # raw.githubusercontent.com ignores the token and rate-limits by IP, which a run
+        # of this size trips almost immediately. With a token the API is used instead,
+        # since that is where the higher allowance applies. Without one the API would be
+        # the stricter of the two, so the raw host stays the better choice.
+        if self.token:
+            return await self.get_text(
+                f"https://api.github.com/repos/{owner}/{repo}/contents/{quoted_path}"
+                f"?ref={quote(branch)}",
+                {**self.headers, "Accept": "application/vnd.github.raw"},
+            )
+
         return await self.get_text(
             f"https://raw.githubusercontent.com/{owner}/{repo}/{quote(branch)}/{quoted_path}"
         )
@@ -306,3 +368,29 @@ async def scan_repo(
             merge_into(found, candidate)
 
     return found
+
+
+def page_path(url: str) -> str:
+    """A filename hint for a fetched page, so format detection still works.
+
+    Plenty of list pages carry no extension. Anything fetched over HTTP that cannot be
+    named is treated as HTML, which is what it almost always is.
+    """
+    name = Path(urlparse(url).path).name
+    return name if Path(name).suffix.lower() in LIST_FILE_EXTENSIONS else "page.html"
+
+
+async def scan_page(gh: GitHubClient, url: str) -> dict[str, Candidate]:
+    """Every blog link found on one web page.
+
+    get_text is plain unauthenticated HTTP with retries, so an ordinary list page goes
+    through the same fetch path as a repository file.
+    """
+    text = await gh.get_text(url)
+    return candidates_from_file(
+        page_path(url),
+        text,
+        url,
+        provenance_tags_for_seed(url),
+        fallback_tags_for_seed(url),
+    )

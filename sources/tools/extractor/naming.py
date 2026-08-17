@@ -28,6 +28,10 @@ GENERIC_NAMES = {
 
 MAX_NAME_LENGTH = 80
 
+# List generators write a bracketed placeholder where a title was missing, e.g.
+# "[No title found]". Left alone it becomes the blog's name.
+PLACEHOLDER_RE = re.compile(r"^\[.*\]$")
+
 
 def clean_name(raw: str | None) -> str | None:
     """Tidy a candidate name, or return None if it is unusable."""
@@ -38,7 +42,7 @@ def clean_name(raw: str | None) -> str | None:
     name = re.sub(r"^[\*\-•\d\.\)\s]+", "", name).strip()
     if not name or len(name) > MAX_NAME_LENGTH:
         return None
-    if name.lower() in GENERIC_NAMES:
+    if name.lower() in GENERIC_NAMES or PLACEHOLDER_RE.match(name):
         return None
     if "http://" in name or "https://" in name or name.startswith("!"):
         return None

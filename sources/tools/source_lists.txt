@@ -1,5 +1,6 @@
 # Blog lists to harvest links from.
-# One GitHub repository or topic URL per line; blank lines and # comments are ignored.
+# One URL per line; blank lines and # comments are ignored. A line is either a GitHub
+# repository or topic, whose list files are read, or the URL of a page that links blogs.
 
 # General blog lists
 https://github.com/letsila/awesome-blogs
@@ -44,3 +45,9 @@ https://github.com/wbierbower/awesome-physics
 https://github.com/sindresorhus/awesome
 https://github.com/kagisearch/smallweb
 https://github.com/voku/awesome-web
+
+# Hacker News personal blogs. The repository holds the OPML the list is built from, so
+# it carries each blog's feed URL directly; the rendered page tracks a later thread and
+# still contributes blogs the OPML does not have.
+https://github.com/outcoldman/hackernews-personal-blogs
+https://hn-blogs.kronis.dev/blog-list.html
