@@ -30,7 +30,7 @@ there are no `function.json` files.
 ```go
 app := sdk.FunctionApp()
 app.HTTP("search", searchHandler, sdk.WithMethods("GET"), sdk.WithAuth("anonymous"))
-app.Timer("discover", discoverHandler, sdk.WithSchedule("0 0 */6 * * *"))
+app.Timer("discover", discoverHandler, sdk.WithSchedule(cfg.discoverySchedule))
 worker.Start(app)
 ```
 

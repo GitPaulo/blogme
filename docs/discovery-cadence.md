@@ -3,18 +3,19 @@
 > How often discovery runs, how much it does per run, and how to change it.
 > Companion to [system-design.md](system-design.md).
 
-Sized against the generated source list on **16 August 2026**: 28,269 sources, 19,221 with a
+Sized against the generated source list on **17 August 2026**: 28,270 sources, 19,222 with a
 feed and 9,048 without.
 
 ## Summary
 
-| Setting | Default | Meaning |
-| --- | --- | --- |
-| `BLOGME_DISCOVERY_SCHEDULE` | `0 0 */6 * * *` | Timer cron, every six hours |
-| `BLOGME_DISCOVERY_BATCH` | `200` | Sources examined per run |
+| Setting                     | Deployed      | Code default    | Meaning                  |
+| --------------------------- | ------------- | --------------- | ------------------------ |
+| `BLOGME_DISCOVERY_SCHEDULE` | `0 0 * * * *` | `0 0 */6 * * *` | Timer cron, hourly       |
+| `BLOGME_DISCOVERY_BATCH`    | `500`         | `200`           | Sources examined per run |
 
 Both are Function App application settings, so changing cadence is a configuration change
-and needs **no redeploy**.
+and needs **no redeploy**. The deployed values override the code defaults in
+[config.go](../api/config.go); the fallbacks apply only when a setting is absent.
 
 ## Why discovery is batched
 
@@ -41,24 +42,24 @@ Coverage is simply how many sources a day the schedule gets through:
 
 ```text
 sources/day = (24 / schedule_hours) x batch_size
-full pass   = 28,269 / sources per day
+full pass   = 28,270 / sources per day
 ```
 
-| Batch | Schedule | Sources/day | Full pass |
-| --- | --- | --- | --- |
-| 200 | every 6h | 800 | 35 days |
-| 500 | hourly | 12,000 | 2.4 days |
-| 1,000 | hourly | 24,000 | 1.2 days |
-| 2,000 | hourly | 48,000 | 0.6 days |
+| Batch   | Schedule   | Sources/day | Full pass    |
+| ------- | ---------- | ----------- | ------------ |
+| 200     | every 6h   | 800         | 35 days      |
+| **500** | **hourly** | **12,000**  | **2.4 days** |
+| 1,000   | hourly     | 24,000      | 1.2 days     |
+| 2,000   | hourly     | 48,000      | 0.6 days     |
 
-The defaults are deliberately conservative and are **not** a recommendation for production.
-At 35 days per pass a blog's new post could take a month to become searchable, which
-defeats the goal in the [high-level plan](blog-discovery-search-high-level-plan.md) that
-new posts appear automatically.
+The code defaults are deliberately conservative and are **not** a recommendation for
+production. At 35 days per pass a blog's new post could take a month to become searchable,
+which defeats the goal in the [high-level plan](blog-discovery-search-high-level-plan.md)
+that new posts appear automatically.
 
-**Recommended:** batch 500, hourly. That is a full pass every 2.4 days, which is a
-reasonable freshness target for long-form writing that is published weekly at best. Raise
-it only after measuring how long a real run takes.
+**Deployed:** batch 500, hourly. That is a full pass every 2.4 days, which is a reasonable
+freshness target for long-form writing that is published weekly at best. Raise it only
+after measuring how long a real run takes.
 
 ## Constraints to respect
 
@@ -93,9 +94,11 @@ split, but it is not worth the complexity until measurements justify it.
 which is why the service now runs on Basic; see [tech-stack.md](tech-stack.md). Cadence
 sets how fast the next ceiling arrives, so check index size against the
 [service limits](https://learn.microsoft.com/en-us/azure/search/search-limits-quotas-capacity)
-before raising it. Truncating articles to 1,000 words is what keeps a document small
-enough for this to stay a slow problem — that cap is the main lever on index size, so
-raising it for recall and raising cadence for freshness both spend the same budget.
+before raising it. On 17 August 2026 the index held 4,847 documents in 23.5 MB, or 0.15%
+of Basic's 15 GB, so the ceiling is far off at the current cadence. Truncating articles to
+1,000 words is what keeps a document small enough for this to stay a slow problem — that
+cap is the main lever on index size, so raising it for recall and raising cadence for
+freshness both spend the same budget.
 
 ## Changing it
 
@@ -105,12 +108,21 @@ az functionapp config appsettings set \
   --settings BLOGME_DISCOVERY_BATCH=500 BLOGME_DISCOVERY_SCHEDULE="0 0 * * * *"
 ```
 
+Applying this restarts the app, so confirm `/api/health` returns `200` afterwards. Read
+the values back with:
+
+```bash
+az functionapp config appsettings list \
+  --name <FUNCTION_APP> --resource-group <RESOURCE_GROUP> \
+  --query "[?starts_with(name,'BLOGME_DISCOVERY')].{name:name,value:value}" -o table
+```
+
 The schedule is a six-field NCRONTAB expression, where the first field is seconds.
 
-| Expression | Meaning |
-| --- | --- |
-| `0 0 */6 * * *` | Every six hours |
-| `0 0 * * * *` | Hourly |
+| Expression       | Meaning          |
+| ---------------- | ---------------- |
+| `0 0 */6 * * *`  | Every six hours  |
+| `0 0 * * * *`    | Hourly           |
 | `0 */30 * * * *` | Every 30 minutes |
 
 ## When batching stops being enough
