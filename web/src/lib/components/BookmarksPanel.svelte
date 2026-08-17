@@ -56,15 +56,18 @@
 			});
 	});
 
+	// The store rolls a failed delete back and reports it through bookmarks.error, so
+	// the row only leaves the list once the store agrees it is gone. Dropping it either
+	// way would leave the panel showing a collection the store does not have.
 	async function removeOne(url: string) {
 		await bookmarks.remove(url);
-		items = items.filter((item) => item.url !== url);
+		if (!bookmarks.has(url)) items = items.filter((item) => item.url !== url);
 	}
 
 	async function removeAll() {
 		confirming = false;
 		await bookmarks.clear();
-		items = [];
+		if (bookmarks.count === 0) items = [];
 	}
 
 	function host(url: string) {
