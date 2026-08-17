@@ -88,10 +88,11 @@
 			color={filters.bookmarkedOnly ? 'primary' : 'alternative'}
 			class="shrink-0 gap-2"
 			aria-pressed={filters.bookmarkedOnly}
+			aria-label="Bookmarked"
 			onclick={() => (filters.bookmarkedOnly = !filters.bookmarkedOnly)}
 		>
 			<BookmarkSolid class="h-4 w-4" />
-			Bookmarked
+			<span class="hidden sm:inline">Bookmarked</span>
 		</Button>
 
 		<Button
@@ -99,10 +100,11 @@
 			color={sitemapped ? 'primary' : 'alternative'}
 			class="shrink-0 gap-2"
 			aria-pressed={sitemapped}
+			aria-label="Sitemapped"
 			onclick={() => (sitemapped = !sitemapped)}
 		>
 			<CodeBranchOutline class="h-4 w-4" />
-			Sitemapped
+			<span class="hidden sm:inline">Sitemapped</span>
 		</Button>
 		<Tooltip class="max-w-64 text-center">
 			Show only posts found through a site's page list instead of its feed.
