@@ -107,10 +107,11 @@
 							>
 								{item.title}
 							</a>
-							<span class="mt-1 block truncate text-xs text-gray-500 dark:text-gray-400">
-								{host(item.url)}{#if published}
-									&middot;
-									<time datetime={item.publishedAt}>{published}</time>
+							<span class="mt-1 flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+								<span class="truncate">{host(item.url)}</span>
+								{#if published}
+									<span aria-hidden="true">&middot;</span>
+									<time datetime={item.publishedAt} class="shrink-0">{published}</time>
 								{/if}
 							</span>
 						</div>

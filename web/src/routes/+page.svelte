@@ -1,6 +1,8 @@
 <script lang="ts">
-	import { Alert, Badge, Button, Card, Heading, P, Search } from 'flowbite-svelte';
+	import { Alert, Badge, Button, Card, Heading, Input, P, Spinner } from 'flowbite-svelte';
+	import { SearchOutline } from 'flowbite-svelte-icons';
 	import BookmarkButton from '$lib/components/BookmarkButton.svelte';
+	import FilterBar from '$lib/components/FilterBar.svelte';
 	import {
 		MAX_OFFSET,
 		MAX_QUERY_LENGTH,
@@ -9,12 +11,15 @@
 		search,
 		type SearchResult
 	} from '$lib/api';
+	import { bookmarks } from '$lib/bookmarks/store.svelte';
 	import { formatDate } from '$lib/date';
+	import { applyFilters, emptyFilters, isFiltered } from '$lib/filters';
 
 	const DEBOUNCE_MS = 300;
 
 	let query = $state('');
 	let results = $state<SearchResult[]>([]);
+	let filters = $state(emptyFilters());
 	let total = $state(0);
 	let nextOffset = $state(0);
 	let status = $state<'idle' | 'loading' | 'done' | 'error'>('idle');
@@ -28,9 +33,18 @@
 	const searchable = $derived(term.length >= MIN_QUERY_LENGTH);
 	const tooShort = $derived(term.length > 0 && !searchable);
 	const hasMore = $derived(status === 'done' && nextOffset < total && nextOffset <= MAX_OFFSET);
+	const filtered = $derived(applyFilters(results, filters, (url) => bookmarks.has(url)));
 	const summary = $derived(
-		`Showing ${results.length} of ${total.toLocaleString()} ${total === 1 ? 'result' : 'results'}`
+		isFiltered(filters)
+			? `Showing ${filtered.length} of ${results.length} loaded ${results.length === 1 ? 'result' : 'results'}`
+			: `Showing ${results.length} of ${total.toLocaleString()} ${total === 1 ? 'result' : 'results'}`
 	);
+
+	// The bookmarked filter needs the saved keys, which the drawer would otherwise only
+	// load on its own schedule.
+	$effect(() => {
+		bookmarks.load();
+	});
 
 	function cancel() {
 		clearTimeout(timer);
@@ -51,8 +65,11 @@
 		const current = new AbortController();
 		controller = current;
 
-		if (offset === 0) status = 'loading';
-		else loadingMore = true;
+		if (offset === 0) {
+			status = 'loading';
+			// Filters describe the result set on screen, so a fresh search starts clean.
+			filters = emptyFilters();
+		} else loadingMore = true;
 		error = '';
 		try {
 			const response = await search(value, { offset, signal: current.signal });
@@ -90,6 +107,7 @@
 		if (!searchable) {
 			cancel();
 			results = [];
+			filters = emptyFilters();
 			total = 0;
 			nextOffset = 0;
 			error = '';
@@ -98,7 +116,7 @@
 		}
 
 		const value = term;
-		// The pending debounce is still work in progress, so the button stays busy throughout.
+		// The pending debounce is still work in progress, so the spinner stays up throughout.
 		status = 'loading';
 		clearTimeout(timer);
 		timer = setTimeout(() => run(value, 0), DEBOUNCE_MS);
@@ -125,18 +143,25 @@
 		Find human-written, long-form blog posts worth reading.
 	</P>
 
-	<form {onsubmit} role="search" class="flex gap-2">
-		<Search
+	<form {onsubmit} role="search">
+		<Input
+			type="search"
 			bind:value={query}
 			size="md"
 			placeholder="something you want to read about..."
-			classes={{ input: 'placeholder-gray-400' }}
+			class="ps-10 placeholder-gray-400"
 			maxlength={MAX_QUERY_LENGTH}
 			aria-label="Search query"
-		/>
-		<Button type="submit" loading={status === 'loading'} disabled={!searchable} class="shrink-0">
-			Search
-		</Button>
+			aria-busy={status === 'loading'}
+		>
+			{#snippet left()}
+				{#if status === 'loading'}
+					<Spinner size="4" aria-hidden="true" />
+				{:else}
+					<SearchOutline class="h-4 w-4" aria-hidden="true" />
+				{/if}
+			{/snippet}
+		</Input>
 	</form>
 
 	{#if tooShort}
@@ -149,7 +174,7 @@
 		{#if status === 'loading'}
 			Searching
 		{:else if status === 'done'}
-			{results.length === 0 ? 'No results found' : summary}
+			{filtered.length === 0 && !isFiltered(filters) ? 'No results found' : summary}
 		{/if}
 	</p>
 
@@ -167,8 +192,14 @@
 			{summary}
 		</P>
 
+		<FilterBar {results} bind:filters />
+
+		{#if filtered.length === 0}
+			<Alert color="gray" class="mt-4">No loaded results match these filters.</Alert>
+		{/if}
+
 		<div class="mt-3 space-y-4">
-			{#each results as result (result.url)}
+			{#each filtered as result (result.url)}
 				{@const published = formatDate(result.publishedAt)}
 				<Card class="max-w-none p-4">
 					<div class="flex items-start gap-3">
