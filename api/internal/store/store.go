@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/GitPaulo/blogme/api/internal/article"
@@ -27,4 +28,16 @@ func (s *Store) Save(ctx context.Context, a article.Article) error {
 		return fmt.Errorf("marshal %s: %w", a.ID, err)
 	}
 	return s.client.Upload(ctx, s.container, a.ID+".json", data)
+}
+
+// Has reports whether an article is already stored, reading metadata only.
+func (s *Store) Has(ctx context.Context, id string) (bool, error) {
+	_, err := s.client.ETag(ctx, s.container, id+".json")
+	if errors.Is(err, blob.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }

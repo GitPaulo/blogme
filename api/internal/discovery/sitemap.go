@@ -92,6 +92,11 @@ func (d *Discoverer) crawlSitemap(ctx context.Context, s sources.Source) ([]arti
 		if !d.robots.allowed(ctx, link.url) {
 			continue
 		}
+		// A sitemap lists a whole archive but one run takes only a few pages, so
+		// skipping what is already stored is what lets later runs reach further in.
+		if stored, err := d.store.Has(ctx, articleID(s.ID, link.url.String())); err != nil || stored {
+			continue
+		}
 		if a, ok := d.sitemapArticle(ctx, s, link); ok {
 			articles = append(articles, a)
 		}
@@ -278,24 +283,20 @@ func (d *Discoverer) sitemapArticle(ctx context.Context, s sources.Source, link 
 		summary = content
 	}
 
-	// The page's own date is the accurate one; lastmod only says when the file
-	// changed, so it stands in when the page says nothing.
-	published := meta.Published
-	if published.IsZero() {
-		published = link.lastMod
-	}
-
 	return article.Article{
-		ID:          articleID(s.ID, link.url.String()),
-		URL:         link.url.String(),
-		Title:       meta.Title,
-		Author:      s.Name,
-		SourceID:    s.ID,
-		Origin:      article.OriginSitemap,
-		Summary:     truncateWords(summary, summaryWords),
-		Content:     truncateWords(content, d.contentWords),
-		Topics:      s.Tags,
-		PublishedAt: published,
+		ID:       articleID(s.ID, link.url.String()),
+		URL:      link.url.String(),
+		Title:    meta.Title,
+		Author:   s.Name,
+		SourceID: s.ID,
+		Origin:   article.OriginSitemap,
+		Summary:  truncateWords(summary, summaryWords),
+		Content:  truncateWords(content, d.contentWords),
+		Topics:   s.Tags,
+		// Deliberately not the sitemap's lastmod: that is when the file changed, which
+		// for most publishing systems is a bulk regeneration and would date every page
+		// today. An unknown date stays unknown.
+		PublishedAt: meta.Published,
 		FetchedAt:   time.Now().UTC(),
 	}, true
 }
