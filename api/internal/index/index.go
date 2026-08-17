@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -28,6 +29,8 @@ const (
 	apiVersion = "2024-07-01"
 	// Azure AI Search rejects indexing requests above 1000 documents.
 	maxBatch = 1000
+	// How much of a failed response is quoted back in the error.
+	maxErrorBytes = 2 << 10
 )
 
 type Index struct {
@@ -265,8 +268,10 @@ func (i *Index) do(ctx context.Context, method, path string, body, out any) erro
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 300 {
+		// Bounded: this error text ends up in a log record, and an upstream failure
+		// is entitled to return a response body of any size it likes.
 		var msg bytes.Buffer
-		_, _ = msg.ReadFrom(resp.Body)
+		_, _ = msg.ReadFrom(io.LimitReader(resp.Body, maxErrorBytes))
 		return fmt.Errorf("search returned %s: %s", resp.Status, strings.TrimSpace(msg.String()))
 	}
 

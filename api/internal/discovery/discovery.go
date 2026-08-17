@@ -34,6 +34,26 @@ type sourceResult struct {
 	source   sources.Source
 	articles []article.Article
 	err      error
+	// How long the crawl took. Kept per source because the slow ones are what
+	// decide whether a pass fits in the invocation, and an average hides them.
+	duration time.Duration
+}
+
+// failureKind buckets a source failure so a pass can be summarised by cause
+// rather than by a count that says only "some blogs did not work".
+//
+// Timeouts are called out because they mean a source is costing more than its
+// share of the run: a rising count is how the sitemap path's growing scan cost
+// becomes visible before it starts eating whole passes.
+func failureKind(err error) string {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timeout"
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	default:
+		return "error"
+	}
 }
 
 // Discoverer walks the approved source list, turns new posts into canonical
@@ -87,6 +107,8 @@ func New(provider sources.Provider, st *store.Store, idx *index.Index, cur *Curs
 
 // Run performs one bounded discovery pass.
 func (d *Discoverer) Run(ctx context.Context) error {
+	started := time.Now()
+
 	list, err := d.sources.Load(ctx)
 	if err != nil {
 		return fmt.Errorf("load sources: %w", err)
@@ -111,6 +133,7 @@ func (d *Discoverer) Run(ctx context.Context) error {
 		pending   []article.Article
 		processed int
 		failed    int
+		timedOut  int
 	)
 
 	flush := func() error {
@@ -152,8 +175,11 @@ func (d *Discoverer) Run(ctx context.Context) error {
 			sourceCtx, cancel := context.WithTimeout(ctx, sourceTimeout)
 			defer cancel()
 
+			start := time.Now()
 			found, err := d.crawl(sourceCtx, s)
-			results <- sourceResult{source: s, articles: found, err: err}
+			results <- sourceResult{
+				source: s, articles: found, err: err, duration: time.Since(start),
+			}
 		}()
 	}
 
@@ -170,10 +196,25 @@ func (d *Discoverer) Run(ctx context.Context) error {
 			err = save(res.articles)
 		}
 		if err != nil {
-			slog.WarnContext(ctx, "source failed", "source", res.source.ID, "error", err)
+			kind := failureKind(err)
+			if kind == "timeout" {
+				timedOut++
+			}
+			slog.WarnContext(ctx, "source failed",
+				"source_id", res.source.ID,
+				"kind", kind,
+				"duration_ms", res.duration.Milliseconds(),
+				"error", err)
 			failed++
 			continue
 		}
+
+		// Debug rather than Info: one line per source is the detail you want when
+		// hunting a slow pass, and noise the rest of the time.
+		slog.DebugContext(ctx, "source done",
+			"source_id", res.source.ID,
+			"articles", len(res.articles),
+			"duration_ms", res.duration.Milliseconds())
 
 		processed += len(res.articles)
 
@@ -201,7 +242,12 @@ func (d *Discoverer) Run(ctx context.Context) error {
 	}
 
 	slog.InfoContext(ctx, "discovery pass complete",
-		"articles", processed, "sources_failed", failed, "next_cursor", next)
+		"articles", processed,
+		"sources", len(batch),
+		"sources_failed", failed,
+		"sources_timed_out", timedOut,
+		"duration_ms", time.Since(started).Milliseconds(),
+		"next_cursor", next)
 	return nil
 }
 

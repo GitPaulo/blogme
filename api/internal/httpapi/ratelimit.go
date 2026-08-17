@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"strconv"
@@ -162,7 +163,7 @@ func stripPort(addr string) string {
 // writeRateLimited answers a throttled request with what a client needs to back
 // off politely: Retry-After, which is understood everywhere, alongside the
 // RateLimit-* family that most API clients now read.
-func writeRateLimited(w http.ResponseWriter, limit int, wait time.Duration) {
+func writeRateLimited(ctx context.Context, w http.ResponseWriter, limit int, wait time.Duration) {
 	// Rounded up, because a client that waits the truncated value arrives early
 	// and is refused again.
 	seconds := int(wait.Seconds()) + 1
@@ -172,5 +173,5 @@ func writeRateLimited(w http.ResponseWriter, limit int, wait time.Duration) {
 	w.Header().Set("RateLimit-Remaining", "0")
 	w.Header().Set("RateLimit-Reset", strconv.Itoa(seconds))
 
-	writeError(w, http.StatusTooManyRequests, "too many requests; wait a moment and try again")
+	writeError(ctx, w, http.StatusTooManyRequests, "too many requests; wait a moment and try again")
 }

@@ -1,11 +1,14 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/GitPaulo/blogme/api/internal/article"
 	"github.com/GitPaulo/blogme/api/internal/index"
@@ -24,7 +27,30 @@ const (
 	// Keyword ranking scores the whole result set, so it can page as deep as is worth
 	// paying for. Relevance is long gone by this depth, so the tail stops here.
 	maxKeywordOffset = 1000
+	// How much of a query reaches the logs. Knowing what was searched for is the
+	// difference between "search is slow" and "this search is slow", but a query is
+	// third-party input and the telemetry bill is charged by volume.
+	maxLoggedQuery = 128
 )
+
+// logQuery makes a caller's query safe to log.
+//
+// Control characters are folded to spaces so nothing in a query can forge a line
+// break and fake a second log record, and the result is cut on a rune boundary so
+// a multi-byte character is never split into mojibake.
+func logQuery(q string) string {
+	cleaned := strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, q)
+
+	if runes := []rune(cleaned); len(runes) > maxLoggedQuery {
+		return string(runes[:maxLoggedQuery]) + "…"
+	}
+	return cleaned
+}
 
 // allowSemantic spends from the reranking budgets, the caller's own first. Order
 // matters: checking the service-wide budget first would let a caller who is
@@ -77,27 +103,34 @@ type searchResponse struct {
 
 // Search handles GET /api/search?q=...&limit=...&offset=...&origin=...
 func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	started := time.Now()
+	caller := clientKey(r)
+
 	// Before any work, including validation: an execution costs money whatever the
 	// request turns out to say.
-	caller, now := clientKey(r), time.Now()
-	if ok, wait := h.perClient.allow(caller, now); !ok {
-		writeRateLimited(w, h.limits.PerMinute, wait)
+	if ok, wait := h.perClient.allow(caller, started); !ok {
+		// Warn, not Info: being throttled is either abuse worth looking at or a limit
+		// set too low, and both need someone to notice.
+		slog.WarnContext(ctx, "search throttled",
+			"caller", caller, "retry_after_s", int(wait.Seconds())+1)
+		writeRateLimited(ctx, w, h.limits.PerMinute, wait)
 		return
 	}
 
 	q := r.URL.Query().Get("q")
 	if q == "" {
-		writeError(w, http.StatusBadRequest, "query parameter 'q' is required")
+		writeError(ctx, w, http.StatusBadRequest, "query parameter 'q' is required")
 		return
 	}
 	if len(q) > maxQueryLen {
-		writeError(w, http.StatusBadRequest, "query parameter 'q' is too long")
+		writeError(ctx, w, http.StatusBadRequest, "query parameter 'q' is too long")
 		return
 	}
 
 	limit, ok := queryInt(r, "limit", defaultLimit, 1, maxLimit)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "query parameter 'limit' must be between 1 and "+strconv.Itoa(maxLimit))
+		writeError(ctx, w, http.StatusBadRequest, "query parameter 'limit' must be between 1 and "+strconv.Itoa(maxLimit))
 		return
 	}
 
@@ -108,14 +141,14 @@ func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
 	case index.RankSemantic:
 		rank = index.RankSemantic
 	default:
-		writeError(w, http.StatusBadRequest, "query parameter 'mode' must be 'semantic' or 'keyword'")
+		writeError(ctx, w, http.StatusBadRequest, "query parameter 'mode' must be 'semantic' or 'keyword'")
 		return
 	}
 
 	maxOffset := maxOffsetFor(rank)
 	offset, ok := queryInt(r, "offset", 0, 0, maxOffset)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "query parameter 'offset' must be between 0 and "+strconv.Itoa(maxOffset))
+		writeError(ctx, w, http.StatusBadRequest, "query parameter 'offset' must be between 0 and "+strconv.Itoa(maxOffset))
 		return
 	}
 
@@ -127,30 +160,50 @@ func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
 	//
 	// Deliberately after the offset check, so the depth a caller is allowed still
 	// follows the mode they asked for rather than the one throttling gave them.
-	if rank == index.RankSemantic && !h.allowSemantic(caller, now) {
-		slog.InfoContext(r.Context(), "semantic budget spent, using keyword ranking")
-		rank = index.RankKeyword
+	//
+	// Recorded as a field on the one search line below rather than logged on its own,
+	// so a single query is a single record.
+	downgraded := false
+	if rank == index.RankSemantic && !h.allowSemantic(caller, started) {
+		rank, downgraded = index.RankKeyword, true
 	}
 
 	origin := r.URL.Query().Get("origin")
 	if origin != "" && origin != article.OriginFeed && origin != article.OriginSitemap {
-		writeError(w, http.StatusBadRequest, "query parameter 'origin' must be 'feed' or 'sitemap'")
+		writeError(ctx, w, http.StatusBadRequest, "query parameter 'origin' must be 'feed' or 'sitemap'")
 		return
 	}
 
-	results, total, err := h.index.Query(r.Context(), q, index.QueryOptions{
+	results, total, err := h.index.Query(ctx, q, index.QueryOptions{
 		Limit:  limit,
 		Offset: offset,
 		Origin: origin,
 		Rank:   rank,
 	})
 	if err != nil {
-		slog.ErrorContext(r.Context(), "search failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "search failed")
+		slog.ErrorContext(ctx, "search failed",
+			"query", logQuery(q),
+			"duration_ms", time.Since(started).Milliseconds(),
+			"error", err)
+		writeError(ctx, w, http.StatusInternalServerError, "search failed")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, searchResponse{
+	// One line per search, whatever the outcome. Query volume, latency and how many
+	// results came back are the entire operational picture for a search engine, and
+	// none of it was visible while only failures were logged: a corpus that quietly
+	// stopped matching anything looked exactly like a quiet day.
+	slog.InfoContext(ctx, "search",
+		"query", logQuery(q),
+		"rank", rank,
+		"origin", origin,
+		"offset", offset,
+		"count", len(results),
+		"total", total,
+		"downgraded", downgraded,
+		"duration_ms", time.Since(started).Milliseconds())
+
+	writeJSON(ctx, w, http.StatusOK, searchResponse{
 		Query:   q,
 		Count:   len(results),
 		Total:   total,
@@ -175,18 +228,25 @@ func queryInt(r *http.Request, name string, fallback, minimum, maximum int) (int
 }
 
 // Health handles GET /api/health.
+//
+// Deliberately not logged: a platform probe calls this constantly, and one line
+// per probe would bury everything worth reading.
 func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	writeJSON(r.Context(), w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func writeJSON(w http.ResponseWriter, status int, body any) {
+// The context is carried purely so a failed write is still attributable to the
+// invocation that was serving it.
+func writeJSON(ctx context.Context, w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(body); err != nil {
-		slog.Error("write response failed", "error", err)
+		// Usually a caller that hung up mid-response, which is their business rather
+		// than a fault of ours — hence Warn.
+		slog.WarnContext(ctx, "write response failed", "error", err)
 	}
 }
 
-func writeError(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
+func writeError(ctx context.Context, w http.ResponseWriter, status int, msg string) {
+	writeJSON(ctx, w, status, map[string]string{"error": msg})
 }

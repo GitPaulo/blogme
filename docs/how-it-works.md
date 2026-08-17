@@ -159,6 +159,55 @@ scoring part-way down a scroll. Reranking is metered, so a query is downgraded t
 ranking when the throttle says the budget is spent, and retried without it if the service
 refuses anyway. Search degrades rather than failing, either way.
 
+## Logging
+
+There is no logger to configure. The Functions Go worker installs one at import time:
+its slog handler attaches `invocation_id`, `function_name` and `trigger_type` to every
+record, and once the worker connects it sends them to the host over gRPC, which is what
+puts them in Application Insights. HTTP handlers get this for free, because the
+dispatcher hands the handler a request whose context carries the invocation.
+
+Two rules follow, and the first one matters more than it looks:
+
+- **Never call `slog.SetDefault`.** Installing a handler of our own replaces the SDK's,
+  and records fall back to stderr without `invocation_id`. Nothing fails loudly; the logs
+  simply stop being correlated.
+  [`logging_test.go`](../api/internal/httpapi/logging_test.go) pins this.
+- **Always use the `*Context` variants** — `slog.InfoContext(ctx, …)` — inside a request
+  or a timer run. The plain `slog.Info` is right only at startup, where no invocation
+  exists yet.
+
+Levels carry a meaning worth keeping to:
+
+| Level   | Means                                                            |
+| ------- | ---------------------------------------------------------------- |
+| `Error` | We are broken and someone must look                              |
+| `Warn`  | One input was bad, or a caller was refused; the run continued    |
+| `Info`  | One line per unit of work — a search, a discovery pass, startup  |
+| `Debug` | Per-item detail, off by default                                  |
+
+Field names are shared across packages so a query works everywhere: `duration_ms`,
+`source_id`, `url`, `error`, `count`, `total`, `rank`, `kind`, `caller`.
+
+Every search emits exactly one `search` record with the query, `count`, `total`, `rank`
+and `duration_ms`. That one line is the difference between knowing search works and
+assuming it: a corpus that has quietly stopped matching anything otherwise looks
+identical to a quiet day. Queries are logged, capped at 128 characters and with control
+characters folded to spaces so nothing in a query can forge a second log record. Health
+checks are deliberately not logged — a platform probe would bury everything else.
+
+Turning on debug needs no redeploy. Add the app setting and restart:
+
+```bash
+az functionapp config appsettings set \
+  --name <FUNCTION_APP> --resource-group <RESOURCE_GROUP> \
+  --settings AzureFunctionsJobHost__logging__logLevel__default=Debug
+```
+
+The host pushes that threshold to the worker, which filters by category before anything
+crosses the wire. Set it back to `Information` when finished — at `Debug` the discovery
+job logs a line per source, which at 500 sources an hour is not something to leave on.
+
 ## Where each stage lives
 
 | Stage                   | Code                                                                            |
