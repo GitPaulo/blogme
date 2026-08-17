@@ -103873,6 +103873,11 @@ sources:
     site: https://sgillies.net/
     feed: https://sgillies.net/rss.xml
     tags: [travel, health, personal-blogs, independent-web, small-web]
+  - id: seangoedecke
+    name: Sean Goedecke
+    site: https://www.seangoedecke.com/
+    feed: https://www.seangoedecke.com/rss.xml
+    tags: [software-engineering, ai, tech]
   - id: seangransee
     name: Sean Gransee | Full-stack Software Engineer
     site: https://seangransee.com/
