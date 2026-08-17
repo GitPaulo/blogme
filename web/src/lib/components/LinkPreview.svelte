@@ -16,6 +16,10 @@
 	const WIDTH = 420;
 	const HEIGHT = 460;
 	const GAP = 10;
+	// Wider than GAP because a cursor is not a point: the arrow glyph is roughly 20px
+	// tall, and a panel edge tucked under it swallows the hover that opened the preview
+	// and lands the iframe's scrollbar beneath the pointer.
+	const CURSOR_GAP = 24;
 	const MARGIN = 12;
 	// No allow-top-navigation, allow-popups, allow-forms or allow-downloads: the framed
 	// page renders, scrolls and follows its own links, and can do nothing else.
@@ -42,11 +46,17 @@
 
 	const clamp = (value: number, limit: number) => Math.max(MARGIN, Math.min(value, limit - MARGIN));
 
-	// Anchored to the pointer, offset by GAP and flipped to whichever side of the cursor
+	// Anchored to the pointer, offset clear of the cursor and flipped to whichever side
 	// has room, the way native tooltips and floating-ui popovers avoid clipping.
 	function placeAtPoint(x: number, y: number) {
-		const left = x + GAP + WIDTH + MARGIN <= window.innerWidth ? x + GAP : x - GAP - WIDTH;
-		const top = y + GAP + HEIGHT + MARGIN <= window.innerHeight ? y + GAP : y - GAP - HEIGHT;
+		const left =
+			x + CURSOR_GAP + WIDTH + MARGIN <= window.innerWidth
+				? x + CURSOR_GAP
+				: x - CURSOR_GAP - WIDTH;
+		const top =
+			y + CURSOR_GAP + HEIGHT + MARGIN <= window.innerHeight
+				? y + CURSOR_GAP
+				: y - CURSOR_GAP - HEIGHT;
 		return {
 			left: clamp(left, window.innerWidth - WIDTH),
 			top: clamp(top, window.innerHeight - HEIGHT)
