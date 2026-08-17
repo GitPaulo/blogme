@@ -185,10 +185,7 @@
 	</p>
 
 	{#if error}
-		<Alert color="red" class="mt-6">
-			<span class="font-medium">Search failed.</span>
-			{error}
-		</Alert>
+		<Alert color="red" class="mt-6">{error}</Alert>
 	{/if}
 
 	{#if status === 'done' && results.length === 0}

@@ -126,15 +126,24 @@ export async function search(
 	try {
 		response = await fetch(url, { signal: combined, headers: { Accept: 'application/json' } });
 	} catch (e) {
-		if (timeout.aborted && !signal?.aborted) throw new Error('The search timed out. Try again.');
-		throw e;
+		if (signal?.aborted) throw e;
+		if (timeout.aborted) throw new Error('The search timed out. Try again.');
+		throw new Error('Could not reach the search service. Check your connection.');
 	}
 
 	const body = await response.json().catch(() => null);
 
 	if (!response.ok) {
-		const message = text((body as Record<string, unknown> | null)?.error, MAX_ERROR_LENGTH);
-		throw new Error(message ?? `The server returned an error (${response.status}).`);
+		// A 5xx body only restates the failure, so the reader gets a useful sentence instead.
+		const detail =
+			response.status < 500
+				? text((body as Record<string, unknown> | null)?.error, MAX_ERROR_LENGTH)
+				: undefined;
+		throw new Error(
+			detail
+				? detail.charAt(0).toUpperCase() + detail.slice(1)
+				: 'The search service is unavailable. Try again in a moment.'
+		);
 	}
 
 	return toResponse(body, term, offset);

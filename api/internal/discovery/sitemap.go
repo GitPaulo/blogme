@@ -9,6 +9,7 @@ import (
 	"path"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,8 +20,11 @@ import (
 const (
 	maxSitemapBytes = 8 << 20 // 8 MB
 
-	// A sitemap index fans out into more documents; two levels covers the common
-	// layouts without letting one source spend a whole run fetching sitemaps.
+	// How many locations to probe before giving up on a site having a sitemap.
+	maxSitemapTries = 5
+
+	// A sitemap index fans out into more documents; taking the few most recently
+	// changed keeps one source from spending a whole run fetching sitemaps.
 	maxSitemapDocs = 4
 
 	// Enough to reach the recent end of a large archive without holding a huge list.
@@ -34,6 +38,10 @@ const (
 // A sitemap is XML, and plenty of sites answer any unknown path with their homepage,
 // so the document has to look like a sitemap before it is parsed.
 var sitemapRootRe = regexp.MustCompile(`(?i)<(urlset|sitemapindex)[\s>]`)
+
+// Blogs very often date a post in its URL, as /2024/11/02/title or /2024-11-02-title.
+// For a page carrying no date metadata that path is the only honest signal there is.
+var urlDateRe = regexp.MustCompile(`(?:^|/)(\d{4})[/-](\d{1,2})(?:[/-](\d{1,2}))?(?:[/-]|$)`)
 
 // Paths that exist to organise a site rather than to be read.
 var nonArticleSegments = map[string]bool{
@@ -122,8 +130,9 @@ func (d *Discoverer) sitemapLinks(ctx context.Context, site *url.URL) ([]sitemap
 			return parseTime(children[i].LastMod).After(parseTime(children[j].LastMod))
 		})
 
+		var fetched []string
 		for _, child := range children {
-			if len(entries) >= maxSitemapEntries {
+			if len(fetched) >= maxSitemapDocs || len(entries) >= maxSitemapEntries {
 				break
 			}
 			childURL, err := base.Parse(strings.TrimSpace(child.Loc))
@@ -134,6 +143,7 @@ func (d *Discoverer) sitemapLinks(ctx context.Context, site *url.URL) ([]sitemap
 			if err != nil {
 				continue
 			}
+			fetched = append(fetched, childURL.String())
 			entries = append(entries, nested.URLs...)
 		}
 	}
@@ -164,7 +174,7 @@ func (d *Discoverer) findSitemap(ctx context.Context, site *url.URL) (sitemapDoc
 	var lastErr error
 
 	for i, candidate := range sitemapCandidates(ctx, d.robots, site) {
-		if i >= maxSitemapDocs {
+		if i >= maxSitemapTries {
 			break
 		}
 
@@ -283,6 +293,11 @@ func (d *Discoverer) sitemapArticle(ctx context.Context, s sources.Source, link 
 		summary = content
 	}
 
+	published := meta.Published
+	if published.IsZero() {
+		published = dateFromURL(link.url.Path)
+	}
+
 	return article.Article{
 		ID:       articleID(s.ID, link.url.String()),
 		URL:      link.url.String(),
@@ -296,7 +311,28 @@ func (d *Discoverer) sitemapArticle(ctx context.Context, s sources.Source, link 
 		// Deliberately not the sitemap's lastmod: that is when the file changed, which
 		// for most publishing systems is a bulk regeneration and would date every page
 		// today. An unknown date stays unknown.
-		PublishedAt: meta.Published,
+		PublishedAt: published,
 		FetchedAt:   time.Now().UTC(),
 	}, true
+}
+
+// dateFromURL reads a publication date out of a dated URL path.
+func dateFromURL(path string) time.Time {
+	m := urlDateRe.FindStringSubmatch(path)
+	if m == nil {
+		return time.Time{}
+	}
+
+	year, _ := strconv.Atoi(m[1])
+	month, _ := strconv.Atoi(m[2])
+	day := 1
+	if m[3] != "" {
+		day, _ = strconv.Atoi(m[3])
+	}
+
+	// Any four digits can look like a year, so only plausible dates are accepted.
+	if year < 1990 || year > time.Now().UTC().Year()+1 || month < 1 || month > 12 || day < 1 || day > 31 {
+		return time.Time{}
+	}
+	return time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
 }
