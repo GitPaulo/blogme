@@ -1,26 +1,26 @@
 # Tech Stack
 
-> Companion to [system-design.md](system-design.md). That document decides *what* we build and *which
-> Azure services* run it. This one decides *what we write it in* and *how we work on it day to day*.
+> Companion to [system-design.md](system-design.md). That document decides _what_ we build and _which
+> Azure services_ run it. This one decides _what we write it in_ and _how we work on it day to day_.
 
 Validated against official documentation and package registries on **16 August 2026**.
 
 ## Summary
 
-| Layer | Choice |
-| --- | --- |
-| Backend language | Go 1.26 |
-| Backend host | Azure Functions, Flex Consumption, Linux |
+| Layer                       | Choice                                                  |
+| --------------------------- | ------------------------------------------------------- |
+| Backend language            | Go 1.26                                                 |
+| Backend host                | Azure Functions, Flex Consumption, Linux                |
 | Functions programming model | First-class Go worker (`azure-functions-golang-worker`) |
-| Frontend | SvelteKit + Svelte 5 + Tailwind CSS 4, `adapter-static` |
-| UI components | Flowbite Svelte (stable 1.x) |
-| Frontend host | GitHub Pages |
-| Canonical storage | Azure Blob Storage |
-| Search | Azure AI Search |
-| Provisioning | Re-runnable Azure CLI scripts in `infra/` |
-| Task runner | GNU Make |
-| Local emulation | Azurite (blob); search has no emulator |
-| CI/CD | GitHub Actions |
+| Frontend                    | SvelteKit + Svelte 5 + Tailwind CSS 4, `adapter-static` |
+| UI components               | Flowbite Svelte (stable 1.x)                            |
+| Frontend host               | GitHub Pages                                            |
+| Canonical storage           | Azure Blob Storage                                      |
+| Search                      | Azure AI Search                                         |
+| Provisioning                | Re-runnable Azure CLI scripts in `infra/`               |
+| Task runner                 | GNU Make                                                |
+| Local emulation             | Azurite (blob); search has no emulator                  |
+| CI/CD                       | GitHub Actions                                          |
 
 ## Backend: Go on Azure Functions
 
@@ -65,11 +65,11 @@ another host entirely) does not touch the domain code.
 
 ### Requirements
 
-| Tool | Minimum |
-| --- | --- |
-| Go | 1.24 (we run 1.26.1) |
-| Azure Functions Core Tools | 4.12 |
-| Azure CLI | 2.87.0 |
+| Tool                       | Minimum              |
+| -------------------------- | -------------------- |
+| Go                         | 1.24 (we run 1.26.1) |
+| Azure Functions Core Tools | 4.12                 |
+| Azure CLI                  | 2.87.0               |
 
 ## Frontend: SvelteKit
 
@@ -104,10 +104,11 @@ App is configured to allow the Pages origin.
 **Azure Blob Storage** holds canonical article JSON and is the source of truth.
 
 **Azure AI Search** holds the searchable projection, and is treated as rebuildable from Blob at any time.
-Queries use the **semantic ranker**, which reranks the top keyword matches with a language model. It needs
-no embeddings, no re-indexing and no extra pipeline, which is why it comes before vector search rather
-than after it. It is billed separately from the tier and starts on the free plan (1,000 queries a month);
-`BLOGME_SEARCH_SEMANTIC_CONFIG=""` turns it off without a redeploy.
+Keyword scoring is the default; a query can opt into the **semantic ranker**, which reranks the top
+keyword matches with a language model. It needs no embeddings, no re-indexing and no extra pipeline,
+which is why it comes before vector search rather than after it. It is billed separately from the tier
+and starts on the free plan (1,000 queries a month); `BLOGME_SEARCH_SEMANTIC_CONFIG=""` turns it off
+without a redeploy.
 
 We run on **Dedicated Basic**. The Free tier carried the early build, but its 50 MB ceiling is far
 below what a corpus of this size needs, and it supports no managed identity. Azure cannot upgrade a
@@ -139,12 +140,12 @@ make build   # func pack (linux/amd64) + static web build
 Four bash scripts under [`infra/`](../infra/), each safe to re-run because every step checks for the
 resource before creating it:
 
-| Script | What it does |
-| --- | --- |
-| `provision.sh` | Storage account, search service, Flex Consumption function app, role assignments, CORS |
-| `create-search-index.sh` | Applies [`search-index.json`](../infra/search-index.json) to the search service |
-| `github-oidc.sh` | The Entra ID app and federated credential the deploy workflows authenticate with |
-| `upload-sources.sh` | Publishes `blogs.yml` to blob storage |
+| Script                   | What it does                                                                           |
+| ------------------------ | -------------------------------------------------------------------------------------- |
+| `provision.sh`           | Storage account, search service, Flex Consumption function app, role assignments, CORS |
+| `create-search-index.sh` | Applies [`search-index.json`](../infra/search-index.json) to the search service        |
+| `github-oidc.sh`         | The Entra ID app and federated credential the deploy workflows authenticate with       |
+| `upload-sources.sh`      | Publishes `blogs.yml` to blob storage                                                  |
 
 Not Bicep, and not `azd`. Go on Functions is in public preview and only its Azure CLI path is
 documented, so a declarative template would have to be reverse-engineered from CLI behaviour that is

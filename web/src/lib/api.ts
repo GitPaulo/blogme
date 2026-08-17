@@ -77,11 +77,16 @@ function toResult(value: unknown): SearchResult | undefined {
 	const url = safeHttpUrl(raw.url);
 	if (!url) return undefined;
 
+	// Deduped because topics are keyed in the markup, and the index has no constraint
+	// that stops a document repeating one.
 	const topics = Array.isArray(raw.topics)
-		? raw.topics
-				.map((topic) => text(topic, 64))
-				.filter((topic): topic is string => topic !== undefined)
-				.slice(0, MAX_TOPICS)
+		? [
+				...new Set(
+					raw.topics
+						.map((topic) => text(topic, 64))
+						.filter((topic): topic is string => topic !== undefined)
+				)
+			].slice(0, MAX_TOPICS)
 		: undefined;
 
 	return {
@@ -99,10 +104,18 @@ function toResult(value: unknown): SearchResult | undefined {
 /** The response is untrusted input: anything unexpected is dropped rather than rendered. */
 function toResponse(body: unknown, query: string, offset: number): SearchResponse {
 	const raw = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>;
+	const seen = new Set<string>();
 	const results = (Array.isArray(raw.results) ? raw.results : [])
 		.slice(0, MAX_RESULTS)
 		.map(toResult)
-		.filter((result): result is SearchResult => result !== undefined);
+		.filter((result): result is SearchResult => result !== undefined)
+		// Rows are keyed by url in the markup, and the same article can be indexed twice
+		// when a blog serves it under more than one path.
+		.filter((result) => {
+			if (seen.has(result.url)) return false;
+			seen.add(result.url);
+			return true;
+		});
 
 	const reported =
 		typeof raw.total === 'number' && Number.isFinite(raw.total) ? Math.trunc(raw.total) : 0;
