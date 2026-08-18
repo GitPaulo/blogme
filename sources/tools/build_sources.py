@@ -30,7 +30,7 @@ from pathlib import Path
 
 import httpx
 
-from extractor.checks import check_candidate_limited
+from extractor.checks import RETRY_SITE_TIMEOUT, check_candidate_limited, never_answered
 from extractor.models import Candidate
 from extractor.output import (
     build_entries,
@@ -128,7 +128,8 @@ async def collect_candidates(gh: GitHubClient, args: argparse.Namespace) -> dict
                 return {}
 
     results = await asyncio.gather(
-        *(run_repo(owner, repo, seeds) for (owner, repo), seeds in sorted(by_repo.items())),
+        *(run_repo(owner, repo, seeds)
+          for (owner, repo), seeds in sorted(by_repo.items())),
         *(run_page(url) for url in page_seeds),
     )
 
@@ -142,7 +143,8 @@ async def collect_candidates(gh: GitHubClient, args: argparse.Namespace) -> dict
 async def run(args: argparse.Namespace) -> int:
     # Host lookups run in the loop's default executor; the stock 32 threads throttle everything.
     asyncio.get_running_loop().set_default_executor(
-        concurrent.futures.ThreadPoolExecutor(max_workers=max(64, args.concurrency))
+        concurrent.futures.ThreadPoolExecutor(
+            max_workers=max(64, args.concurrency))
     )
 
     client_options = {
@@ -166,12 +168,37 @@ async def run(args: argparse.Namespace) -> int:
         limit = asyncio.Semaphore(args.concurrency)
         results = await asyncio.gather(
             *(
-                check_candidate_limited(client, candidate, args.require_feed, limit, progress)
+                check_candidate_limited(
+                    client, candidate, args.require_feed, limit, progress)
                 for _, candidate in items
             )
         )
+        checked = [c for c in results if c is not None]
 
-    entries = build_entries([c for c in results if c is not None], existing_ids(args.output))
+        # Sites that never answered get one more chance, slowly. At full concurrency a
+        # connect timeout says as much about the run as about the site, and most of the
+        # links dropped that way turn out to be live blogs.
+        retries = [
+            candidate
+            for (_, candidate), result in zip(items, results)
+            if result is None and never_answered(candidate)
+        ]
+        if retries:
+            log(f"retrying {len(retries)} sites that did not answer, at concurrency {args.retry_concurrency}")
+            progress = Progress(len(retries))
+            limit = asyncio.Semaphore(args.retry_concurrency)
+            recovered = await asyncio.gather(
+                *(
+                    check_candidate_limited(
+                        client, candidate, args.require_feed, limit, progress, RETRY_SITE_TIMEOUT
+                    )
+                    for candidate in retries
+                )
+            )
+            checked += [c for c in recovered if c is not None]
+            log(f"recovered {sum(1 for c in recovered if c is not None)} of {len(retries)}")
+
+    entries = build_entries(checked, existing_ids(args.output))
     validate_entries(entries)
     write_sources_yaml(args.output, entries)
 
@@ -186,16 +213,28 @@ async def run(args: argparse.Namespace) -> int:
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build the blog source list from GitHub blog lists.")
-    parser.add_argument("--input", type=Path, default=DEFAULT_INPUT, help="Seed GitHub repo/topic URLs.")
-    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT, help="YAML source list to write.")
-    parser.add_argument("--audit-output", type=Path, default=DEFAULT_AUDIT, help="CSV of every checked link. Empty string disables it.")
-    parser.add_argument("--concurrency", type=int, default=200, help="Concurrent site checks. Much above 200 starts losing sites to timeouts.")
-    parser.add_argument("--repo-concurrency", type=int, default=6, help="Concurrent GitHub repositories to scan.")
-    parser.add_argument("--max-file-size", type=int, default=2_000_000, help="Largest repository file to read.")
-    parser.add_argument("--topic-repo-limit", type=int, default=10, help="Repositories to take per GitHub topic seed.")
-    parser.add_argument("--limit-candidates", type=int, default=0, help="Check at most N links. 0 means no limit.")
-    parser.add_argument("--require-feed", action="store_true", help="Keep only sources with a working RSS/Atom feed.")
+    parser = argparse.ArgumentParser(
+        description="Build the blog source list from GitHub blog lists.")
+    parser.add_argument("--input", type=Path, default=DEFAULT_INPUT,
+                        help="Seed GitHub repo/topic URLs.")
+    parser.add_argument("--output", type=Path,
+                        default=DEFAULT_OUTPUT, help="YAML source list to write.")
+    parser.add_argument("--audit-output", type=Path, default=DEFAULT_AUDIT,
+                        help="CSV of every checked link. Empty string disables it.")
+    parser.add_argument("--concurrency", type=int, default=200,
+                        help="Concurrent site checks. Much above 200 starts losing sites to timeouts.")
+    parser.add_argument("--retry-concurrency", type=int, default=50,
+                        help="Concurrent checks in the retry pass over sites that did not answer.")
+    parser.add_argument("--repo-concurrency", type=int, default=6,
+                        help="Concurrent GitHub repositories to scan.")
+    parser.add_argument("--max-file-size", type=int,
+                        default=2_000_000, help="Largest repository file to read.")
+    parser.add_argument("--topic-repo-limit", type=int, default=10,
+                        help="Repositories to take per GitHub topic seed.")
+    parser.add_argument("--limit-candidates", type=int, default=0,
+                        help="Check at most N links. 0 means no limit.")
+    parser.add_argument("--require-feed", action="store_true",
+                        help="Keep only sources with a working RSS/Atom feed.")
 
     args = parser.parse_args(argv)
     if str(args.audit_output) in ("", "."):

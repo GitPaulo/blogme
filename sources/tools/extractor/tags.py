@@ -28,7 +28,8 @@ MIN_SCORE = 2
 CATEGORY_SCORE = 2
 
 # What kind of blog it is, which its own pages rarely say.
-PROVENANCE_TAGS = ["personal-blogs", "company-blogs", "independent-web", "small-web"]
+PROVENANCE_TAGS = ["personal-blogs",
+                   "company-blogs", "independent-web", "small-web"]
 
 # Used only when a blog's own words match nothing in the vocabulary.
 FALLBACK_TAGS = ["tech"]
@@ -46,7 +47,8 @@ def vocabulary() -> dict[str, Topic]:
     topics: dict[str, Topic] = {}
     for tag, keywords in raw.items():
         pattern = re.compile(
-            r"\b(?:" + "|".join(re.escape(k.lower()) for k in keywords) + r")\b",
+            r"\b(?:" + "|".join(re.escape(k.lower())
+                                for k in keywords) + r")\b",
             re.IGNORECASE,
         )
         topics[tag] = Topic(
@@ -59,7 +61,8 @@ def vocabulary() -> dict[str, Topic]:
 @lru_cache(maxsize=1)
 def tag_order() -> list[str]:
     order = list(vocabulary())
-    order += [tag for tag in PROVENANCE_TAGS + FALLBACK_TAGS if tag not in order]
+    order += [tag for tag in PROVENANCE_TAGS +
+              FALLBACK_TAGS if tag not in order]
     return order
 
 
@@ -74,6 +77,18 @@ def ordered_tags(tags: set[str]) -> list[str]:
     known = [t for t in tag_order() if t in tags]
     rest = sorted(tags.difference(known))
     return (known + rest)[:MAX_TAGS]
+
+
+def split_provenance(tags: set[str]) -> tuple[list[str], set[str]]:
+    """Separate what kind of blog this is from what it writes about.
+
+    The two answer different questions and belong in different fields: every blog
+    from a personal-blog list is a personal blog, so as a subject tag it says
+    nothing, while as a kind it is the whole point.
+    """
+    tags = {tagify(t) for t in tags if tagify(t)}
+    kind = [t for t in PROVENANCE_TAGS if t in tags]
+    return kind, tags.difference(PROVENANCE_TAGS)
 
 
 def tags_from_content(text: str, categories: Iterable[str] = ()) -> set[str]:
@@ -99,17 +114,22 @@ def _tokens(seed: str) -> set[str]:
 
 
 def provenance_tags_for_seed(seed: str) -> set[str]:
-    """What kind of blog the list says this is."""
+    """What kind of blog the list says this is.
+
+    Matched against the seed URL, so a list whose name does not say what it collects
+    is named here instead: blogscroll admits only personal sites on their own domain,
+    which its URL alone does not tell you.
+    """
     tokens = _tokens(seed)
     tags: set[str] = set()
 
-    if tokens & {"personal", "smallweb", "indieweb"}:
+    if tokens & {"personal", "smallweb", "indieweb", "blogscroll"}:
         tags.add("personal-blogs")
 
     if tokens & {"company", "companies"}:
         tags.add("company-blogs")
 
-    if tokens & {"independent", "smallweb", "indieweb"}:
+    if tokens & {"independent", "smallweb", "indieweb", "blogscroll"}:
         tags.update({"independent-web", "small-web"})
 
     return tags
@@ -123,8 +143,17 @@ def fallback_tags_for_seed(seed: str) -> set[str]:
     if tokens & {"engineering", "software", "programming", "developer", "dev", "devblogs"}:
         tags.add("software-engineering")
 
-    if tokens & {"ml", "ai", "llm", "deeplearning"}:
+    if tokens & {"ml", "ai", "llm", "llms", "deeplearning"}:
         tags.update({"ai", "machine-learning"})
+
+    if tokens & {"frontend", "webdev"}:
+        tags.add("web-development")
+
+    if "security" in tokens:
+        tags.add("security")
+
+    if "python" in tokens:
+        tags.add("python")
 
     if "data" in tokens and "science" in tokens:
         tags.add("data-science")

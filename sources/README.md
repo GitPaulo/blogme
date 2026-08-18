@@ -2,11 +2,11 @@
 
 The list of blogs blogme is allowed to crawl, and the tool that builds it.
 
-| Path | Contents |
-| --- | --- |
-| [`blogs.yml`](blogs.yml) | The approved source list, read by the discovery job |
-| [`tools/`](tools/README.md) | The extractor that generates `blogs.yml` |
-| [`tools/tags.yml`](tools/tags.yml) | The tag vocabulary, edit this to change tagging |
+| Path                               | Contents                                            |
+| ---------------------------------- | --------------------------------------------------- |
+| [`blogs.yml`](blogs.yml)           | The approved source list, read by the discovery job |
+| [`tools/`](tools/README.md)        | The extractor that generates `blogs.yml`            |
+| [`tools/tags.yml`](tools/tags.yml) | The tag vocabulary, edit this to change tagging     |
 
 The list is kept in Git so every change goes through normal review, rather than being
 edited through an admin service.
@@ -27,11 +27,11 @@ flowchart TD
     F --> E
 ```
 
-| Stage | What it fetches | How often |
-| --- | --- | --- |
+| Stage            | What it fetches                                                       | How often              |
+| ---------------- | --------------------------------------------------------------------- | ---------------------- |
 | Source extractor | One homepage and feed per candidate, to decide whether a blog is real | Manually, occasionally |
-| Discovery job | Each approved blog's feed or sitemap, then every new post | On a timer |
-| Search API | Nothing; it queries the index | Per user query |
+| Discovery job    | Each approved blog's feed or sitemap, then every new post             | On a timer             |
+| Search API       | Nothing; it queries the index                                         | Per user query         |
 
 Keeping the boundary here is deliberate. The [high-level plan](../docs/blog-discovery-search-high-level-plan.md)
 calls for discovery to be selective rather than exhaustive, so the crawler only ever
@@ -39,7 +39,8 @@ visits sites that passed through this list and a human review. See
 [system design](../docs/system-design.md) for the services involved.
 
 The `feed` field is what the discovery job consumes directly. Sources without one need a
-sitemap fallback, which is currently a large minority of the list.
+sitemap fallback, which is currently the majority of the list: 7,764 of 19,383 entries
+carry a feed.
 
 ## The list
 
@@ -49,16 +50,23 @@ sources:
     name: Sean Goedecke
     site: https://www.seangoedecke.com/
     feed: https://www.seangoedecke.com/rss.xml
+    kind: [personal-blogs]
     tags: [software-engineering, ai, tech]
 ```
 
-| Field | Required | Meaning |
-| --- | --- | --- |
-| `id` | yes | Stable identifier, used in article IDs and logs |
-| `name` | yes | Human-readable title |
-| `site` | yes | Homepage |
-| `feed` | no | RSS/Atom feed, when the site publishes one |
-| `tags` | no | Subject tags, lowercase kebab-case |
+| Field  | Required | Meaning                                         |
+| ------ | -------- | ----------------------------------------------- |
+| `id`   | yes      | Stable identifier, used in article IDs and logs |
+| `name` | yes      | Human-readable title                            |
+| `site` | yes      | Homepage                                        |
+| `feed` | no       | RSS/Atom feed, when the site publishes one      |
+| `kind` | no       | What sort of blog it is, e.g. `personal-blogs`  |
+| `tags` | no       | Subject tags, lowercase kebab-case              |
+
+`kind` and `tags` are kept apart because they answer different questions. Nearly every
+blog on a personal-blog list is a personal blog, so as a subject tag it distinguishes
+nothing and crowds out the tags that do; as a kind it is exactly what you would want to
+filter by.
 
 Entries can be added or corrected by hand. Keep `id` values stable: changing one changes
 the IDs of every article already discovered from that blog. A rebuild preserves the `id`
@@ -73,25 +81,32 @@ flowchart LR
     A[source_lists.txt<br/>GitHub repos and list pages] --> B[Scrape every link<br/>from their files]
     B --> C[Collapse to one URL<br/>per blog]
     C --> D{Site reachable?}
-    D -->|no| X[Dropped]
+    D -->|no answer| RETRY{Reachable when<br/>retried slowly?}
+    RETRY -->|no| X[Dropped]
+    RETRY -->|yes| E
     D -->|yes| E[Read name, find feed,<br/>infer tags]
     E --> F[blogs.yml]
     D --> G[link-audit.csv<br/>every link, pass or fail]
 ```
 
 1. **Seeds.** [`tools/source_lists.txt`](tools/source_lists.txt) names the lists that
-   curate blogs: GitHub repositories and topics, and web pages that link to blogs.
+   curate blogs: GitHub repositories and topics, and web pages, OPML subscription lists
+   or structured files that link to blogs. Adding a list is one line; see
+   [`tools/README.md`](tools/README.md#adding-a-source-list) for which form to use.
 2. **Harvest.** Every text file in those repositories, and every seed page, is read and
    every `http(s)` link pulled out, roughly 49,000 of them. On an HTML list the link
    text is kept as a fallback name.
 3. **Collapse.** Each link becomes the blog it belongs to, so fifty article URLs from one
    site produce one entry. Code hosts, social networks, badges, shorteners and asset
    subdomains are discarded here.
-4. **Check.** Each remaining site is requested once. If it does not answer, it is out.
-   Reachability is the only membership rule.
-5. **Describe.** Survivors get a name from their feed title, `og:site_name` or `<title>`,
+4. **Check.** Each remaining site is requested once. If it answers, it is in; a 404 or a
+   403 settles the question and it is out. Reachability is the only membership rule.
+5. **Retry.** A site that gave no answer at all is asked again, slowly. At full
+   concurrency a connect timeout describes the run as much as the site, and a sample of
+   the links dropped that way found roughly three quarters of them alive.
+6. **Describe.** Survivors get a name from their feed title, `og:site_name` or `<title>`,
    an RSS/Atom feed if one can be found, and subject tags scored against the vocabulary.
-6. **Write.** `blogs.yml` is validated and written, alongside `link-audit.csv` recording
+7. **Write.** `blogs.yml` is validated and written, alongside `link-audit.csv` recording
    every link that was checked, including failures and the reason.
 
 A feed is recorded when a site has one but is not required, so blogs without feeds still
@@ -102,15 +117,18 @@ appear in the list.
 Subject tags live in [`tools/tags.yml`](tools/tags.yml): one tag per entry, listing the
 words that imply it. A tag is kept when it scores at least 2 points.
 
-| Signal | Points |
-| --- | --- |
-| The blog files posts under that word (a feed category) | 2 |
-| Each distinct keyword found in the blog's own text | 1 |
+| Signal                                                 | Points |
+| ------------------------------------------------------ | ------ |
+| The blog files posts under that word (a feed category) | 2      |
+| Each distinct keyword found in the blog's own text     | 1      |
 
 So a single passing mention never earns a tag, while a category the author chose always
 does. Blogs that say too little about themselves fall back to the coarse subject their
-source list implies, usually `tech`. Tags like `personal-blogs` come from the list a blog
-was found in, because a page rarely states that itself.
+source list implies, usually `tech`.
+
+These tags describe the blog, not any one post, so the discovery job treats them as the
+starting point rather than the answer: a post is also labelled with the categories its
+own feed entry carries. See [how it works](../docs/how-it-works.md).
 
 Adding or retiring a tag means editing `tags.yml` and nothing else.
 
@@ -120,9 +138,10 @@ Adding or retiring a tag means editing `tags.yml` and nothing else.
 make sources
 ```
 
-The full run checks tens of thousands of links and takes a couple of hours. Review the
-diff before committing; the audit CSV explains anything that went missing. See
-[`tools/README.md`](tools/README.md) for flags, layout and shorter trial runs.
+The full run checks tens of thousands of links, then retries the ones that did not answer,
+and takes a few hours. Review the diff before committing; the audit CSV explains anything
+that went missing. See [`tools/README.md`](tools/README.md) for flags, layout and shorter
+trial runs.
 
 ## Publishing
 
@@ -152,6 +171,6 @@ Two consequences worth knowing:
   only downloads and parses again when the list has actually changed, which matters at
   this file's size.
 
-The job also works through the list in slices of a few hundred sources per run, recording
+The job also works through the list in slices of a thousand sources per run, recording
 the last source it handled, rather than attempting the whole list in one pass. See
 [discovery cadence](../docs/discovery-cadence.md).

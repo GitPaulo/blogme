@@ -94,8 +94,18 @@ func (d *Discoverer) crawlSitemap(ctx context.Context, s sources.Source) ([]arti
 	}
 
 	articles := make([]article.Article, 0, min(len(links), d.maxPosts))
-	for _, link := range links {
+	for i, link := range links {
 		if len(articles) >= d.maxPosts {
+			break
+		}
+		// Past the source deadline every request and store lookup fails immediately,
+		// so without this the rest of a large archive is walked at full speed to no
+		// effect — tens of thousands of failures for one source. What was gathered
+		// before the deadline is still returned, so the run keeps the useful part.
+		if ctx.Err() != nil {
+			slog.WarnContext(ctx, "sitemap walk cut short",
+				"source", s.ID, "examined", i, "remaining", len(links)-i,
+				"articles", len(articles), "error", ctx.Err())
 			break
 		}
 		if !d.robots.allowed(ctx, link.url) {
@@ -321,7 +331,10 @@ func (d *Discoverer) sitemapArticle(ctx context.Context, s sources.Source, link 
 		Origin:   article.OriginSitemap,
 		Summary:  truncateWords(summary, summaryWords),
 		Content:  truncateWords(content, d.contentWords),
-		Topics:   s.Tags,
+		// A page carries no categories of its own, so the blog's subjects are all
+		// there is until an article is read for its own topics.
+		Topics: s.Tags,
+		Kind:   s.Kind,
 		// Deliberately not the sitemap's lastmod: that is when the file changed, which
 		// for most publishing systems is a bulk regeneration and would date every page
 		// today. An unknown date stays unknown.

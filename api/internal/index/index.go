@@ -76,6 +76,7 @@ type document struct {
 	Summary     string   `json:"summary,omitempty"`
 	Content     string   `json:"content,omitempty"`
 	Topics      []string `json:"topics,omitempty"`
+	Kind        []string `json:"kind,omitempty"`
 	PublishedAt *string  `json:"publishedAt,omitempty"`
 }
 
@@ -97,6 +98,7 @@ func (i *Index) Upsert(ctx context.Context, articles []article.Article) error {
 				Summary:  a.Summary,
 				Content:  a.Content,
 				Topics:   a.Topics,
+				Kind:     a.Kind,
 			}
 			if !a.PublishedAt.IsZero() {
 				ts := a.PublishedAt.UTC().Format(time.RFC3339)

@@ -79,6 +79,14 @@
       "facetable": true
     },
     {
+      "name": "kind",
+      "type": "Collection(Edm.String)",
+      "searchable": false,
+      "filterable": true,
+      "sortable": false,
+      "facetable": true
+    },
+    {
       "name": "publishedAt",
       "type": "Edm.DateTimeOffset",
       "searchable": false,
@@ -108,9 +116,22 @@
       {
         "name": "blogme-semantic",
         "prioritizedFields": {
-          "titleField": { "fieldName": "title" },
-          "prioritizedContentFields": [{ "fieldName": "summary" }, { "fieldName": "content" }],
-          "prioritizedKeywordsFields": [{ "fieldName": "topics" }]
+          "titleField": {
+            "fieldName": "title"
+          },
+          "prioritizedContentFields": [
+            {
+              "fieldName": "summary"
+            },
+            {
+              "fieldName": "content"
+            }
+          ],
+          "prioritizedKeywordsFields": [
+            {
+              "fieldName": "topics"
+            }
+          ]
         }
       }
     ]

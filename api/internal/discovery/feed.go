@@ -10,12 +10,13 @@ import (
 
 // feedItem is one post as described by a feed, before any page fetch.
 type feedItem struct {
-	Title     string
-	Link      string
-	Author    string
-	Summary   string
-	Content   string
-	Published time.Time
+	Title      string
+	Link       string
+	Author     string
+	Summary    string
+	Content    string
+	Categories []string
+	Published  time.Time
 }
 
 // feedDoc covers RSS 2.0 and Atom in one shape. The two formats overlap enough that
@@ -24,14 +25,15 @@ type feedDoc struct {
 	// RSS
 	Channel struct {
 		Items []struct {
-			Title       string `xml:"title"`
-			Link        string `xml:"link"`
-			Description string `xml:"description"`
-			Encoded     string `xml:"encoded"`
-			Creator     string `xml:"creator"`
-			Author      string `xml:"author"`
-			PubDate     string `xml:"pubDate"`
-			Date        string `xml:"date"`
+			Title       string   `xml:"title"`
+			Link        string   `xml:"link"`
+			Description string   `xml:"description"`
+			Encoded     string   `xml:"encoded"`
+			Creator     string   `xml:"creator"`
+			Author      string   `xml:"author"`
+			PubDate     string   `xml:"pubDate"`
+			Date        string   `xml:"date"`
+			Categories  []string `xml:"category"`
 		} `xml:"item"`
 	} `xml:"channel"`
 
@@ -43,11 +45,15 @@ type feedDoc struct {
 			Rel  string `xml:"rel,attr"`
 			Type string `xml:"type,attr"`
 		} `xml:"link"`
-		Summary   string `xml:"summary"`
-		Content   string `xml:"content"`
-		Published string `xml:"published"`
-		Updated   string `xml:"updated"`
-		Author    struct {
+		Summary    string `xml:"summary"`
+		Content    string `xml:"content"`
+		Published  string `xml:"published"`
+		Updated    string `xml:"updated"`
+		Categories []struct {
+			Term  string `xml:"term,attr"`
+			Label string `xml:"label,attr"`
+		} `xml:"category"`
+		Author struct {
 			Name string `xml:"name"`
 		} `xml:"author"`
 	} `xml:"entry"`
@@ -70,23 +76,29 @@ func parseFeed(raw []byte) ([]feedItem, error) {
 
 	for _, it := range doc.Channel.Items {
 		items = append(items, feedItem{
-			Title:     cleanText(it.Title),
-			Link:      strings.TrimSpace(it.Link),
-			Author:    cleanText(firstNonEmpty(it.Creator, it.Author)),
-			Summary:   cleanText(it.Description),
-			Content:   firstNonEmpty(it.Encoded, it.Description),
-			Published: parseTime(firstNonEmpty(it.PubDate, it.Date)),
+			Title:      cleanText(it.Title),
+			Link:       strings.TrimSpace(it.Link),
+			Author:     cleanText(firstNonEmpty(it.Creator, it.Author)),
+			Summary:    cleanText(it.Description),
+			Content:    firstNonEmpty(it.Encoded, it.Description),
+			Categories: it.Categories,
+			Published:  parseTime(firstNonEmpty(it.PubDate, it.Date)),
 		})
 	}
 
 	for _, e := range doc.Entries {
+		categories := make([]string, 0, len(e.Categories))
+		for _, c := range e.Categories {
+			categories = append(categories, firstNonEmpty(c.Label, c.Term))
+		}
 		items = append(items, feedItem{
-			Title:     cleanText(e.Title),
-			Link:      atomLink(e.Links),
-			Author:    cleanText(e.Author.Name),
-			Summary:   cleanText(e.Summary),
-			Content:   firstNonEmpty(e.Content, e.Summary),
-			Published: parseTime(firstNonEmpty(e.Published, e.Updated)),
+			Title:      cleanText(e.Title),
+			Link:       atomLink(e.Links),
+			Author:     cleanText(e.Author.Name),
+			Summary:    cleanText(e.Summary),
+			Content:    firstNonEmpty(e.Content, e.Summary),
+			Categories: categories,
+			Published:  parseTime(firstNonEmpty(e.Published, e.Updated)),
 		})
 	}
 
@@ -144,4 +156,82 @@ func firstNonEmpty(values ...string) string {
 // cleanText strips markup and normalises whitespace for short display fields.
 func cleanText(v string) string {
 	return normaliseSpace(html.UnescapeString(stripTags(v)))
+}
+
+// Categories that file a post without saying anything about it.
+var uninformativeCategories = map[string]bool{
+	"uncategorized": true, "uncategorised": true, "general": true, "other": true,
+	"misc": true, "miscellaneous": true, "blog": true, "blogs": true,
+	"post": true, "posts": true, "article": true, "articles": true,
+	"writing": true, "all": true, "featured": true, "default": true,
+}
+
+const (
+	// Feed categories are an uncontrolled vocabulary, so a post that carries a dozen
+	// of them would otherwise dominate the topic list on its own.
+	maxFeedCategories = 3
+	maxArticleTopics  = 8
+
+	// Long enough for "distributed-systems", short enough to reject a sentence used
+	// as a category.
+	maxTopicLength = 40
+)
+
+// articleTopics is what a post is about: the categories its author filed it under,
+// on top of what the blog as a whole writes about.
+//
+// The source's tags are the same for every post it publishes, so on their own they
+// cannot tell two posts apart. A feed category is the only per-post subject signal
+// available without reading the post, and it is the author's own label.
+func articleTopics(sourceTags, categories []string) []string {
+	topics := make([]string, 0, len(sourceTags)+maxFeedCategories)
+	seen := make(map[string]bool, len(sourceTags)+maxFeedCategories)
+
+	for _, t := range sourceTags {
+		if t != "" && !seen[t] {
+			seen[t] = true
+			topics = append(topics, t)
+		}
+	}
+
+	added := 0
+	for _, c := range categories {
+		if added >= maxFeedCategories || len(topics) >= maxArticleTopics {
+			break
+		}
+		slug := topicSlug(c)
+		if slug == "" || seen[slug] {
+			continue
+		}
+		seen[slug] = true
+		topics = append(topics, slug)
+		added++
+	}
+
+	return topics
+}
+
+// topicSlug puts a category into the same lowercase kebab-case the source list uses,
+// so "Software Engineering" and "software-engineering" are one topic. Returns empty
+// for anything that would not be worth filtering by.
+func topicSlug(v string) string {
+	var sb strings.Builder
+	sb.Grow(len(v))
+	dash := false
+	for _, r := range strings.ToLower(strings.TrimSpace(html.UnescapeString(v))) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			sb.WriteRune(r)
+			dash = false
+		case sb.Len() > 0 && !dash:
+			sb.WriteByte('-')
+			dash = true
+		}
+	}
+
+	slug := strings.Trim(sb.String(), "-")
+	if len(slug) < 2 || len(slug) > maxTopicLength || uninformativeCategories[slug] {
+		return ""
+	}
+	return slug
 }

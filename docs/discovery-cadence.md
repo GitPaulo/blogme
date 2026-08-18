@@ -3,15 +3,15 @@
 > How often discovery runs, how much it does per run, and how to change it.
 > Companion to [system-design.md](system-design.md).
 
-Sized against the generated source list on **17 August 2026**: 28,270 sources, 19,222 with a
-feed and 9,048 without.
+Sized against the deployed source list on **18 August 2026**: 19,383 sources, 7,764 with a
+feed and 11,619 without.
 
 ## Summary
 
 | Setting                     | Deployed      | Code default    | Meaning                  |
 | --------------------------- | ------------- | --------------- | ------------------------ |
 | `BLOGME_DISCOVERY_SCHEDULE` | `0 0 * * * *` | `0 0 */6 * * *` | Timer cron, hourly       |
-| `BLOGME_DISCOVERY_BATCH`    | `500`         | `200`           | Sources examined per run |
+| `BLOGME_DISCOVERY_BATCH`    | `1000`        | `200`           | Sources examined per run |
 
 Both are Function App application settings, so changing cadence is a configuration change
 and needs **no redeploy**. The deployed values override the code defaults in
@@ -42,24 +42,27 @@ Coverage is simply how many sources a day the schedule gets through:
 
 ```text
 sources/day = (24 / schedule_hours) x batch_size
-full pass   = 28,270 / sources per day
+full pass   = 19,383 / sources per day
 ```
 
-| Batch   | Schedule   | Sources/day | Full pass    |
-| ------- | ---------- | ----------- | ------------ |
-| 200     | every 6h   | 800         | 35 days      |
-| **500** | **hourly** | **12,000**  | **2.4 days** |
-| 1,000   | hourly     | 24,000      | 1.2 days     |
-| 2,000   | hourly     | 48,000      | 0.6 days     |
+| Batch     | Schedule   | Sources/day | Full pass    |
+| --------- | ---------- | ----------- | ------------ |
+| 200       | every 6h   | 800         | 24 days      |
+| 500       | hourly     | 12,000      | 1.6 days     |
+| **1,000** | **hourly** | **24,000**  | **0.8 days** |
+| 2,000     | hourly     | 48,000      | 0.4 days     |
 
 The code defaults are deliberately conservative and are **not** a recommendation for
-production. At 35 days per pass a blog's new post could take a month to become searchable,
-which defeats the goal in the [high-level plan](blog-discovery-search-high-level-plan.md)
-that new posts appear automatically.
+production. At 24 days per pass a blog's new post could take three weeks to become
+searchable, which defeats the goal in the
+[high-level plan](blog-discovery-search-high-level-plan.md) that new posts appear
+automatically.
 
-**Deployed:** batch 500, hourly. That is a full pass every 2.4 days, which is a reasonable
-freshness target for long-form writing that is published weekly at best. Raise it only
-after measuring how long a real run takes.
+**Deployed:** batch 1,000, hourly. Measured over the 14 hours after the source list last
+changed, a run of 500 took a median of **188 seconds**, or 0.36 seconds per source, so
+1,000 should land near six minutes — a fifth of the invocation ceiling. That headroom is
+the point: the source list is expected to roughly double, and a run's cost per source is
+not a constant (see below).
 
 ## Constraints to respect
 
@@ -67,6 +70,12 @@ after measuring how long a real run takes.
 killed at 30 minutes records no progress and the same slice is retried next time. Work is
 not lost or duplicated in the index, but it is wasted. Target a run that finishes in about
 half the ceiling, and lower `BLOGME_DISCOVERY_BATCH` if runs creep up.
+
+This is not hypothetical. On 17 August 2026, against a longer source list, **twelve
+consecutive hourly runs hit the ceiling at batch 500** and advanced the cursor not at all;
+the same batch against the current list takes three minutes. Cost per source moves by an
+order of magnitude with the composition of the list, which is why a batch is sized against
+the worst run rather than the median.
 
 Each source also carries its own 90-second deadline. One source can otherwise string
 together a robots fetch, several sitemap probes and a page fetch per post, each with its own
@@ -94,27 +103,35 @@ question:
   in its slice in full, and re-fetches the page behind any post whose feed entry is a
   stub. Doing this is what makes a faster cadence cheap rather than merely possible.
 
-**Feeds and sitemaps cost differently.** 68% of sources publish a feed, which is one cheap
-request. The remaining 9,048 need a sitemap walk, which is heavier. If cadence becomes
-expensive, checking feed-backed sources more often than sitemap-only ones is the obvious
-split, but it is not worth the complexity until measurements justify it.
+**Feeds and sitemaps cost differently.** 40% of sources publish a feed, which is one cheap
+request. The remaining 11,619 need a sitemap walk, which is heavier and is what pushes a
+run towards the ceiling. If cadence becomes expensive, checking feed-backed sources more
+often than sitemap-only ones is the obvious split, but it is not worth the complexity
+until measurements justify it. Finding more feeds when the source list is built is the
+cheaper fix, because it moves the work off the crawler permanently.
 
 **Storage caps bite before compute does.** The 50 MB Free-tier ceiling was reached first,
 which is why the service now runs on Basic; see [tech-stack.md](tech-stack.md). Cadence
 sets how fast the next ceiling arrives, so check index size against the
 [service limits](https://learn.microsoft.com/en-us/azure/search/search-limits-quotas-capacity)
-before raising it. On 17 August 2026 the index held 4,847 documents in 23.5 MB, or 0.15%
-of Basic's 15 GB, so the ceiling is far off at the current cadence. Truncating articles to
-1,000 words is what keeps a document small enough for this to stay a slow problem — that
-cap is the main lever on index size, so raising it for recall and raising cadence for
-freshness both spend the same budget.
+before raising it. On 18 August 2026 the index held 75,356 documents in 472 MB, or 2.9%
+of Basic's 15 GB, at roughly 6 KB a document. Truncating articles to 1,000 words is what
+keeps a document that small — that cap is the main lever on index size, so raising it for
+recall and raising cadence for freshness both spend the same budget.
+
+**Compute is the cheap part.** The plan is Flex Consumption with 2 GB instances, billed at
+$0.000037 per GB-second beyond a monthly grant of 100,000 GB-seconds. At batch 500 the
+hourly timer spent about 259,000 GB-seconds a month, or $6; batch 1,000 roughly doubles
+that to $15. Against Azure AI Search Basic, which is a fixed monthly charge whatever the
+cadence, doubling freshness is close to free. The ceiling that matters is the 30-minute
+invocation, not the bill.
 
 ## Changing it
 
 ```bash
 az functionapp config appsettings set \
   --name <FUNCTION_APP> --resource-group <RESOURCE_GROUP> \
-  --settings BLOGME_DISCOVERY_BATCH=500 BLOGME_DISCOVERY_SCHEDULE="0 0 * * * *"
+  --settings BLOGME_DISCOVERY_BATCH=1000 BLOGME_DISCOVERY_SCHEDULE="0 0 * * * *"
 ```
 
 Applying this restarts the app, so confirm `/api/health` returns `200` afterwards. Read
@@ -133,6 +150,21 @@ The schedule is a six-field NCRONTAB expression, where the first field is second
 | `0 0 */6 * * *`  | Every six hours  |
 | `0 0 * * * *`    | Hourly           |
 | `0 */30 * * * *` | Every 30 minutes |
+
+## Measuring a run
+
+Before raising the batch, check what runs cost now. Flex Consumption reports execution
+units in MB-milliseconds, so dividing by the instance size gives the duration:
+
+```bash
+az monitor metrics list \
+  --resource "$(az functionapp show -g <RESOURCE_GROUP> -n <FUNCTION_APP> --query id -o tsv)" \
+  --metric OnDemandFunctionExecutionUnits --interval PT1H --aggregation Total \
+  --start-time "$(date -u -d '2 days ago' +%Y-%m-%dT%H:%M:%SZ)" -o json
+```
+
+One hourly timer means one point per run. A point near `1800` seconds is a run that was
+killed at the ceiling and advanced nothing.
 
 ## When batching stops being enough
 

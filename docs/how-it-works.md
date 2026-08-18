@@ -13,7 +13,7 @@ on a timer; the **read path** answers a user's query. They meet only at the sear
 ```mermaid
 flowchart LR
     subgraph Git["Repository"]
-        Y["blogs.yml<br/>28,270 blogs"]
+        Y["blogs.yml<br/>19,383 blogs"]
     end
 
     subgraph Azure["Azure"]
@@ -48,14 +48,14 @@ stopped, so no single run approaches the function timeout.
 flowchart TD
     T["Timer fires"] --> L["Load blogs.yml from blob<br/>ETag-cached"]
     L --> C["Read cursor<br/>resume after last source"]
-    C --> BATCH["Take next 200 blogs"]
+    C --> BATCH["Take next 1,000 blogs"]
 
     BATCH --> R{"robots.txt<br/>allows the fetch?"}
     R -->|no| SKIP["Skip"]
     R -->|yes| P{"Has a feed?"}
 
-    P -->|"yes — 19,222 blogs"| F["Fetch RSS/Atom feed"]
-    P -->|"no — 9,048 blogs"| M["Find sitemap<br/>robots.txt, then common paths"]
+    P -->|"yes — 7,764 blogs"| F["Fetch RSS/Atom feed"]
+    P -->|"no — 11,619 blogs"| M["Find sitemap<br/>robots.txt, then common paths"]
 
     F --> ITEMS["Parse entries<br/>title, link, date, content"]
     ITEMS --> FULL{"Feed content<br/>200+ words?"}
@@ -132,14 +132,14 @@ the `RateLimit-*` headers. Semantic queries carry a second, tighter allowance �
 and across the service — because reranking spends from a metered monthly quota rather than
 from capacity that renews by the minute.
 
-| Setting                            | Default | Applies to             |
-| ---------------------------------- | ------- | ---------------------- |
-| `BLOGME_SEARCH_RATE_PER_MINUTE`    | 60      | One caller, any search |
-| `BLOGME_SEARCH_RATE_BURST`         | 30      | One caller, any search |
-| `BLOGME_SEMANTIC_RATE_PER_MINUTE`  | 10      | One caller, semantic   |
-| `BLOGME_SEMANTIC_RATE_BURST`       | 5       | One caller, semantic   |
-| `BLOGME_SEMANTIC_RATE_PER_HOUR`    | 60      | Everyone, semantic     |
-| `BLOGME_SEMANTIC_RATE_HOUR_BURST`  | 15      | Everyone, semantic     |
+| Setting                           | Default | Applies to             |
+| --------------------------------- | ------- | ---------------------- |
+| `BLOGME_SEARCH_RATE_PER_MINUTE`   | 60      | One caller, any search |
+| `BLOGME_SEARCH_RATE_BURST`        | 30      | One caller, any search |
+| `BLOGME_SEMANTIC_RATE_PER_MINUTE` | 10      | One caller, semantic   |
+| `BLOGME_SEMANTIC_RATE_BURST`      | 5       | One caller, semantic   |
+| `BLOGME_SEMANTIC_RATE_PER_HOUR`   | 60      | Everyone, semantic     |
+| `BLOGME_SEMANTIC_RATE_HOUR_BURST` | 15      | Everyone, semantic     |
 
 These are per instance, and Flex Consumption scales out, so they bound the blast radius
 rather than enforce a budget: they turn "burn the month's reranking in a minute" into
@@ -179,12 +179,12 @@ Two rules follow, and the first one matters more than it looks:
 
 Levels carry a meaning worth keeping to:
 
-| Level   | Means                                                            |
-| ------- | ---------------------------------------------------------------- |
-| `Error` | We are broken and someone must look                              |
-| `Warn`  | One input was bad, or a caller was refused; the run continued    |
-| `Info`  | One line per unit of work — a search, a discovery pass, startup  |
-| `Debug` | Per-item detail, off by default                                  |
+| Level   | Means                                                           |
+| ------- | --------------------------------------------------------------- |
+| `Error` | We are broken and someone must look                             |
+| `Warn`  | One input was bad, or a caller was refused; the run continued   |
+| `Info`  | One line per unit of work — a search, a discovery pass, startup |
+| `Debug` | Per-item detail, off by default                                 |
 
 Field names are shared across packages so a query works everywhere: `duration_ms`,
 `source_id`, `url`, `error`, `count`, `total`, `rank`, `kind`, `caller`.
@@ -206,7 +206,7 @@ az functionapp config appsettings set \
 
 The host pushes that threshold to the worker, which filters by category before anything
 crosses the wire. Set it back to `Information` when finished — at `Debug` the discovery
-job logs a line per source, which at 500 sources an hour is not something to leave on.
+job logs a line per source, which at 1,000 sources an hour is not something to leave on.
 
 ## Where each stage lives
 
@@ -230,9 +230,14 @@ One line of `blogs.yml` becomes many search results:
 
 ```mermaid
 flowchart LR
-    A["Source<br/>id, site, feed, tags"] -->|crawl| B["Article<br/>title, author, date, origin,<br/>summary, content, topics"]
+    A["Source<br/>id, site, feed, kind, tags"] -->|crawl| B["Article<br/>title, author, date, origin,<br/>summary, content, topics, kind"]
     B -->|project| C["Result<br/>title, author, date, origin,<br/>summary, topics, score"]
 ```
+
+A source's `tags` describe the blog, so on their own every post from it would be labelled
+identically. On the feed path the post's own categories are added to them, which is the
+only per-post subject signal available without reading the post. `kind` travels
+unchanged: it is a fact about the blog, not about any one article.
 
 Blob storage holds the canonical `Article`. The search index is a **projection** of it and
 is treated as disposable: it can be dropped and rebuilt from blob at any time, which is

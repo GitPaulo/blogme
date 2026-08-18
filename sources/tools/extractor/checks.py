@@ -25,11 +25,20 @@ MAX_FEED_BYTES = 400_000
 SITE_TIMEOUT = httpx.Timeout(12.0, connect=5.0)
 FEED_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 
+# The retry pass. Most sites that fail to connect at full concurrency are alive and were
+# simply outrun: sampling the dropped links showed roughly three quarters of them
+# answering when given a longer connect budget and fewer competitors for it.
+RETRY_SITE_TIMEOUT = httpx.Timeout(20.0, connect=15.0)
 
-async def fetch_site(client: httpx.AsyncClient, url: str) -> tuple[int | None, str, str, str]:
+
+async def fetch_site(
+    client: httpx.AsyncClient,
+    url: str,
+    timeout: httpx.Timeout = SITE_TIMEOUT,
+) -> tuple[int | None, str, str, str]:
     """Return (status, content type, page head or error message, final URL)."""
     try:
-        async with client.stream("GET", url, follow_redirects=True, timeout=SITE_TIMEOUT) as response:
+        async with client.stream("GET", url, follow_redirects=True, timeout=timeout) as response:
             chunks: list[bytes] = []
             total = 0
             async for chunk in response.aiter_bytes():
@@ -38,7 +47,8 @@ async def fetch_site(client: httpx.AsyncClient, url: str) -> tuple[int | None, s
                 # Only <head> is needed, so stop as soon as it closes.
                 if total > MAX_HEAD_BYTES or b"</head" in chunk or b"</HEAD" in chunk:
                     break
-            body = b"".join(chunks).decode(response.encoding or "utf-8", errors="replace")
+            body = b"".join(chunks).decode(
+                response.encoding or "utf-8", errors="replace")
             return response.status_code, response.headers.get("content-type", ""), body, str(response.url)
     except Exception as exc:
         return None, "", f"{type(exc).__name__}: {exc}"[:200], url
@@ -55,12 +65,14 @@ async def read_feed(client: httpx.AsyncClient, feed_url: str) -> FeedInfo | None
         if not parsed.feed or not (parsed.entries or parsed.feed.get("title")):
             return None
 
-        text = [str(parsed.feed.get("title", "")), str(parsed.feed.get("subtitle", ""))]
+        text = [str(parsed.feed.get("title", "")),
+                str(parsed.feed.get("subtitle", ""))]
         categories: list[str] = []
         for entry in parsed.entries[:15]:
             text.append(str(entry.get("title", "")))
             text.append(str(entry.get("summary", ""))[:500])
-            categories.extend(str(t.get("term", "")) for t in entry.get("tags", []) or [])
+            categories.extend(str(t.get("term", ""))
+                              for t in entry.get("tags", []) or [])
 
         return FeedInfo(
             title=clean_name(parsed.feed.get("title")),
@@ -90,9 +102,10 @@ async def check_candidate(
     client: httpx.AsyncClient,
     candidate: Candidate,
     require_feed: bool,
+    timeout: httpx.Timeout = SITE_TIMEOUT,
 ) -> Candidate | None:
     """Fill in a reachable candidate, or record why it was dropped."""
-    status, content_type, body_or_error, final_url = await fetch_site(client, candidate.site)
+    status, content_type, body_or_error, final_url = await fetch_site(client, candidate.site, timeout)
     candidate.status_code = status
 
     if status is None:
@@ -112,12 +125,14 @@ async def check_candidate(
     candidate.site = canonical_site(final_url) or candidate.site
     page = page_metadata(body_or_error)
 
-    advertised = ([candidate.feed] if candidate.feed else []) + declared_feeds(body_or_error, candidate.site)
+    advertised = ([candidate.feed] if candidate.feed else []) + \
+        declared_feeds(body_or_error, candidate.site)
 
     # Sites that advertise a feed cost one request; only the rest get path guesses.
     feed_url, feed = await find_feed(client, dedupe_urls(advertised))
     if not feed_url:
-        guesses = dedupe_urls(feed_guesses_for_site(candidate.site), skip=set(advertised))
+        guesses = dedupe_urls(feed_guesses_for_site(
+            candidate.site), skip=set(advertised))
         feed_url, feed = await find_feed(client, guesses)
 
     candidate.feed = feed_url
@@ -134,8 +149,10 @@ async def check_candidate(
         or domain_name(candidate.site)
     )
 
-    described_by = [candidate.name, page.title, page.description, feed.text if feed else None]
-    topics = tags_from_content(" ".join(filter(None, described_by)), feed.categories if feed else ())
+    described_by = [candidate.name, page.title,
+                    page.description, feed.text if feed else None]
+    topics = tags_from_content(
+        " ".join(filter(None, described_by)), feed.categories if feed else ())
     # A blog that says nothing about itself keeps the subject its source list implies.
     candidate.tags.update(topics or candidate.fallback_tags)
     return candidate
@@ -147,9 +164,19 @@ async def check_candidate_limited(
     require_feed: bool,
     limit: asyncio.Semaphore,
     progress: Progress,
+    timeout: httpx.Timeout = SITE_TIMEOUT,
 ) -> Candidate | None:
     async with limit:
         try:
-            return await check_candidate(client, candidate, require_feed)
+            return await check_candidate(client, candidate, require_feed, timeout)
         finally:
             progress.tick()
+
+
+def never_answered(candidate: Candidate) -> bool:
+    """True when the check got no HTTP response at all, rather than an unwelcome one.
+
+    A 404 or a 403 is an answer and settles the question. A connect timeout does not:
+    it is as likely to describe the run as the site.
+    """
+    return candidate.status_code is None

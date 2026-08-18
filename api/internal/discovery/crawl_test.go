@@ -16,6 +16,8 @@ const rssSample = `<?xml version="1.0"?>
       <link>https://example.com/posts/scaling</link>
       <dc:creator>Jane Dev</dc:creator>
       <pubDate>Mon, 02 Jan 2006 15:04:05 -0700</pubDate>
+      <category>Distributed Systems</category>
+      <category>Uncategorized</category>
       <description>&lt;p&gt;A short &lt;b&gt;summary&lt;/b&gt;.&lt;/p&gt;</description>
       <content:encoded>&lt;p&gt;The full body text.&lt;/p&gt;</content:encoded>
     </item>
@@ -30,6 +32,7 @@ const atomSample = `<?xml version="1.0" encoding="utf-8"?>
     <link rel="alternate" href="https://example.org/satellites"/>
     <author><name>Alyn</name></author>
     <published>2020-04-21T10:00:00Z</published>
+    <category term="astronomy" label="Astronomy"/>
     <summary>Telling them apart.</summary>
   </entry>
 </feed>`
@@ -59,6 +62,9 @@ func TestParseFeedRSS(t *testing.T) {
 	if it.Published.IsZero() {
 		t.Error("Published was not parsed")
 	}
+	if len(it.Categories) != 2 || it.Categories[0] != "Distributed Systems" {
+		t.Errorf("Categories = %q", it.Categories)
+	}
 }
 
 func TestParseFeedAtom(t *testing.T) {
@@ -77,6 +83,50 @@ func TestParseFeedAtom(t *testing.T) {
 	}
 	if got := items[0].Published.Format("2006-01-02"); got != "2020-04-21" {
 		t.Errorf("Published = %s", got)
+	}
+	if len(items[0].Categories) != 1 || items[0].Categories[0] != "Astronomy" {
+		t.Errorf("Categories = %q, want the label preferred over the term", items[0].Categories)
+	}
+}
+
+func TestTopicSlug(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"Distributed Systems", "distributed-systems"},
+		{"software-engineering", "software-engineering"},
+		{"Uncategorized", ""},
+		// Punctuation carries the meaning in "C++" and "C#", and kebab-casing loses
+		// it, so both fall under the single-character floor rather than becoming "c".
+		{"  C++  ", ""},
+		{"a", ""},
+		{"", ""},
+		{"!!!", ""},
+		{strings.Repeat("long", 20), ""},
+	}
+	for _, tc := range cases {
+		if got := topicSlug(tc.in); got != tc.want {
+			t.Errorf("topicSlug(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestArticleTopicsAddsCategoriesToSourceTags(t *testing.T) {
+	got := articleTopics([]string{"tech"}, []string{"Rust", "tech", "Uncategorized", "Compilers", "WASM", "Extra"})
+	want := []string{"tech", "rust", "compilers", "wasm"}
+
+	if len(got) != len(want) {
+		t.Fatalf("articleTopics() = %q, want %q", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("articleTopics() = %q, want %q", got, want)
+		}
+	}
+}
+
+func TestArticleTopicsFallsBackToTheSource(t *testing.T) {
+	got := articleTopics([]string{"tech", "linux"}, nil)
+	if len(got) != 2 || got[0] != "tech" || got[1] != "linux" {
+		t.Errorf("articleTopics() = %q, want the source's tags", got)
 	}
 }
 

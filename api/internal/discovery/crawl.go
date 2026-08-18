@@ -140,7 +140,8 @@ func (d *Discoverer) toArticle(ctx context.Context, s sources.Source, it feedIte
 		Origin:      article.OriginFeed,
 		Summary:     truncateWords(summary, summaryWords),
 		Content:     truncateWords(content, d.contentWords),
-		Topics:      s.Tags,
+		Topics:      articleTopics(s.Tags, it.Categories),
+		Kind:        s.Kind,
 		PublishedAt: it.Published,
 		FetchedAt:   time.Now().UTC(),
 	}, true

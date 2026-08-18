@@ -1,6 +1,16 @@
-# Blog lists to harvest links from.
-# One URL per line; blank lines and # comments are ignored. A line is either a GitHub
-# repository or topic, whose list files are read, or the URL of a page that links blogs.
+# Blog lists to harvest links from, one per line. Blank lines and # comments are
+# ignored. Adding a line here is the whole of adding a source list; see
+# sources/tools/README.md for how to pick a form and how to check one before
+# committing it.
+#
+#   https://github.com/owner/repo     every list file in the repository is read
+#   https://github.com/topics/name    the topic's most-starred repos, then as above
+#   https://example.com/page.html     an HTML page: its links are the blogs
+#   https://example.com/list.opml     a subscription list: site and feed together
+#   https://example.com/list.yaml     any structured file: .yaml .json .csv .xml
+#
+# Prefer a structured file over a repository when a list publishes one. It names each
+# blog, often gives its feed outright, and skips the rest of the repository.
 
 # General blog lists
 https://github.com/letsila/awesome-blogs
@@ -8,12 +18,12 @@ https://github.com/pgilad/awesome-blogs
 https://github.com/inputsh/awesome-blogs
 https://github.com/ekajogja/awesome-blogs
 https://github.com/linsa-io/blogs
-https://github.com/jkup/awesome-personal-blogs
 https://github.com/endymion1818/awesome-developer-blogs
 https://github.com/abdelhai/awesome-dev-blogs
 https://github.com/Firevvork/1000-awesome-blogs
 https://github.com/sanmak/awesome-blogs
 https://github.com/rapulu/awesome-blogs
+https://github.com/dev-blog-directory/dev-blog-directory
 
 # Engineering and developer blogs
 https://github.com/kilimchoi/engineering-blogs
@@ -25,15 +35,32 @@ https://github.com/upgundecha/awesome-engineering
 https://github.com/snuzi/awesome-dev-blogs
 https://github.com/snuzi/devblogs
 https://github.com/mhadikz/The-Best-Tech-Blogs-to-Follow
+https://github.com/MartinsOnuoha/company-engineering-blogs
 https://github.com/topics/engineering-blogs
 https://github.com/topics/developer-blogs
 https://github.com/topics/programming-blogs
+
+# Web and front-end
+https://github.com/simevidas/web-dev-feeds
+https://github.com/impressivewebs/frontend-feeds
+
+# Language communities
+https://github.com/RizRiyz/python-blogs
+
+# Security
+# Mostly Chinese-language, which the search index analyses as English, so these blogs
+# are crawled but rank poorly until the index gains another analyser.
+https://github.com/arch3rPro/SecurityRSS
 
 # Data, ML and AI
 https://github.com/rushter/data-science-blogs
 https://github.com/alexmolas/ml-blogs
 https://github.com/antoinebrl/awesome-ml-blogs
 https://github.com/primaprashant/ml-engineering-blogs
+https://github.com/primaprashant/llms-in-production
+https://github.com/alan-turing-institute/ai-rss-feeds
+https://github.com/vishalshar/awesome_ML_AI_RSS_feed
+https://github.com/RSS-Renaissance/awesome-AI-feeds
 
 # Science
 https://github.com/jonathansick/awesome-astronomy
@@ -43,11 +70,38 @@ https://github.com/wbierbower/awesome-physics
 
 # Wider webs
 https://github.com/sindresorhus/awesome
-https://github.com/kagisearch/smallweb
 https://github.com/voku/awesome-web
 
-# Hacker News personal blogs. The repository holds the OPML the list is built from, so
-# it carries each blog's feed URL directly; the rendered page tracks a later thread and
-# still contributes blogs the OPML does not have.
+# Personal and independent web
+# These lists are where the personal-blogs and small-web kinds come from, so the name
+# of each one matters: see provenance_tags_for_seed in extractor/tags.py.
+https://github.com/jkup/awesome-personal-blogs
+https://github.com/kagisearch/smallweb
+# Built from OPML, so the repository carries each blog's feed directly; the rendered
+# page tracks a later thread and still contributes blogs the OPML does not have.
 https://github.com/outcoldman/hackernews-personal-blogs
 https://hn-blogs.kronis.dev/blog-list.html
+# BlogScroll admits only human-written sites on their own domain. Seeded as the OPML
+# it publishes because the repository keeps its data in .toml files, which the
+# harvester reads as prose and so takes nothing from.
+https://blogscroll.com/index.opml
+
+# Non-English lists
+# Same analyser caveat as SecurityRSS above.
+https://github.com/maczniak/awesome-korean-techblog
+
+# Feed collections
+# OPML and YAML files seeded directly rather than as repositories: each carries the
+# feed URL beside the site, and seeding the file skips the rest of the repository.
+# Olshansk/rss-feeds is tens of megabytes of generated feed XML around one curated
+# list; plenaryapp/awesome-rss-feeds is mostly newspapers, sport and lifestyle, so
+# only its technical categories are taken.
+https://github.com/tuan3w/awesome-tech-rss
+https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds.yaml
+https://raw.githubusercontent.com/plenaryapp/awesome-rss-feeds/master/recommended/without_category/Programming.opml
+https://raw.githubusercontent.com/plenaryapp/awesome-rss-feeds/master/recommended/without_category/Web Development.opml
+https://raw.githubusercontent.com/plenaryapp/awesome-rss-feeds/master/recommended/without_category/iOS Development.opml
+https://raw.githubusercontent.com/plenaryapp/awesome-rss-feeds/master/recommended/without_category/Android Development.opml
+https://raw.githubusercontent.com/plenaryapp/awesome-rss-feeds/master/recommended/without_category/Cyber security.opml
+https://raw.githubusercontent.com/plenaryapp/awesome-rss-feeds/master/recommended/without_category/Science.opml
+https://raw.githubusercontent.com/plenaryapp/awesome-rss-feeds/master/recommended/without_category/UI - UX.opml

@@ -15,10 +15,14 @@ import (
 // Source is one approved blog. The list is generated into sources/blogs.yml and
 // published to blob storage, so updating it does not require redeploying the app.
 type Source struct {
-	ID   string   `yaml:"id"`
-	Name string   `yaml:"name"`
-	Site string   `yaml:"site"`
-	Feed string   `yaml:"feed,omitempty"`
+	ID   string `yaml:"id"`
+	Name string `yaml:"name"`
+	Site string `yaml:"site"`
+	Feed string `yaml:"feed,omitempty"`
+	// Kind is what sort of blog this is (personal, company), which its own pages
+	// rarely say. Kept apart from Tags because it answers a different question and
+	// is near-universal within a list, so as a subject it would drown the rest.
+	Kind []string `yaml:"kind,omitempty"`
 	Tags []string `yaml:"tags,omitempty"`
 }
 

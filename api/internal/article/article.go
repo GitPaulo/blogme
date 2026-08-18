@@ -21,6 +21,7 @@ type Article struct {
 	Summary     string    `json:"summary,omitempty"`
 	Content     string    `json:"content,omitempty"`
 	Topics      []string  `json:"topics,omitempty"`
+	Kind        []string  `json:"kind,omitempty"`
 	PublishedAt time.Time `json:"publishedAt,omitzero"`
 	FetchedAt   time.Time `json:"fetchedAt,omitzero"`
 }
