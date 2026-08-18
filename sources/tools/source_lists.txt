@@ -1,16 +1,19 @@
-# Blog lists to harvest links from, one per line. Blank lines and # comments are
-# ignored. Adding a line here is the whole of adding a source list; see
-# sources/tools/README.md for how to pick a form and how to check one before
-# committing it.
+# Blog lists to harvest links from, one per line. Blank lines and # comments ignored.
 #
-#   https://github.com/owner/repo     every list file in the repository is read
-#   https://github.com/topics/name    the topic's most-starred repos, then as above
-#   https://example.com/page.html     an HTML page: its links are the blogs
-#   https://example.com/list.opml     a subscription list: site and feed together
-#   https://example.com/list.yaml     any structured file: .yaml .json .csv .xml
+# Forms, and how each is read:
+#   github.com/owner/repo         every list file in the repository
+#   github.com/topics/name        that topic's top repositories, then as above
+#   URL ending .opml .xml         outlines: site and feed together
+#   URL ending .yaml .yml .json   structured: every line is scanned for links
+#              .jsonl .csv .tsv
+#   URL ending .html .htm, or     anchors: the link text names the blog
+#              anything unknown
+#   URL ending .md .markdown      list lines only: bullets, table rows, bare URLs
+#              .txt .rst
 #
-# Prefer a structured file over a repository when a list publishes one. It names each
-# blog, often gives its feed outright, and skips the rest of the repository.
+# Prefer a published OPML or data file over the repository holding it: it names each
+# blog, often gives the feed outright, and skips the rest of the repository. See
+# README.md for how to check a seed before committing it.
 
 # General blog lists
 https://github.com/letsila/awesome-blogs
@@ -24,6 +27,7 @@ https://github.com/Firevvork/1000-awesome-blogs
 https://github.com/sanmak/awesome-blogs
 https://github.com/rapulu/awesome-blogs
 https://github.com/dev-blog-directory/dev-blog-directory
+https://github.com/terrehbyte/awesome-devblogs
 
 # Engineering and developer blogs
 https://github.com/kilimchoi/engineering-blogs
@@ -36,21 +40,33 @@ https://github.com/snuzi/awesome-dev-blogs
 https://github.com/snuzi/devblogs
 https://github.com/mhadikz/The-Best-Tech-Blogs-to-Follow
 https://github.com/MartinsOnuoha/company-engineering-blogs
+https://m8.github.io/refined.blog/
+https://raw.githubusercontent.com/aiworkflowpro/awesome-rss-feeds-list/main/feeds/en-tech-teams.opml
+https://raw.githubusercontent.com/aiworkflowpro/awesome-rss-feeds-list/main/feeds/en-backend.opml
+https://raw.githubusercontent.com/aiworkflowpro/awesome-rss-feeds-list/main/feeds/en-dev-tools.opml
+https://raw.githubusercontent.com/aiworkflowpro/awesome-rss-feeds-list/main/feeds/en-devops-data.opml
 https://github.com/topics/engineering-blogs
 https://github.com/topics/developer-blogs
 https://github.com/topics/programming-blogs
 
 # Web and front-end
-https://github.com/simevidas/web-dev-feeds
-https://github.com/impressivewebs/frontend-feeds
+https://raw.githubusercontent.com/simevidas/web-dev-feeds/master/feeds.opml
+https://raw.githubusercontent.com/impressivewebs/frontend-feeds/master/frontend-feeds.opml
+https://raw.githubusercontent.com/JackyST0/awesome-rsshub-routes/main/feeds.opml
+https://raw.githubusercontent.com/aiworkflowpro/awesome-rss-feeds-list/main/feeds/en-web-frontend.opml
+https://raw.githubusercontent.com/aiworkflowpro/awesome-rss-feeds-list/main/feeds/en-product-design.opml
 
 # Language communities
 https://github.com/RizRiyz/python-blogs
+https://github.com/Yegorov/awesome-ruby-blogs
+https://raw.githubusercontent.com/aiworkflowpro/awesome-rss-feeds-list/main/feeds/en-mobile.opml
 
 # Security
-# Mostly Chinese-language, which the search index analyses as English, so these blogs
-# are crawled but rank poorly until the index gains another analyser.
+# Partly non-English and news-heavy; ranks poorly until the index gains other analysers.
 https://github.com/arch3rPro/SecurityRSS
+https://github.com/zer0yu/CyberSecurityRSS
+https://raw.githubusercontent.com/phretor/infosec-opml/main/feeds.xml
+https://raw.githubusercontent.com/aiworkflowpro/awesome-rss-feeds-list/main/feeds/en-cybersecurity.opml
 
 # Data, ML and AI
 https://github.com/rushter/data-science-blogs
@@ -60,48 +76,84 @@ https://github.com/primaprashant/ml-engineering-blogs
 https://github.com/primaprashant/llms-in-production
 https://github.com/alan-turing-institute/ai-rss-feeds
 https://github.com/vishalshar/awesome_ML_AI_RSS_feed
-https://github.com/RSS-Renaissance/awesome-AI-feeds
+https://github.com/leontloveless/ai-rss-feeds
+https://github.com/foorilla/allainews_sources
+https://raw.githubusercontent.com/RSS-Renaissance/awesome-AI-feeds/master/feedlist.opml
+https://raw.githubusercontent.com/aiworkflowpro/awesome-rss-feeds-list/main/feeds/en-ai-research.opml
+https://raw.githubusercontent.com/aiworkflowpro/awesome-rss-feeds-list/main/feeds/en-ai-eng.opml
+https://raw.githubusercontent.com/aiworkflowpro/awesome-rss-feeds-list/main/feeds/en-ai-news.opml
 
 # Science
+# Academic journal feeds as well as blogs.
 https://github.com/jonathansick/awesome-astronomy
 https://github.com/front-matter/awesome-science-blogs
 https://github.com/mpi-astronomy/awesome-astro-datascience
 https://github.com/wbierbower/awesome-physics
+https://github.com/sg-s/science-journal-feeds
+https://github.com/yexner/rss-feeds-academic-journals
+https://raw.githubusercontent.com/aiworkflowpro/awesome-rss-feeds-list/main/feeds/en-science.opml
 
 # Wider webs
 https://github.com/sindresorhus/awesome
 https://github.com/voku/awesome-web
+https://raw.githubusercontent.com/aiworkflowpro/awesome-rss-feeds-list/main/feeds/en-essays.opml
+https://raw.githubusercontent.com/aiworkflowpro/awesome-rss-feeds-list/main/feeds/en-startups.opml
 
 # Personal and independent web
-# These lists are where the personal-blogs and small-web kinds come from, so the name
-# of each one matters: see provenance_tags_for_seed in extractor/tags.py.
+# Where the personal-blogs and small-web kinds come from, so each list's name matters:
+# see provenance_tags_for_seed in extractor/tags.py.
 https://github.com/jkup/awesome-personal-blogs
 https://github.com/kagisearch/smallweb
-# Built from OPML, so the repository carries each blog's feed directly; the rendered
-# page tracks a later thread and still contributes blogs the OPML does not have.
+# Built from OPML, so the repository carries each blog's feed; the rendered page
+# tracks a later thread and adds blogs the OPML does not have.
 https://github.com/outcoldman/hackernews-personal-blogs
 https://hn-blogs.kronis.dev/blog-list.html
-# BlogScroll admits only human-written sites on their own domain. Seeded as the OPML
-# it publishes because the repository keeps its data in .toml files, which the
-# harvester reads as prose and so takes nothing from.
+https://hnpwd.github.io/
+# Personal sites on their own domain only. Seeded as its OPML because the repository
+# keeps its data in .toml, which the harvester reads as prose and takes nothing from.
 https://blogscroll.com/index.opml
+# Human-curated link graphs rather than awesome lists.
+https://blogroll.org/
+https://blogroll.blog/
+https://blogroll.social/
+https://danq.me/blogroll/
+https://lists.opml.org/daveblogroll.xml
+https://blogroll-network.alexsci.com/aggregate-feeds/
+https://blogroll-network.alexsci.com/excluded/
 
 # Non-English lists
 # Same analyser caveat as SecurityRSS above.
 https://github.com/maczniak/awesome-korean-techblog
+https://raw.githubusercontent.com/lotosbin/opml-list/master/data/feed.opml
+https://github.com/timqian/chinese-independent-blogs
+https://github.com/zh-blogs/blog-daohang
+https://github.com/qianguyihao/blog-list
+https://github.com/volfclub/travellings
+https://github.com/shidenggui/bloghub
+https://github.com/NUAA-Open-Source/BlogRoll
+https://github.com/tuna/blogroll
+https://github.com/olist213/information_subscription
 
 # Feed collections
-# OPML and YAML files seeded directly rather than as repositories: each carries the
-# feed URL beside the site, and seeding the file skips the rest of the repository.
 # Olshansk/rss-feeds is tens of megabytes of generated feed XML around one curated
 # list; plenaryapp/awesome-rss-feeds is mostly newspapers, sport and lifestyle, so
 # only its technical categories are taken.
-https://github.com/tuan3w/awesome-tech-rss
+https://raw.githubusercontent.com/tuan3w/awesome-tech-rss/main/feeds.opml
+https://github.com/ivan-ha/awesome-rss-feeds
+https://github.com/xiangyugongzuoliu/awesome-rss-feeds-list
+https://github.com/scripting/feedsForJournalists
+https://github.com/alexnodeland/rss
 https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds.yaml
 https://raw.githubusercontent.com/plenaryapp/awesome-rss-feeds/master/recommended/without_category/Programming.opml
-https://raw.githubusercontent.com/plenaryapp/awesome-rss-feeds/master/recommended/without_category/Web Development.opml
-https://raw.githubusercontent.com/plenaryapp/awesome-rss-feeds/master/recommended/without_category/iOS Development.opml
-https://raw.githubusercontent.com/plenaryapp/awesome-rss-feeds/master/recommended/without_category/Android Development.opml
-https://raw.githubusercontent.com/plenaryapp/awesome-rss-feeds/master/recommended/without_category/Cyber security.opml
+https://raw.githubusercontent.com/plenaryapp/awesome-rss-feeds/master/recommended/without_category/Web%20Development.opml
+https://raw.githubusercontent.com/plenaryapp/awesome-rss-feeds/master/recommended/without_category/iOS%20Development.opml
+https://raw.githubusercontent.com/plenaryapp/awesome-rss-feeds/master/recommended/without_category/Android%20Development.opml
+https://raw.githubusercontent.com/plenaryapp/awesome-rss-feeds/master/recommended/without_category/Cyber%20security.opml
 https://raw.githubusercontent.com/plenaryapp/awesome-rss-feeds/master/recommended/without_category/Science.opml
-https://raw.githubusercontent.com/plenaryapp/awesome-rss-feeds/master/recommended/without_category/UI - UX.opml
+https://raw.githubusercontent.com/plenaryapp/awesome-rss-feeds/master/recommended/without_category/UI%20-%20UX.opml
+
+# Source-list discovery topics
+# Not sources themselves: these find further source-list repositories to scan.
+https://github.com/topics/rss-feed
+https://github.com/topics/opml
+https://github.com/topics/blogroll
