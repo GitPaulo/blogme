@@ -25,7 +25,12 @@
 
 	const DEBOUNCE_MS = 300;
 	// How many pages one "load more" may fetch while filters hide everything that arrives.
-	const MAX_CHASE = 5;
+	// Twenty covers most of the deepest keyword range, so even a filter that matches a
+	// handful of posts in thousands resolves in a click or two.
+	const MAX_CHASE = 20;
+	// Requests are sequential, so cap the wall clock too: a slow API should shorten the
+	// chase rather than stretch one click into a stall.
+	const CHASE_BUDGET_MS = 3_000;
 	// Hoisted: building a formatter is the expensive half of rendering the total.
 	const decimal = new Intl.NumberFormat();
 
@@ -182,17 +187,26 @@
 	}
 
 	// Filters narrow the page rather than the query behind it, so a page can arrive
-	// holding nothing they let through and the button appears to do nothing. Keep
-	// paging until something shows, giving up after MAX_CHASE pages so a filter that
-	// matches almost nothing cannot turn one click into a walk to the end of the index.
+	// holding nothing they let through and the button appears to do nothing. Keep paging
+	// until something shows, within a bounded number of requests and a time budget so a
+	// filter matching almost nothing cannot turn one click into a walk to the end.
 	async function loadMore() {
 		if (!hasMore || loadingMore) return;
+		// Pinned for the whole chase: reading these per request would pair a query the
+		// user has since edited with an offset counted against the previous one.
+		const value = term;
+		const only = origin;
+		const ranking = rank;
 		loadingMore = true;
 		try {
 			const before = shown;
+			const deadline = Date.now() + CHASE_BUDGET_MS;
 			for (let page = 0; page < MAX_CHASE; page++) {
-				if (!(await run(term, nextOffset, origin, rank))) break;
-				if (shown > before || !hasMore) break;
+				if (!(await run(value, nextOffset, only, ranking))) break;
+				if (shown > before || !hasMore || Date.now() >= deadline) break;
+				// The search this chase belongs to is no longer the one on screen. Leaving
+				// now also spares the debounce the next run() would cancel out from under.
+				if (term !== value || origin !== only || rank !== ranking) break;
 			}
 		} finally {
 			loadingMore = false;
@@ -296,6 +310,8 @@
 	<p class="sr-only" role="status">
 		{#if status === 'loading'}
 			Searching
+		{:else if loadingMore}
+			Loading more results
 		{:else if status === 'done'}
 			{loaded === 0 ? emptyMessage : summary}
 		{/if}
