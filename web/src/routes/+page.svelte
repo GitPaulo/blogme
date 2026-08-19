@@ -24,6 +24,8 @@
 	import { applyFilters, emptyFilters, isFiltered } from '$lib/filters';
 
 	const DEBOUNCE_MS = 300;
+	// How many pages one "load more" may fetch while filters hide everything that arrives.
+	const MAX_CHASE = 5;
 	// Hoisted: building a formatter is the expensive half of rendering the total.
 	const decimal = new Intl.NumberFormat();
 
@@ -136,6 +138,7 @@
 		return [...existing, ...incoming.filter((result) => !seen.has(result.url))];
 	}
 
+	/** Resolves true when this call is the one that landed a page. */
 	async function run(value: string, offset: number, only: Origin | undefined, ranking: Rank) {
 		cancel();
 		const current = new AbortController();
@@ -145,7 +148,7 @@
 			status = 'loading';
 			// Filters describe the result set on screen, so a fresh search starts clean.
 			filters = emptyFilters();
-		} else loadingMore = true;
+		}
 		error = '';
 		try {
 			const response = await search(value, {
@@ -155,13 +158,14 @@
 				signal: current.signal
 			});
 			// A newer search (or a cleared query) owns the UI now, so drop this answer.
-			if (controller !== current) return;
+			if (controller !== current) return false;
 			results = offset === 0 ? response.results : merge(results, response.results);
 			total = response.total;
 			nextOffset = offset + PAGE_SIZE;
 			status = 'done';
+			return true;
 		} catch (e) {
-			if (controller !== current) return;
+			if (controller !== current) return false;
 			error = e instanceof Error ? e.message : 'Something went wrong.';
 			// A failed page keeps the pages already on screen; only a failed first page
 			// has nothing left to show.
@@ -171,17 +175,28 @@
 				nextOffset = 0;
 				status = 'error';
 			}
+			return false;
 		} finally {
-			if (controller === current) {
-				controller = undefined;
-				loadingMore = false;
-			}
+			if (controller === current) controller = undefined;
 		}
 	}
 
-	function loadMore() {
+	// Filters narrow the page rather than the query behind it, so a page can arrive
+	// holding nothing they let through and the button appears to do nothing. Keep
+	// paging until something shows, giving up after MAX_CHASE pages so a filter that
+	// matches almost nothing cannot turn one click into a walk to the end of the index.
+	async function loadMore() {
 		if (!hasMore || loadingMore) return;
-		run(term, nextOffset, origin, rank);
+		loadingMore = true;
+		try {
+			const before = shown;
+			for (let page = 0; page < MAX_CHASE; page++) {
+				if (!(await run(term, nextOffset, origin, rank))) break;
+				if (shown > before || !hasMore) break;
+			}
+		} finally {
+			loadingMore = false;
+		}
 	}
 
 	function toTop() {
