@@ -7,6 +7,7 @@
 	} from 'flowbite-svelte-icons';
 	import { tick } from 'svelte';
 	import { prefersReducedMotion } from 'svelte/motion';
+	import { fade } from 'svelte/transition';
 	import BookmarkButton from '$lib/components/BookmarkButton.svelte';
 	import FilterBar from '$lib/components/FilterBar.svelte';
 	import {
@@ -69,6 +70,10 @@
 	let searchInput = $state<HTMLInputElement>();
 	// One element per visible result, so children[n] is result n.
 	let resultList = $state<HTMLElement>();
+	// The row holding "load more" and the shortcut back to the top, watched so the shortcut
+	// can return as a floating one once the row itself has scrolled out of reach.
+	let controlsRow = $state<HTMLElement>();
+	let controlsOffScreen = $state(false);
 
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let controller: AbortController | undefined;
@@ -139,6 +144,23 @@
 			observer.disconnect();
 			window.removeEventListener('resize', measure);
 		};
+	});
+
+	// Asking the browser whether the row is on screen, rather than deriving it from a
+	// scroll position: the answer survives the list growing under it, which is exactly
+	// when the row moves.
+	$effect(() => {
+		const row = controlsRow;
+		if (!row) {
+			// No row means no results, and nothing to offer a shortcut back from.
+			controlsOffScreen = false;
+			return;
+		}
+		const observer = new IntersectionObserver(([entry]) => {
+			controlsOffScreen = !entry.isIntersecting;
+		});
+		observer.observe(row);
+		return () => observer.disconnect();
 	});
 
 	function cancel() {
@@ -465,13 +487,15 @@
 			</div>
 
 			{#if loaded > 0}
-				<div class="mt-6 flex items-center justify-center gap-2">
+				<div class="mt-6 flex items-center justify-center gap-2" bind:this={controlsRow}>
 					<!-- Present for as long as there are results, so the end of the list is a
 					disabled button rather than a control that vanishes from under the pointer. -->
 					<Button color="alternative" loading={loadingMore} disabled={!hasMore} onclick={loadMore}>
 						Load more
 					</Button>
-					{#if scrollable}
+					<!-- Stood down while the floating copy below has it, so the shortcut is never
+					two tab stops, one of them off screen and scrolling the page when focused. -->
+					{#if scrollable && !controlsOffScreen}
 						<!-- Same button, squared off around the icon: a shortcut back is a peer of
 						the way forward, not a different kind of control. The icon is sized to the
 						text line box beside it so both buttons come out the same height. -->
@@ -486,6 +510,26 @@
 						<Tooltip>Back to top</Tooltip>
 					{/if}
 				</div>
+
+				<!-- The same shortcut, floated once the row it lives in has scrolled away. Bottom
+				end rather than bottom centre: it sits beside the results and within reach of a
+				thumb, and stays clear of the toolbar at the top. -->
+				{#if controlsOffScreen}
+					<div
+						class="fixed end-4 bottom-4 z-40"
+						transition:fade={{ duration: prefersReducedMotion.current ? 0 : 150 }}
+					>
+						<Button
+							color="alternative"
+							class="shrink-0 !px-3 shadow-lg"
+							onclick={toTop}
+							aria-label="Back to top"
+						>
+							<ChevronDoubleUpOutline class="h-5 w-5" />
+						</Button>
+						<Tooltip>Back to top</Tooltip>
+					</div>
+				{/if}
 			{/if}
 		</div>
 	{/if}
