@@ -52,6 +52,20 @@ func newTestHandlers(t *testing.T, body string) *Handlers {
 	return h
 }
 
+// newHandlersReturning stands in for a search service that answers everything with
+// one status, which is how an index we cannot read looks from here whatever the
+// underlying reason.
+func newHandlersReturning(t *testing.T, status int) *Handlers {
+	t.Helper()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(status)
+	}))
+	t.Cleanup(srv.Close)
+
+	return New(index.New(srv.URL, "articles", "test-key", ""), DefaultLimits())
+}
+
 func get(t *testing.T, h *Handlers, target string) *httptest.ResponseRecorder {
 	t.Helper()
 
@@ -222,6 +236,63 @@ func TestSearchQueryLengthCountsRunes(t *testing.T) {
 		target := "/api/search?" + url.Values{"q": {tc.query}}.Encode()
 		if code := get(t, h, target).Code; code != tc.want {
 			t.Errorf("%s: got status %d, want %d", tc.name, code, tc.want)
+		}
+	}
+}
+
+// The deploy workflow gates on health, so the one thing it must not do is pass
+// while search is broken. The failures worth catching all authenticate correctly —
+// a role assignment that was never granted still issues a token, and a misspelled
+// index name is a valid request to somewhere that is not there — so health is
+// asserted against what the index answers rather than against the process running.
+func TestHealthFollowsWhetherTheIndexCanBeRead(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		index int
+		want  int
+	}{
+		{"index answers", http.StatusOK, http.StatusOK},
+		{"role assignment missing", http.StatusForbidden, http.StatusServiceUnavailable},
+		{"index name wrong", http.StatusNotFound, http.StatusServiceUnavailable},
+		{"service unwell", http.StatusInternalServerError, http.StatusServiceUnavailable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			newHandlersReturning(t, tc.index).
+				Health(rec, httptest.NewRequest(http.MethodGet, "/api/health", nil))
+
+			if rec.Code != tc.want {
+				t.Errorf("got status %d, want %d", rec.Code, tc.want)
+			}
+			// A cached answer would outlive the condition it describes.
+			if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+				t.Errorf("got Cache-Control %q, want no-store", got)
+			}
+		})
+	}
+}
+
+// A page of results is worth reusing, so a reload or a shared link opened twice
+// costs nothing. A failure is about this moment rather than about the query, and
+// caching one would go on serving it after the service had recovered.
+func TestSearchCachesAnAnswerAndNothingElse(t *testing.T) {
+	const want = "public, max-age=60"
+
+	if got := get(t, newTestHandlers(t, emptyResult), "/api/search?q=go").
+		Header().Get("Cache-Control"); got != want {
+		t.Errorf("an answer: got Cache-Control %q, want %q", got, want)
+	}
+
+	for _, tc := range []struct {
+		name    string
+		handler *Handlers
+		target  string
+	}{
+		{"rejected", newTestHandlers(t, emptyResult), "/api/search?q=go&limit=99"},
+		{"failed", newHandlersReturning(t, http.StatusInternalServerError), "/api/search?q=go"},
+	} {
+		if got := get(t, tc.handler, tc.target).Header().Get("Cache-Control"); got != "" {
+			t.Errorf("a %s request set Cache-Control %q", tc.name, got)
 		}
 	}
 }

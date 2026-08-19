@@ -159,6 +159,26 @@ scoring part-way down a scroll. Reranking is metered, so a query is downgraded t
 ranking when the throttle says the budget is spent, and retried without it if the service
 refuses anyway. Search degrades rather than failing, either way.
 
+A search lives in the address bar. The query, the ranking mode and the `origin` filter —
+everything the server was asked for — are written back as `?q=`, `?mode=` and `?origin=`,
+so a search can be shared, reloaded or returned to. The remaining filters narrow the rows
+already fetched rather than the query behind them, and a fresh search clears them, so they
+stay out. The URL is written once per search rather than once per keystroke: partly
+because it should describe results that exist, and partly because browsers throttle
+history writes.
+
+An answer is cacheable for a minute, so a reload or a shared link opened twice costs
+neither an execution nor an index query. Only the answer: an error describes this moment
+rather than the query, and caching one would go on serving a failure the service had
+already recovered from.
+
+`/api/health` asks the index for a document count rather than reporting that the process
+is up. The deploy workflow gates on it, and the failures worth catching all authenticate
+correctly — a role assignment that was never granted still issues a token, and a
+misspelled index name is a valid request to somewhere that is not there. Both would ship
+green and then fail every search. Counting is not a semantic query, so the check spends
+nothing from the reranking quota.
+
 ## Logging
 
 There is no logger to configure. The Functions Go worker installs one at import time:
@@ -193,8 +213,10 @@ Every search emits exactly one `search` record with the query, `count`, `total`,
 and `duration_ms`. That one line is the difference between knowing search works and
 assuming it: a corpus that has quietly stopped matching anything otherwise looks
 identical to a quiet day. Queries are logged, capped at 128 characters and with control
-characters folded to spaces so nothing in a query can forge a second log record. Health
-checks are deliberately not logged — a platform probe would bury everything else.
+characters folded to spaces so nothing in a query can forge a second log record. A
+passing health check is deliberately not logged — it is polled, and one line per poll
+would bury everything else — but a failing one is, because by then something is wrong
+that nobody has noticed.
 
 Turning on debug needs no redeploy. Add the app setting and restart:
 

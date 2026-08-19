@@ -65,6 +65,21 @@ const REQUEST_TIMEOUT_MS = 15_000;
 // Empty in development, where Vite proxies /api to the Functions host.
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 
+/**
+ * A refusal from the API, carrying the status so a caller can tell one apart from
+ * another. Being throttled is the case that matters: it says try later, where every
+ * other failure says something is wrong.
+ */
+export class SearchError extends Error {
+	constructor(
+		message: string,
+		readonly status: number
+	) {
+		super(message);
+		this.name = 'SearchError';
+	}
+}
+
 /** Indexed content is third-party data, so only plain web links are ever rendered. */
 export function safeHttpUrl(value: unknown): string | undefined {
 	if (typeof value !== 'string') return undefined;
@@ -181,10 +196,11 @@ export async function search(
 			response.status < 500
 				? text((body as Record<string, unknown> | null)?.error, MAX_ERROR_LENGTH)
 				: undefined;
-		throw new Error(
+		throw new SearchError(
 			detail
 				? detail.charAt(0).toUpperCase() + detail.slice(1)
-				: 'The search service is unavailable. Try again in a moment.'
+				: 'The search service is unavailable. Try again in a moment.',
+			response.status
 		);
 	}
 

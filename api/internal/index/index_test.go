@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -207,5 +208,59 @@ func TestQueryFiltersByOrigin(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("origin %q: filter = %q, want %q", tc.origin, got, tc.want)
 		}
+	}
+}
+
+// Health is the deploy workflow's gate, so a Ready that asks the wrong question
+// would fail every deploy — or, worse, pass one it should not. Asserted against the
+// request that leaves rather than the error that comes back, because a stand-in
+// server answers any path and would hide a wrong one.
+func TestReadyAsksTheIndexForACount(t *testing.T) {
+	var (
+		method string
+		path   string
+		body   []byte
+	)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		method, path = r.Method, r.URL.Path
+		body, _ = io.ReadAll(r.Body)
+		_, _ = io.WriteString(w, "75356")
+	}))
+	defer srv.Close()
+
+	if err := New(srv.URL, "articles", "test-key", "").Ready(context.Background()); err != nil {
+		t.Fatalf("ready: %v", err)
+	}
+
+	if method != http.MethodGet {
+		t.Errorf("got method %s, want GET", method)
+	}
+	if want := "/indexes/articles/docs/$count"; path != want {
+		t.Errorf("got path %q, want %q", path, want)
+	}
+	// A GET carrying "null" is a request the service is entitled to refuse.
+	if len(body) != 0 {
+		t.Errorf("got a request body %q, want none", body)
+	}
+}
+
+// Counting is not a search, so it must not be turned into one by the semantic
+// configuration being set: reranking is metered and a polled endpoint would drain
+// the month's allowance.
+func TestReadyDoesNotRerank(t *testing.T) {
+	var query string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query = r.URL.RawQuery
+		_, _ = io.WriteString(w, "0")
+	}))
+	defer srv.Close()
+
+	if err := New(srv.URL, "articles", "test-key", "blogme-semantic").Ready(context.Background()); err != nil {
+		t.Fatalf("ready: %v", err)
+	}
+	if strings.Contains(query, "semantic") {
+		t.Errorf("got query %q, want no semantic parameters", query)
 	}
 }

@@ -36,6 +36,11 @@ const (
 	// difference between "search is slow" and "this search is slow", but a query is
 	// third-party input and the telemetry bill is charged by volume.
 	maxLoggedQuery = 128
+	// How long a browser may reuse a page of results. Repeats are ordinary — a
+	// reload, a shared link opened twice, the back button — and each one avoided is
+	// an execution not billed and an index query not made. Kept short because
+	// discovery adds documents every hour.
+	searchMaxAge = 60
 )
 
 // logQuery makes a caller's query safe to log.
@@ -260,6 +265,11 @@ func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
 		"downgraded", downgraded,
 		"duration_ms", time.Since(started).Milliseconds())
 
+	// Only on the answer. An error is about this moment rather than about the query,
+	// so caching one would keep serving a failure the service has already recovered
+	// from.
+	w.Header().Set("Cache-Control", "public, max-age="+strconv.Itoa(searchMaxAge))
+
 	writeJSON(ctx, w, http.StatusOK, searchResponse{
 		Query:   p.q,
 		Count:   len(results),
@@ -289,10 +299,29 @@ func queryInt(values url.Values, name string, fallback, minimum, maximum int) (i
 
 // Health handles GET /api/health.
 //
-// Deliberately not logged: a platform probe calls this constantly, and one line
-// per probe would bury everything worth reading.
+// Answers whether this instance can serve a search, not merely whether the worker
+// started. The deploy workflow gates on this, so a check that only proved the
+// process was up would pass an environment whose search credential or role
+// assignment never arrived — and the first sign of that would be every query
+// failing.
+//
+// Success is deliberately not logged: this is polled, and one line per poll would
+// bury everything worth reading. A failure is logged, because by then something is
+// wrong that nobody has noticed yet.
 func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
-	writeJSON(r.Context(), w, http.StatusOK, map[string]string{"status": "ok"})
+	ctx := r.Context()
+
+	// A cached "ok" would outlive the condition it describes, which for the one
+	// endpoint whose whole job is to be current is worse than no answer at all.
+	w.Header().Set("Cache-Control", "no-store")
+
+	if err := h.index.Ready(ctx); err != nil {
+		slog.ErrorContext(ctx, "health check failed", "error", err)
+		writeError(ctx, w, http.StatusServiceUnavailable, "search index unreachable")
+		return
+	}
+
+	writeJSON(ctx, w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // The context is carried purely so a failed write is still attributable to the

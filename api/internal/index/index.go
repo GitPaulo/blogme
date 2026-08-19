@@ -158,6 +158,19 @@ type QueryOptions struct {
 	Rank string
 }
 
+// Ready reports whether this instance can actually read the index.
+//
+// It asks for a document count rather than checking that a credential exists,
+// because the failures worth catching all authenticate perfectly well: a role
+// assignment that was never granted still issues a token, and a misspelled index
+// name is a valid request to somewhere that is not there. Both answer every real
+// search with an error while any cheaper check says all is well.
+//
+// Counting is not semantic, so it spends nothing from the metered reranking quota.
+func (i *Index) Ready(ctx context.Context) error {
+	return i.do(ctx, http.MethodGet, "/docs/$count", nil, nil)
+}
+
 // Query runs a full-text search and returns one page of ranked results along with
 // the number of matches across the whole corpus.
 func (i *Index) Query(ctx context.Context, q string, opts QueryOptions) ([]article.Result, int, error) {
@@ -245,19 +258,27 @@ func results(resp searchResponse) []article.Result {
 }
 
 func (i *Index) do(ctx context.Context, method, path string, body, out any) error {
-	raw, err := json.Marshal(body)
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
+	// A nil body means a GET, which carries none: sending "null" with a JSON content
+	// type would be a request the service is entitled to refuse.
+	var payload io.Reader
+	if body != nil {
+		raw, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("marshal request: %w", err)
+		}
+		payload = bytes.NewReader(raw)
 	}
 
 	endpoint := fmt.Sprintf("%s/indexes/%s%s?api-version=%s",
 		i.endpoint, url.PathEscape(i.name), path, apiVersion)
 
-	req, err := http.NewRequestWithContext(ctx, method, endpoint, bytes.NewReader(raw))
+	req, err := http.NewRequestWithContext(ctx, method, endpoint, payload)
 	if err != nil {
 		return fmt.Errorf("build request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 
 	if err := i.authorize(ctx, req); err != nil {
 		return err

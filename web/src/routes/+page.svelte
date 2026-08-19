@@ -8,6 +8,8 @@
 	import { tick } from 'svelte';
 	import { prefersReducedMotion } from 'svelte/motion';
 	import { fade } from 'svelte/transition';
+	import { browser } from '$app/environment';
+	import { replaceState } from '$app/navigation';
 	import BookmarkButton from '$lib/components/BookmarkButton.svelte';
 	import FilterBar from '$lib/components/FilterBar.svelte';
 	import {
@@ -17,6 +19,7 @@
 		MIN_QUERY_LENGTH,
 		PAGE_SIZE,
 		search,
+		SearchError,
 		type Origin,
 		type Rank,
 		type SearchResult
@@ -78,6 +81,10 @@
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let controller: AbortController | undefined;
 
+	// Read before any effect can run, so writing the address bar back can never race
+	// reading it and clear the search the reader arrived with.
+	const opening = new URLSearchParams(browser ? location.search : '');
+
 	const term = $derived(clampQuery(query));
 	const origin = $derived<Origin | undefined>(sitemappedOnly ? 'sitemap' : undefined);
 	const searchable = $derived(term.length >= MIN_QUERY_LENGTH);
@@ -131,6 +138,15 @@
 		searchInput?.focus();
 	});
 
+	// Reopens the search a shared or reloaded link describes. Done in an effect rather
+	// than in the initial state because the page is prerendered holding an empty box,
+	// and hydrating a different one would not match the markup already on screen.
+	$effect(() => {
+		query = clampQuery(opening.get('q') ?? '');
+		semanticRanking = opening.get('mode') === 'semantic';
+		sitemappedOnly = opening.get('origin') === 'sitemap';
+	});
+
 	// Watching the document rather than recomputing per render: every filter, page and
 	// window resize changes the answer, and the observer already fires on all of them.
 	$effect(() => {
@@ -181,6 +197,26 @@
 		controller = undefined;
 	}
 
+	// Puts the search on screen in the address bar, so it can be shared, reloaded or
+	// returned to. Carries what the server was asked for and nothing else: the rest of
+	// the filters narrow the rows already fetched, and a fresh search clears them.
+	//
+	// Called once per search rather than once per keystroke. Both because a URL should
+	// describe results that exist, and because browsers throttle history writes — Safari
+	// stops at a hundred in thirty seconds, which is a fast typist.
+	function syncUrl(value: string, only?: Origin, ranking?: Rank) {
+		const params = new URLSearchParams();
+		if (value) {
+			params.set('q', value);
+			if (ranking === 'semantic') params.set('mode', ranking);
+			if (only) params.set('origin', only);
+		}
+
+		const next = params.toString();
+		if (next === location.search.slice(1)) return;
+		replaceState(next ? `?${next}` : location.pathname, {});
+	}
+
 	// Offset paging can repeat a row if the index changes between pages, and the keyed
 	// each block would throw on the duplicate.
 	function merge(existing: SearchResult[], incoming: SearchResult[]) {
@@ -198,6 +234,7 @@
 			status = 'loading';
 			// Filters describe the result set on screen, so a fresh search starts clean.
 			filters = emptyFilters();
+			syncUrl(value, only, ranking);
 		}
 		error = '';
 		try {
@@ -216,6 +253,11 @@
 			return true;
 		} catch (e) {
 			if (controller !== current) return false;
+			// A chase can outrun the API's own rate limit, which is this code's doing
+			// rather than a fault the reader should be shown: the pages already on screen
+			// stay, the button stays live, and the next click a moment later works. Only a
+			// first page reports it, because there the reader asked and got nothing.
+			if (offset > 0 && e instanceof SearchError && e.status === 429) return false;
 			error = e instanceof Error ? e.message : 'Something went wrong.';
 			// A failed page keeps the pages already on screen; only a failed first page
 			// has nothing left to show.
@@ -311,6 +353,7 @@
 			nextOffset = 0;
 			error = '';
 			status = 'idle';
+			syncUrl(''); // No search to describe, so the address goes back to bare.
 			return;
 		}
 

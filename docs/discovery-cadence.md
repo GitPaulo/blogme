@@ -134,8 +134,9 @@ az functionapp config appsettings set \
   --settings BLOGME_DISCOVERY_BATCH=1000 BLOGME_DISCOVERY_SCHEDULE="0 0 * * * *"
 ```
 
-Applying this restarts the app, so confirm `/api/health` returns `200` afterwards. Read
-the values back with:
+Applying this restarts the app, so confirm `/api/health` returns `200` afterwards — it
+reads the index, so a `200` means search works rather than only that the app came back.
+Read the values back with:
 
 ```bash
 az functionapp config appsettings list \
