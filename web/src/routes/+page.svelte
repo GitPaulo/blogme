@@ -32,9 +32,15 @@
 	// Requests are sequential, so cap the wall clock too: a slow API should shorten the
 	// chase rather than stretch one click into a stall.
 	const CHASE_BUDGET_MS = 3_000;
-	// Appending happens below the fold and moves nothing, so drift past this during a load
-	// is the reader scrolling rather than the page reflowing.
-	const SCROLL_DRIFT_PX = 4;
+	// Gap left above the row "load more" scrolls to, clearing the fixed toolbar and leaving
+	// a sliver of the previous row in view so the batch reads as a continuation.
+	const SCROLL_TOP_GAP = 64;
+	// What counts as the reader taking the page over mid-load. Read from input rather than
+	// from scrollY, because the page also moves under our own smooth scroll and a position
+	// check cannot tell the two apart — it cancelled the scroll on every click that landed
+	// while the previous one was still animating.
+	const SCROLL_INPUT = ['wheel', 'touchmove', 'keydown'] as const;
+	const SCROLL_KEYS = new Set([' ', 'ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End']);
 	// Hoisted: building a formatter is the expensive half of rendering the total.
 	const decimal = new Intl.NumberFormat();
 
@@ -204,7 +210,7 @@
 		const only = origin;
 		const ranking = rank;
 		const before = shown;
-		const anchor = window.scrollY;
+		const readerTookOver = watchReaderScroll();
 		loadingMore = true;
 		try {
 			const deadline = Date.now() + CHASE_BUDGET_MS;
@@ -219,25 +225,43 @@
 			loadingMore = false;
 		}
 
+		// Detaches the watcher and reports whether the reader moved the page themselves.
 		// After the chase settles rather than per page, so several pages move the reader once.
-		if (shown > before && term === value) await revealNewResults(before, anchor);
+		if (!readerTookOver() && shown > before && term === value) await revealNewResults(before);
+	}
+
+	/** Reports, once detached, whether the reader scrolled the page while it was called. */
+	function watchReaderScroll(): () => boolean {
+		let taken = false;
+		const mark = (event: Event) => {
+			// Every wheel and touch counts; only the keys that actually scroll do.
+			if (!(event instanceof KeyboardEvent) || SCROLL_KEYS.has(event.key)) taken = true;
+		};
+		const options = { passive: true, capture: true } as const;
+		for (const type of SCROLL_INPUT) window.addEventListener(type, mark, options);
+		return () => {
+			for (const type of SCROLL_INPUT) window.removeEventListener(type, mark, options);
+			return taken;
+		};
 	}
 
 	// New rows land below the fold, so without this a click leaves the reader on the same
 	// screen with the button they pressed now buried under everything that arrived.
-	async function revealNewResults(firstNew: number, anchor: number) {
+	async function revealNewResults(firstNew: number) {
 		await tick(); // The rows are in state but not yet on the page.
-		// They scrolled while it loaded, so leave them where they are.
-		if (Math.abs(window.scrollY - anchor) > SCROLL_DRIFT_PX) return;
 
 		const target = resultList?.children[firstNew];
 		if (!target) return;
 
-		// 'start' rather than 'nearest': the first new row is usually already just inside
-		// the bottom edge, which is the case worth fixing — 'nearest' would skip it.
-		target.scrollIntoView({
-			behavior: prefersReducedMotion.current ? 'auto' : 'smooth',
-			block: 'start'
+		// Clamped to what the document can actually offer, so a final short page scrolls to
+		// the bottom rather than asking for a position past it. Computed rather than left to
+		// scrollIntoView so the destination is a number this code chose and can check.
+		const furthest = document.documentElement.scrollHeight - window.innerHeight;
+		const top = window.scrollY + target.getBoundingClientRect().top - SCROLL_TOP_GAP;
+
+		window.scrollTo({
+			top: Math.max(0, Math.min(top, furthest)),
+			behavior: prefersReducedMotion.current ? 'auto' : 'smooth'
 		});
 	}
 
@@ -388,8 +412,7 @@
 			<div class="mt-3 space-y-4" bind:this={resultList}>
 				{#each filtered as result (result.url)}
 					{@const published = formatDate(result.publishedAt)}
-					<!-- scroll-mt keeps the row "load more" scrolls to clear of the fixed toolbar. -->
-					<Card class="max-w-none scroll-mt-16 p-4">
+					<Card class="max-w-none p-4">
 						<div class="flex items-start gap-3">
 							<div class="min-w-0 flex-1">
 								<Heading tag="h2" class="text-lg font-semibold">
