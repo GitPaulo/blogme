@@ -5,16 +5,22 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/GitPaulo/blogme/api/internal/article"
 	"github.com/GitPaulo/blogme/api/internal/index"
 )
 
 const (
+	// Counted in runes rather than bytes, because the browser holding the search box
+	// counts characters. Measured in bytes the same number rejects a query the client
+	// had already judged short enough, and does so three times sooner in Japanese
+	// than in English.
 	maxQueryLen  = 512
 	defaultLimit = 20
 	maxLimit     = 50
@@ -22,8 +28,7 @@ const (
 	// the entire result set worth offering in that mode: past it the ordering
 	// silently reverts to keyword scoring part-way down a scroll, which reads as the
 	// results getting worse for no reason.
-	semanticWindow    = 50
-	maxSemanticOffset = semanticWindow - defaultLimit
+	semanticWindow = 50
 	// Keyword ranking scores the whole result set, so it can page as deep as is worth
 	// paying for. Relevance is long gone by this depth, so the tail stops here.
 	maxKeywordOffset = 1000
@@ -63,12 +68,20 @@ func (h *Handlers) allowSemantic(caller string, now time.Time) bool {
 	return ok
 }
 
-// maxOffsetFor reports how deep the given ranking mode is allowed to page.
-func maxOffsetFor(rank string) int {
+// maxOffsetFor reports how deep the given ranking mode may page when serving pages
+// of the given size.
+//
+// The page size is part of the answer because the *last* page is what has to land
+// inside the window the mode can actually order, and for semantic ranking that is
+// the reranked window rather than the whole result set. Deriving the limit from a
+// fixed page size instead lets a caller who asks for a larger page read straight
+// past the window and back into keyword ordering, which is the exact failure the
+// window exists to prevent.
+func maxOffsetFor(rank string, limit int) int {
 	if rank == index.RankKeyword {
 		return maxKeywordOffset
 	}
-	return maxSemanticOffset
+	return max(semanticWindow-limit, 0)
 }
 
 type Handlers struct {
@@ -101,7 +114,82 @@ type searchResponse struct {
 	Results []article.Result `json:"results"`
 }
 
-// Search handles GET /api/search?q=...&limit=...&offset=...&origin=...
+// searchParams is a search request that has already been checked over.
+type searchParams struct {
+	q      string
+	limit  int
+	offset int
+	origin string
+	rank   string
+}
+
+// parseSearch validates every query parameter, returning the message to answer a
+// 400 with, or an empty string when the request is sound.
+//
+// All of the checking lives here and none of it spends anything, which is the point
+// of it being a function rather than a run of checks inline: the reranking budget
+// the handler spends afterwards is shared by everyone on the instance, and keeping
+// the two apart is what stops malformed traffic draining it.
+func parseSearch(values url.Values) (searchParams, string) {
+	p := searchParams{q: values.Get("q")}
+
+	if p.q == "" {
+		return p, "query parameter 'q' is required"
+	}
+	if utf8.RuneCountInString(p.q) > maxQueryLen {
+		return p, "query parameter 'q' is too long"
+	}
+
+	limit, ok := queryInt(values, "limit", defaultLimit, 1, maxLimit)
+	if !ok {
+		return p, "query parameter 'limit' must be between 1 and " + strconv.Itoa(maxLimit)
+	}
+	p.limit = limit
+
+	switch values.Get("mode") {
+	case "", index.RankKeyword:
+		p.rank = index.RankKeyword
+	case index.RankSemantic:
+		p.rank = index.RankSemantic
+	default:
+		return p, "query parameter 'mode' must be 'semantic' or 'keyword'"
+	}
+
+	switch origin := values.Get("origin"); origin {
+	case "", article.OriginFeed, article.OriginSitemap:
+		p.origin = origin
+	default:
+		return p, "query parameter 'origin' must be 'feed' or 'sitemap'"
+	}
+
+	// Last, because how deep paging may go follows from both the ranking mode and the
+	// page size, and neither is settled until the checks above have run.
+	maxOffset := maxOffsetFor(p.rank, p.limit)
+	offset, ok := queryInt(values, "offset", 0, 0, maxOffset)
+	if !ok {
+		return p, offsetError(p.rank, p.limit, maxOffset)
+	}
+	p.offset = offset
+
+	return p, ""
+}
+
+// offsetError explains a rejected offset.
+//
+// Semantic ranking earns the longer sentence because its limit moves with the page
+// size: a caller who asked for a large page is told "between 0 and 0" and has no
+// way to guess that the page size is what shrank it.
+func offsetError(rank string, limit, maxOffset int) string {
+	msg := "query parameter 'offset' must be between 0 and " + strconv.Itoa(maxOffset)
+	if rank == index.RankSemantic {
+		msg += " when 'limit' is " + strconv.Itoa(limit) +
+			", because semantic ranking only orders the first " +
+			strconv.Itoa(semanticWindow) + " matches"
+	}
+	return msg
+}
+
+// Search handles GET /api/search?q=...&limit=...&offset=...&origin=...&mode=...
 func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	started := time.Now()
@@ -118,37 +206,9 @@ func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	q := r.URL.Query().Get("q")
-	if q == "" {
-		writeError(ctx, w, http.StatusBadRequest, "query parameter 'q' is required")
-		return
-	}
-	if len(q) > maxQueryLen {
-		writeError(ctx, w, http.StatusBadRequest, "query parameter 'q' is too long")
-		return
-	}
-
-	limit, ok := queryInt(r, "limit", defaultLimit, 1, maxLimit)
-	if !ok {
-		writeError(ctx, w, http.StatusBadRequest, "query parameter 'limit' must be between 1 and "+strconv.Itoa(maxLimit))
-		return
-	}
-
-	// The ranking mode decides how deep paging may go, so it is read before the offset.
-	rank := index.RankKeyword
-	switch r.URL.Query().Get("mode") {
-	case "", index.RankKeyword:
-	case index.RankSemantic:
-		rank = index.RankSemantic
-	default:
-		writeError(ctx, w, http.StatusBadRequest, "query parameter 'mode' must be 'semantic' or 'keyword'")
-		return
-	}
-
-	maxOffset := maxOffsetFor(rank)
-	offset, ok := queryInt(r, "offset", 0, 0, maxOffset)
-	if !ok {
-		writeError(ctx, w, http.StatusBadRequest, "query parameter 'offset' must be between 0 and "+strconv.Itoa(maxOffset))
+	p, invalid := parseSearch(r.URL.Query())
+	if invalid != "" {
+		writeError(ctx, w, http.StatusBadRequest, invalid)
 		return
 	}
 
@@ -158,31 +218,28 @@ func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
 	// already makes when the reranker is unavailable, because worse ranking is a
 	// disappointment and no search at all is an outage.
 	//
-	// Deliberately after the offset check, so the depth a caller is allowed still
-	// follows the mode they asked for rather than the one throttling gave them.
+	// Unlike the limiter above, this one is spent only once the request is known to
+	// be answerable. A 400 never reaches the reranker, so charging it for one would
+	// let malformed traffic drain a budget every caller shares. Validation having
+	// already run also means the depth a caller was allowed still follows the mode
+	// they asked for rather than the one throttling gave them.
 	//
 	// Recorded as a field on the one search line below rather than logged on its own,
 	// so a single query is a single record.
 	downgraded := false
-	if rank == index.RankSemantic && !h.allowSemantic(caller, started) {
-		rank, downgraded = index.RankKeyword, true
+	if p.rank == index.RankSemantic && !h.allowSemantic(caller, started) {
+		p.rank, downgraded = index.RankKeyword, true
 	}
 
-	origin := r.URL.Query().Get("origin")
-	if origin != "" && origin != article.OriginFeed && origin != article.OriginSitemap {
-		writeError(ctx, w, http.StatusBadRequest, "query parameter 'origin' must be 'feed' or 'sitemap'")
-		return
-	}
-
-	results, total, err := h.index.Query(ctx, q, index.QueryOptions{
-		Limit:  limit,
-		Offset: offset,
-		Origin: origin,
-		Rank:   rank,
+	results, total, err := h.index.Query(ctx, p.q, index.QueryOptions{
+		Limit:  p.limit,
+		Offset: p.offset,
+		Origin: p.origin,
+		Rank:   p.rank,
 	})
 	if err != nil {
 		slog.ErrorContext(ctx, "search failed",
-			"query", logQuery(q),
+			"query", logQuery(p.q),
 			"duration_ms", time.Since(started).Milliseconds(),
 			"error", err)
 		writeError(ctx, w, http.StatusInternalServerError, "search failed")
@@ -194,28 +251,31 @@ func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
 	// none of it was visible while only failures were logged: a corpus that quietly
 	// stopped matching anything looked exactly like a quiet day.
 	slog.InfoContext(ctx, "search",
-		"query", logQuery(q),
-		"rank", rank,
-		"origin", origin,
-		"offset", offset,
+		"query", logQuery(p.q),
+		"rank", p.rank,
+		"origin", p.origin,
+		"offset", p.offset,
 		"count", len(results),
 		"total", total,
 		"downgraded", downgraded,
 		"duration_ms", time.Since(started).Milliseconds())
 
 	writeJSON(ctx, w, http.StatusOK, searchResponse{
-		Query:   q,
+		Query:   p.q,
 		Count:   len(results),
 		Total:   total,
-		Offset:  offset,
+		Offset:  p.offset,
 		Results: results,
 	})
 }
 
 // queryInt reads an optional integer parameter, reporting false when the value is
 // present but outside [minimum, maximum].
-func queryInt(r *http.Request, name string, fallback, minimum, maximum int) (int, bool) {
-	raw := r.URL.Query().Get(name)
+//
+// Takes the parsed values rather than the request because a handler reads several
+// of these, and each url.URL.Query() call re-parses the whole query string.
+func queryInt(values url.Values, name string, fallback, minimum, maximum int) (int, bool) {
+	raw := values.Get(name)
 	if raw == "" {
 		return fallback, true
 	}

@@ -5,20 +5,51 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"slices"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/GitPaulo/blogme/api/internal/index"
 )
 
-func newTestHandlers(t *testing.T, body string) *Handlers {
+const emptyResult = `{"@odata.count":0,"value":[]}`
+
+// newCapturingHandlers stands in for Azure AI Search, recording what was asked of it.
+// The second result reports the requests that reached the index, which is where the
+// paging and ranking decisions actually show up — a status code cannot tell a
+// reranked page from a keyword one.
+func newCapturingHandlers(t *testing.T, semantic, body string, limits Limits) (*Handlers, func() []map[string]any) {
 	t.Helper()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	var mu sync.Mutex
+	var sent []map[string]any
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode search request: %v", err)
+		}
+		mu.Lock()
+		sent = append(sent, request)
+		mu.Unlock()
 		_, _ = io.WriteString(w, body)
 	}))
 	t.Cleanup(srv.Close)
 
-	return New(index.New(srv.URL, "articles", "test-key", ""), DefaultLimits())
+	return New(index.New(srv.URL, "articles", "test-key", semantic), limits), func() []map[string]any {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Clone(sent)
+	}
+}
+
+func newTestHandlers(t *testing.T, body string) *Handlers {
+	t.Helper()
+
+	h, _ := newCapturingHandlers(t, "", body, DefaultLimits())
+	return h
 }
 
 func get(t *testing.T, h *Handlers, target string) *httptest.ResponseRecorder {
@@ -48,7 +79,7 @@ func TestSearchReportsPageAndTotal(t *testing.T) {
 }
 
 func TestSearchRejectsBadPaging(t *testing.T) {
-	h := newTestHandlers(t, `{"@odata.count":0,"value":[]}`)
+	h := newTestHandlers(t, emptyResult)
 
 	for _, target := range []string{
 		"/api/search?q=go&offset=-1",
@@ -68,7 +99,7 @@ func TestSearchRejectsBadPaging(t *testing.T) {
 // The ranking mode decides how deep paging may go: semantic can only offer the window
 // its reranker actually reaches, while keyword ranking scores everything.
 func TestSearchPagingDependsOnRankingMode(t *testing.T) {
-	h := newTestHandlers(t, `{"@odata.count":0,"value":[]}`)
+	h := newTestHandlers(t, emptyResult)
 
 	for _, tc := range []struct {
 		target string
@@ -90,16 +121,107 @@ func TestSearchPagingDependsOnRankingMode(t *testing.T) {
 	}
 }
 
-func TestSearchAcceptsKnownOrigins(t *testing.T) {
-	h := newTestHandlers(t, `{"@odata.count":0,"value":[]}`)
-
-	for _, target := range []string{
-		"/api/search?q=go",
-		"/api/search?q=go&origin=feed",
-		"/api/search?q=go&origin=sitemap",
+// How deep semantic paging may go depends on the page size as well as the mode,
+// because it is the *last* page that has to land inside the reranked window. A limit
+// derived from a fixed page size let `limit=50&offset=30` read documents 30 to 80 of
+// a 50-document window, quietly reverting the tail of the page to keyword ordering.
+//
+// Asserted against the request that reaches the index rather than the status code,
+// since that reversion is exactly the failure a 200 cannot show.
+func TestSearchSemanticPageStaysInsideRerankedWindow(t *testing.T) {
+	for _, tc := range []struct {
+		target string
+		want   int
+	}{
+		{"/api/search?q=go&mode=semantic&limit=20&offset=30", http.StatusOK},
+		{"/api/search?q=go&mode=semantic&limit=10&offset=40", http.StatusOK},
+		{"/api/search?q=go&mode=semantic&limit=50&offset=0", http.StatusOK},
+		// Each of these would read past the window.
+		{"/api/search?q=go&mode=semantic&limit=50&offset=1", http.StatusBadRequest},
+		{"/api/search?q=go&mode=semantic&limit=30&offset=21", http.StatusBadRequest},
+		{"/api/search?q=go&mode=semantic&limit=20&offset=31", http.StatusBadRequest},
 	} {
-		if code := get(t, h, target).Code; code != http.StatusOK {
-			t.Errorf("%s: got status %d, want 200", target, code)
+		h, sent := newCapturingHandlers(t, "blogme-semantic", emptyResult, DefaultLimits())
+
+		if code := get(t, h, tc.target).Code; code != tc.want {
+			t.Errorf("%s: got status %d, want %d", tc.target, code, tc.want)
+			continue
+		}
+		if tc.want != http.StatusOK {
+			continue
+		}
+
+		calls := sent()
+		if len(calls) != 1 {
+			t.Fatalf("%s: got %d index calls, want 1", tc.target, len(calls))
+		}
+		skip, top := calls[0]["skip"].(float64), calls[0]["top"].(float64)
+		if skip+top > semanticWindow {
+			t.Errorf("%s: reads documents %v..%v, past the %d-document reranked window",
+				tc.target, skip, skip+top, semanticWindow)
+		}
+	}
+}
+
+// A refused request never reaches the reranker, so it must not spend from the
+// reranking budget. That budget is shared by everyone on the instance, so letting
+// malformed traffic drain it would silently downgrade every real semantic query
+// behind it — for an hour, on the default settings.
+func TestSearchRefusedRequestKeepsSemanticBudget(t *testing.T) {
+	limits := DefaultLimits()
+	limits.SemanticHourBurst = 2 // The whole service's reranking allowance, for this test.
+
+	h, sent := newCapturingHandlers(t, "blogme-semantic", emptyResult, limits)
+
+	// More refused requests than the budget could survive, for three different reasons.
+	for _, target := range []string{
+		"/api/search?q=go&mode=semantic&origin=bogus",
+		"/api/search?q=go&mode=semantic&origin=%27%20or%20true",
+		"/api/search?q=go&mode=semantic&limit=99",
+	} {
+		if code := get(t, h, target).Code; code != http.StatusBadRequest {
+			t.Fatalf("%s: got status %d, want 400", target, code)
+		}
+	}
+	if calls := sent(); len(calls) != 0 {
+		t.Fatalf("a refused request reached the index %d times", len(calls))
+	}
+
+	if code := get(t, h, "/api/search?q=go&mode=semantic").Code; code != http.StatusOK {
+		t.Fatalf("got status %d, want 200", code)
+	}
+
+	calls := sent()
+	if len(calls) != 1 {
+		t.Fatalf("got %d index calls, want 1", len(calls))
+	}
+	if got := calls[0]["queryType"]; got != "semantic" {
+		t.Errorf("got queryType %q, want semantic: the refused requests spent the shared reranking budget", got)
+	}
+}
+
+// The cap counts characters, matching the limit the browser puts on the search box.
+// Counted in bytes the same number refuses a query the client had already trimmed to
+// size — at 171 characters of Japanese rather than 512.
+func TestSearchQueryLengthCountsRunes(t *testing.T) {
+	h := newTestHandlers(t, emptyResult)
+
+	for _, tc := range []struct {
+		name  string
+		query string
+		want  int
+	}{
+		{"ascii at the cap", strings.Repeat("a", maxQueryLen), http.StatusOK},
+		{"ascii past the cap", strings.Repeat("a", maxQueryLen+1), http.StatusBadRequest},
+		// Three bytes each, one UTF-16 unit each: the browser counts these as 512 too.
+		{"multi-byte at the cap", strings.Repeat("漢", maxQueryLen), http.StatusOK},
+		{"multi-byte past the cap", strings.Repeat("漢", maxQueryLen+1), http.StatusBadRequest},
+		// Four bytes each, and two UTF-16 units each, so the browser stops at half.
+		{"astral at the browser's cap", strings.Repeat("😀", maxQueryLen/2), http.StatusOK},
+	} {
+		target := "/api/search?" + url.Values{"q": {tc.query}}.Encode()
+		if code := get(t, h, target).Code; code != tc.want {
+			t.Errorf("%s: got status %d, want %d", tc.name, code, tc.want)
 		}
 	}
 }

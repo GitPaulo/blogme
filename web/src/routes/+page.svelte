@@ -9,6 +9,7 @@
 	import BookmarkButton from '$lib/components/BookmarkButton.svelte';
 	import FilterBar from '$lib/components/FilterBar.svelte';
 	import {
+		clampQuery,
 		MAX_QUERY_LENGTH,
 		maxOffsetFor,
 		MIN_QUERY_LENGTH,
@@ -53,7 +54,7 @@
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let controller: AbortController | undefined;
 
-	const term = $derived(query.trim().slice(0, MAX_QUERY_LENGTH));
+	const term = $derived(clampQuery(query));
 	const origin = $derived<Origin | undefined>(sitemappedOnly ? 'sitemap' : undefined);
 	const searchable = $derived(term.length >= MIN_QUERY_LENGTH);
 	const tooShort = $derived(term.length > 0 && !searchable);
@@ -71,11 +72,18 @@
 	const loaded = $derived(results.length);
 	const shown = $derived(filtered.length);
 	const totalLabel = $derived(decimal.format(total));
+	const partial = $derived(isFiltered(filters));
 	const summary = $derived(
-		isFiltered(filters)
+		partial
 			? `Showing ${shown} of ${loaded} loaded ${loaded === 1 ? 'result' : 'results'}`
 			: `Showing ${loaded} of ${totalLabel} ${total === 1 ? 'result' : 'results'}`
 	);
+	// These filters narrow the rows already fetched rather than the query behind them,
+	// so the figure they are counted against climbs every time another page arrives.
+	// Worth saying out loud: a total that grows while you page through it reads as a
+	// bug, and the honest explanation is shorter than the guess.
+	const partialNote =
+		'Filters apply to the results loaded so far, not the whole index, so both numbers grow each time you load more.';
 	const rankLabel = $derived(
 		semanticRanking
 			? 'Semantic ranking: finds posts about the idea. Switch to keyword ranking.'
@@ -288,9 +296,26 @@
 	{#if searchable}
 		<div class="mt-8">
 			{#if loaded > 0}
-				<P size="sm" class="text-gray-500 tabular-nums dark:text-gray-400" aria-hidden="true">
-					{summary}
-				</P>
+				<!-- The sentence is aria-hidden because the live region above already reads it.
+				The note is not: it sits outside that region so the explanation is reachable by
+				keyboard and screen reader without being re-announced on every filter change,
+				and it carries the whole sentence as its label rather than pointing at a
+				tooltip a screen reader has no way to open. -->
+				<div class="flex items-baseline">
+					<P size="sm" class="text-gray-500 tabular-nums dark:text-gray-400" aria-hidden="true">
+						{summary}
+					</P>
+					{#if partial}
+						<button
+							type="button"
+							class="cursor-help rounded-sm px-1 text-sm leading-none text-gray-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 dark:text-gray-400"
+							aria-label={partialNote}
+						>
+							*
+						</button>
+						<Tooltip class="max-w-64 text-center">{partialNote}</Tooltip>
+					{/if}
+				</div>
 			{/if}
 
 			<FilterBar {results} bind:filters bind:sitemapped={sitemappedOnly} />

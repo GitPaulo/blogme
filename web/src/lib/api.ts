@@ -24,24 +24,46 @@ export type SearchResponse = {
 
 /** Short queries match almost everything, so they are not worth a round trip. */
 export const MIN_QUERY_LENGTH = 3;
-/** Mirrors maxQueryLen in api/internal/httpapi, so the server never has to reject us. */
+/**
+ * Mirrors maxQueryLen in api/internal/httpapi, so the server never has to reject us.
+ * Both ends count characters, which is why clampQuery cuts by code point rather than
+ * by the UTF-16 units `slice` and `maxlength` work in.
+ */
 export const MAX_QUERY_LENGTH = 512;
 /** Mirrors defaultLimit in api/internal/httpapi. */
 export const PAGE_SIZE = 20;
 /** How results are ranked. Mirrors the Rank constants in api/internal/index. */
 export type Rank = 'semantic' | 'keyword';
 
-/**
- * How deep each mode may page, mirroring maxOffsetFor in api/internal/httpapi.
- * Semantic reranking only reorders the top 50 matches, so its tail is not offered
- * rather than served with quietly worse ranking; keyword ranking scores the whole
- * result set and can go deeper.
- */
-export const MAX_OFFSET_SEMANTIC = 30;
+/** Mirrors semanticWindow in api/internal/httpapi. */
+export const SEMANTIC_WINDOW = 50;
 export const MAX_OFFSET_KEYWORD = 1000;
 
-export const maxOffsetFor = (rank: Rank): number =>
-	rank === 'keyword' ? MAX_OFFSET_KEYWORD : MAX_OFFSET_SEMANTIC;
+/**
+ * How deep each mode may page, mirroring maxOffsetFor in api/internal/httpapi.
+ *
+ * Semantic reranking only reorders the first SEMANTIC_WINDOW matches, so its tail is
+ * not offered rather than served with quietly worse ranking. It is the last page that
+ * has to land inside that window, so the limit depends on the page size; keyword
+ * ranking scores the whole result set and can go deeper.
+ */
+export const maxOffsetFor = (rank: Rank, limit: number = PAGE_SIZE): number =>
+	rank === 'keyword' ? MAX_OFFSET_KEYWORD : Math.max(SEMANTIC_WINDOW - limit, 0);
+
+/**
+ * Trims a query and holds it to MAX_QUERY_LENGTH characters.
+ *
+ * Cut by code point, because `slice` counts UTF-16 units and would halve an astral
+ * character sitting on the boundary — leaving a lone surrogate that reaches the API
+ * as a replacement character.
+ */
+export function clampQuery(value: string): string {
+	const trimmed = value.trim();
+	// Fast path: fewer UTF-16 units than the cap means fewer code points too.
+	return trimmed.length <= MAX_QUERY_LENGTH
+		? trimmed
+		: [...trimmed].slice(0, MAX_QUERY_LENGTH).join('');
+}
 
 /** Mirrors maxLimit in api/internal/httpapi. */
 const MAX_RESULTS = 50;
@@ -135,8 +157,11 @@ export async function search(
 	options: { offset?: number; origin?: Origin; rank?: Rank; signal?: AbortSignal } = {}
 ): Promise<SearchResponse> {
 	const { signal, origin, rank = 'keyword' } = options;
-	const term = query.trim().slice(0, MAX_QUERY_LENGTH);
-	const offset = Math.min(Math.max(Math.trunc(options.offset ?? 0), 0), maxOffsetFor(rank));
+	const term = clampQuery(query);
+	const offset = Math.min(
+		Math.max(Math.trunc(options.offset ?? 0), 0),
+		maxOffsetFor(rank, PAGE_SIZE)
+	);
 
 	const params = new URLSearchParams({ q: term, limit: String(PAGE_SIZE) });
 	if (offset > 0) params.set('offset', String(offset));
