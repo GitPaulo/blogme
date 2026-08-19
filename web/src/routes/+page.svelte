@@ -73,7 +73,7 @@
 	// The row holding "load more" and the shortcut back to the top, watched so the shortcut
 	// can return as a floating one once the row itself has scrolled out of reach.
 	let controlsRow = $state<HTMLElement>();
-	let controlsOffScreen = $state(false);
+	let searchForm = $state<HTMLElement>();
 
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let controller: AbortController | undefined;
@@ -146,22 +146,33 @@
 		};
 	});
 
-	// Asking the browser whether the row is on screen, rather than deriving it from a
-	// scroll position: the answer survives the list growing under it, which is exactly
-	// when the row moves.
-	$effect(() => {
-		const row = controlsRow;
-		if (!row) {
-			// No row means no results, and nothing to offer a shortcut back from.
-			controlsOffScreen = false;
-			return;
-		}
-		const observer = new IntersectionObserver(([entry]) => {
-			controlsOffScreen = !entry.isIntersecting;
+	// Whether an element is on screen, asked of the browser rather than derived from a
+	// scroll position: the answer survives the list growing underneath, which is exactly
+	// when these elements move. Absent elements read as off screen.
+	function onScreen(target: () => HTMLElement | undefined) {
+		let visible = $state(false);
+		$effect(() => {
+			const element = target();
+			if (!element) {
+				visible = false;
+				return;
+			}
+			const observer = new IntersectionObserver(([entry]) => (visible = entry.isIntersecting));
+			observer.observe(element);
+			return () => observer.disconnect();
 		});
-		observer.observe(row);
-		return () => observer.disconnect();
-	});
+		return {
+			get current() {
+				return visible;
+			}
+		};
+	}
+
+	const controlsOnScreen = onScreen(() => controlsRow);
+	// The shortcut exists to get back to the search box, so it has nothing left to offer
+	// once the box is in view.
+	const searchOnScreen = onScreen(() => searchForm);
+	const floatingTop = $derived(loaded > 0 && !controlsOnScreen.current && !searchOnScreen.current);
 
 	function cancel() {
 		clearTimeout(timer);
@@ -335,7 +346,7 @@
 		Find human-written, long-form blog posts worth reading.
 	</P>
 
-	<form {onsubmit} role="search">
+	<form {onsubmit} role="search" bind:this={searchForm}>
 		<Input
 			type="search"
 			bind:value={query}
@@ -495,7 +506,7 @@
 					</Button>
 					<!-- Stood down while the floating copy below has it, so the shortcut is never
 					two tab stops, one of them off screen and scrolling the page when focused. -->
-					{#if scrollable && !controlsOffScreen}
+					{#if scrollable && !floatingTop}
 						<!-- Same button, squared off around the icon: a shortcut back is a peer of
 						the way forward, not a different kind of control. The icon is sized to the
 						text line box beside it so both buttons come out the same height. -->
@@ -511,17 +522,18 @@
 					{/if}
 				</div>
 
-				<!-- The same shortcut, floated once the row it lives in has scrolled away. Bottom
-				end rather than bottom centre: it sits beside the results and within reach of a
-				thumb, and stays clear of the toolbar at the top. -->
-				{#if controlsOffScreen}
+				<!-- The same shortcut, floated once its row has scrolled away and the search box
+				with it. Bottom end rather than bottom centre: beside the results, within reach of
+				a thumb, clear of the toolbar at the top. Sized to a 44px touch target, which the
+				inline one does not need because a pointer is already on the row it sits in. -->
+				{#if floatingTop}
 					<div
 						class="fixed end-4 bottom-4 z-40"
 						transition:fade={{ duration: prefersReducedMotion.current ? 0 : 150 }}
 					>
 						<Button
 							color="alternative"
-							class="shrink-0 !px-3 shadow-lg"
+							class="size-11 shrink-0 !p-0 shadow-lg"
 							onclick={toTop}
 							aria-label="Back to top"
 						>
