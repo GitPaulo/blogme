@@ -24,11 +24,7 @@ export type SearchResponse = {
 
 /** Short queries match almost everything, so they are not worth a round trip. */
 export const MIN_QUERY_LENGTH = 3;
-/**
- * Mirrors maxQueryLen in api/internal/httpapi, so the server never has to reject us.
- * Both ends count characters, which is why clampQuery cuts by code point rather than
- * by the UTF-16 units `slice` and `maxlength` work in.
- */
+/** Mirrors maxQueryLen in api/internal/httpapi. Both ends count characters, not bytes. */
 export const MAX_QUERY_LENGTH = 512;
 /** Mirrors defaultLimit in api/internal/httpapi. */
 export const PAGE_SIZE = 20;
@@ -40,26 +36,20 @@ export const SEMANTIC_WINDOW = 50;
 export const MAX_OFFSET_KEYWORD = 1000;
 
 /**
- * How deep each mode may page, mirroring maxOffsetFor in api/internal/httpapi.
- *
- * Semantic reranking only reorders the first SEMANTIC_WINDOW matches, so its tail is
- * not offered rather than served with quietly worse ranking. It is the last page that
- * has to land inside that window, so the limit depends on the page size; keyword
- * ranking scores the whole result set and can go deeper.
+ * How deep each mode may page, mirroring maxOffsetFor in api/internal/httpapi. The last
+ * semantic page has to land inside the reranked window, so the limit moves with the page
+ * size; keyword ranking scores the whole result set and can go deeper.
  */
 export const maxOffsetFor = (rank: Rank, limit: number = PAGE_SIZE): number =>
 	rank === 'keyword' ? MAX_OFFSET_KEYWORD : Math.max(SEMANTIC_WINDOW - limit, 0);
 
 /**
- * Trims a query and holds it to MAX_QUERY_LENGTH characters.
- *
- * Cut by code point, because `slice` counts UTF-16 units and would halve an astral
- * character sitting on the boundary — leaving a lone surrogate that reaches the API
- * as a replacement character.
+ * Trims a query and holds it to MAX_QUERY_LENGTH characters. Cut by code point, because
+ * `slice` counts UTF-16 units and would halve an astral character on the boundary.
  */
 export function clampQuery(value: string): string {
 	const trimmed = value.trim();
-	// Fast path: fewer UTF-16 units than the cap means fewer code points too.
+	// Fewer UTF-16 units than the cap means fewer code points too, so skip the split.
 	return trimmed.length <= MAX_QUERY_LENGTH
 		? trimmed
 		: [...trimmed].slice(0, MAX_QUERY_LENGTH).join('');

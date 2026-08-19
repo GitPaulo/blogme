@@ -5,6 +5,7 @@
 		SearchOutline,
 		WandMagicSparklesOutline
 	} from 'flowbite-svelte-icons';
+	import { tick } from 'svelte';
 	import { prefersReducedMotion } from 'svelte/motion';
 	import BookmarkButton from '$lib/components/BookmarkButton.svelte';
 	import FilterBar from '$lib/components/FilterBar.svelte';
@@ -31,6 +32,9 @@
 	// Requests are sequential, so cap the wall clock too: a slow API should shorten the
 	// chase rather than stretch one click into a stall.
 	const CHASE_BUDGET_MS = 3_000;
+	// Appending happens below the fold and moves nothing, so drift past this during a load
+	// is the reader scrolling rather than the page reflowing.
+	const SCROLL_DRIFT_PX = 4;
 	// Hoisted: building a formatter is the expensive half of rendering the total.
 	const decimal = new Intl.NumberFormat();
 
@@ -57,6 +61,8 @@
 	let scrollable = $state(false);
 
 	let searchInput = $state<HTMLInputElement>();
+	// One element per visible result, so children[n] is result n.
+	let resultList = $state<HTMLElement>();
 
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let controller: AbortController | undefined;
@@ -197,9 +203,10 @@
 		const value = term;
 		const only = origin;
 		const ranking = rank;
+		const before = shown;
+		const anchor = window.scrollY;
 		loadingMore = true;
 		try {
-			const before = shown;
 			const deadline = Date.now() + CHASE_BUDGET_MS;
 			for (let page = 0; page < MAX_CHASE; page++) {
 				if (!(await run(value, nextOffset, only, ranking))) break;
@@ -211,6 +218,27 @@
 		} finally {
 			loadingMore = false;
 		}
+
+		// After the chase settles rather than per page, so several pages move the reader once.
+		if (shown > before && term === value) await revealNewResults(before, anchor);
+	}
+
+	// New rows land below the fold, so without this a click leaves the reader on the same
+	// screen with the button they pressed now buried under everything that arrived.
+	async function revealNewResults(firstNew: number, anchor: number) {
+		await tick(); // The rows are in state but not yet on the page.
+		// They scrolled while it loaded, so leave them where they are.
+		if (Math.abs(window.scrollY - anchor) > SCROLL_DRIFT_PX) return;
+
+		const target = resultList?.children[firstNew];
+		if (!target) return;
+
+		// 'start' rather than 'nearest': the first new row is usually already just inside
+		// the bottom edge, which is the case worth fixing — 'nearest' would skip it.
+		target.scrollIntoView({
+			behavior: prefersReducedMotion.current ? 'auto' : 'smooth',
+			block: 'start'
+		});
 	}
 
 	function toTop() {
@@ -357,10 +385,11 @@
 				<Alert color="gray" class="mt-4">No loaded results match these filters.</Alert>
 			{/if}
 
-			<div class="mt-3 space-y-4">
+			<div class="mt-3 space-y-4" bind:this={resultList}>
 				{#each filtered as result (result.url)}
 					{@const published = formatDate(result.publishedAt)}
-					<Card class="max-w-none p-4">
+					<!-- scroll-mt keeps the row "load more" scrolls to clear of the fixed toolbar. -->
+					<Card class="max-w-none scroll-mt-16 p-4">
 						<div class="flex items-start gap-3">
 							<div class="min-w-0 flex-1">
 								<Heading tag="h2" class="text-lg font-semibold">
