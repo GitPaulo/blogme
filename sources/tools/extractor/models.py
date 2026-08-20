@@ -39,3 +39,24 @@ class FeedInfo:
     title: str | None
     text: str
     categories: list[str] = field(default_factory=list)
+
+
+@dataclass
+class FeedLookup:
+    """The outcome of looking for a feed among a set of candidate URLs."""
+
+    url: str | None = None
+    info: FeedInfo | None = None
+    # Set when a candidate could not be reached at all, so "no feed" is a failure to
+    # find out rather than a finding. Only a conclusive lookup is safe to record as a
+    # blog having no feed: writing an absence a timeout invented moves the blog onto
+    # the sitemap path, and off the crawler entirely when it has no sitemap.
+    inconclusive: bool = False
+
+
+@dataclass(frozen=True)
+class Committed:
+    """What the last generated list already knew, keyed by site."""
+
+    ids: dict[str, str] = field(default_factory=dict)
+    feeds: dict[str, str] = field(default_factory=dict)

@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 import yaml
 
-from .models import Candidate
+from .models import Candidate, Committed
 from .tags import ordered_tags, split_provenance, tagify
 from .urls import MULTI_TENANT_HOST_SUFFIXES, domain_name
 
@@ -75,17 +75,25 @@ def source_id(site: str, used: set[str]) -> str:
     return candidate
 
 
-def existing_ids(path: Path) -> dict[str, str]:
-    """The site -> id mapping already committed, so a rebuild does not reassign ids."""
+def committed_sources(path: Path) -> Committed:
+    """What the last generated list already knew, so a rebuild can carry it forward.
+
+    Ids matter because an article's id is derived from its source's, so reassigning
+    one strands every article already stored for that blog. Feeds matter because a
+    build that fails to confirm one would otherwise record its absence, which moves
+    the blog onto the slower sitemap path and off the crawler altogether when it has
+    no sitemap.
+    """
     if not path.exists():
-        return {}
+        return Committed()
 
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    return {
-        entry["site"]: entry["id"]
-        for entry in data.get("sources") or []
-        if entry.get("site") and entry.get("id")
-    }
+    entries = [e for e in (data.get("sources") or []) if e.get("site")]
+
+    return Committed(
+        ids={e["site"]: e["id"] for e in entries if e.get("id")},
+        feeds={e["site"]: e["feed"] for e in entries if e.get("feed")},
+    )
 
 
 def build_entries(checked: list[Candidate], known: dict[str, str] | None = None) -> list[dict[str, Any]]:

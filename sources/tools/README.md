@@ -89,13 +89,14 @@ From the repository root, `make sources` does the same thing.
 
 Useful flags:
 
-| Flag                    | Purpose                                             |
-| ----------------------- | --------------------------------------------------- |
-| `--require-feed`        | Keep only sites with a working RSS/Atom feed        |
-| `--limit-candidates N`  | Check the first N links only, for a quick trial run |
-| `--concurrency N`       | Concurrent site checks, default 200                 |
-| `--retry-concurrency N` | Concurrent checks in the retry pass, default 50     |
-| `--output PATH`         | Write somewhere other than `sources/blogs.yml`      |
+| Flag                    | Purpose                                                |
+| ----------------------- | ------------------------------------------------------ |
+| `--require-feed`        | Keep only sites with a working RSS/Atom feed           |
+| `--limit-candidates N`  | Check the first N links only, for a quick trial run    |
+| `--concurrency N`       | Concurrent site checks, default 200                    |
+| `--retry-concurrency N` | Concurrent checks in the retry pass, default 50        |
+| `--output PATH`         | Write somewhere other than `sources/blogs.yml`         |
+| `--overrides PATH`      | Corrections to merge in, default `blogs-overrides.yml` |
 
 The full run checks roughly 49k links and takes a couple of hours; the retry pass over the
 sites that did not answer adds to that, since it deliberately runs at a quarter of the
@@ -132,6 +133,7 @@ extractor/
   naming.py          title, description and feed links from an HTML head
   sourcelists.py     GitHub API access and link extraction
   checks.py          reachability and feed discovery
+  overrides.py       merging blogs-overrides.yml into the generated list
   output.py          ids, validation, YAML and CSV writing
 ```
 
@@ -153,7 +155,13 @@ extractor/
   offers nothing better, so a blog with a feed or a `<title>` is unaffected.
 - A list's links back to its own domain are dropped: navigation and credits are not
   blogs. Relative links are dropped for the same reason rather than resolved.
-- Sites already in `blogs.yml` keep their `id` across a rebuild.
+- Sites already in `blogs.yml` keep their `id` across a rebuild, and their `feed`
+  unless this run proved it gone. A feed lookup that timed out is not proof: treating
+  it as such once dropped a feed the blog was still publishing, which moved it to the
+  sitemap path and — having no sitemap — out of the crawl entirely.
+- [`blogs-overrides.yml`](../README.md#corrections-by-hand) is merged in last, so a
+  correction made by hand outlives the rebuild. Its entries are validated like any
+  other, and an unknown field fails the build rather than being ignored.
 - Redirects are followed and the final URL is recorded, so `http` and `www` variants
   merge into one entry.
 - Names come from the site's feed title, `og:site_name` or `<title>`, falling back to

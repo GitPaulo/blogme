@@ -7,7 +7,8 @@ The pipeline, one step per stage:
   2. pull every link out of their list files
   3. collapse each link to the blog it belongs to
   4. check each blog for reachability, a name and a feed
-  5. write blogs.yml, plus link-audit.csv covering every link that was checked
+  5. apply blogs-overrides.yml, the corrections kept by hand
+  6. write blogs.yml, plus link-audit.csv covering every link that was checked
 
 Reachability decides membership. A feed is recorded when the blog has one, but is
 not required unless --require-feed is passed.
@@ -34,11 +35,12 @@ from extractor.checks import RETRY_SITE_TIMEOUT, check_candidate_limited, never_
 from extractor.models import Candidate
 from extractor.output import (
     build_entries,
-    existing_ids,
+    committed_sources,
     validate_entries,
     write_audit_csv,
     write_sources_yaml,
 )
+from extractor.overrides import apply_overrides, load_overrides
 from extractor.progress import Progress, log
 from extractor.sourcelists import (
     GitHubClient,
@@ -54,6 +56,7 @@ SOURCES_DIR = TOOLS_DIR.parent
 
 DEFAULT_INPUT = TOOLS_DIR / "source_lists.txt"
 DEFAULT_OUTPUT = SOURCES_DIR / "blogs.yml"
+DEFAULT_OVERRIDES = SOURCES_DIR / "blogs-overrides.yml"
 DEFAULT_AUDIT = TOOLS_DIR / "link-audit.csv"
 
 USER_AGENT = "blog-source-extractor"
@@ -153,6 +156,8 @@ async def run(args: argparse.Namespace) -> int:
         "limits": httpx.Limits(max_connections=args.concurrency * 8, max_keepalive_connections=256),
     }
 
+    committed = committed_sources(args.output)
+
     async with httpx.AsyncClient(**client_options) as client:
         gh = GitHubClient(client, os.environ.get("GITHUB_TOKEN"))
 
@@ -169,7 +174,8 @@ async def run(args: argparse.Namespace) -> int:
         results = await asyncio.gather(
             *(
                 check_candidate_limited(
-                    client, candidate, args.require_feed, limit, progress)
+                    client, candidate, args.require_feed, limit, progress,
+                    known_feeds=committed.feeds)
                 for _, candidate in items
             )
         )
@@ -190,7 +196,8 @@ async def run(args: argparse.Namespace) -> int:
             recovered = await asyncio.gather(
                 *(
                     check_candidate_limited(
-                        client, candidate, args.require_feed, limit, progress, RETRY_SITE_TIMEOUT
+                        client, candidate, args.require_feed, limit, progress,
+                        RETRY_SITE_TIMEOUT, known_feeds=committed.feeds
                     )
                     for candidate in retries
                 )
@@ -198,7 +205,13 @@ async def run(args: argparse.Namespace) -> int:
             checked += [c for c in recovered if c is not None]
             log(f"recovered {sum(1 for c in recovered if c is not None)} of {len(retries)}")
 
-    entries = build_entries(checked, existing_ids(args.output))
+    entries = build_entries(checked, committed.ids)
+
+    overrides = load_overrides(args.overrides)
+    entries, unmatched = apply_overrides(entries, overrides, committed.ids)
+    for site in unmatched:
+        log(f"warning: override matched no source and cannot stand alone: {site}")
+
     validate_entries(entries)
     write_sources_yaml(args.output, entries)
 
@@ -208,6 +221,8 @@ async def run(args: argparse.Namespace) -> int:
     with_feed = sum(1 for entry in entries if entry.get("feed"))
     log(f"links checked: {len(items)}")
     log(f"sources written: {len(entries)} ({with_feed} with a validated feed)")
+    if overrides:
+        log(f"overrides applied: {len(overrides) - len(unmatched)} of {len(overrides)}")
     log(f"output: {args.output}")
     return 0
 
@@ -219,6 +234,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                         help="Seed GitHub repo/topic URLs.")
     parser.add_argument("--output", type=Path,
                         default=DEFAULT_OUTPUT, help="YAML source list to write.")
+    parser.add_argument("--overrides", type=Path, default=DEFAULT_OVERRIDES,
+                        help="Hand-maintained corrections merged into the output.")
     parser.add_argument("--audit-output", type=Path, default=DEFAULT_AUDIT,
                         help="CSV of every checked link. Empty string disables it.")
     parser.add_argument("--concurrency", type=int, default=200,
@@ -237,8 +254,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                         help="Keep only sources with a working RSS/Atom feed.")
 
     args = parser.parse_args(argv)
-    if str(args.audit_output) in ("", "."):
-        args.audit_output = None
+    for name in ("audit_output", "overrides"):
+        if str(getattr(args, name)) in ("", "."):
+            setattr(args, name, None)
     return args
 
 

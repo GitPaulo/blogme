@@ -3,8 +3,8 @@
 > How often discovery runs, how much it does per run, and how to change it.
 > Companion to [system-design.md](system-design.md).
 
-Sized against the deployed source list on **18 August 2026**: 19,383 sources, 7,764 with a
-feed and 11,619 without.
+Sized against the source list on **20 August 2026**: 35,430 sources, 22,133 with a feed
+and 13,297 without.
 
 ## Summary
 
@@ -42,27 +42,27 @@ Coverage is simply how many sources a day the schedule gets through:
 
 ```text
 sources/day = (24 / schedule_hours) x batch_size
-full pass   = 19,383 / sources per day
+full pass   = 35,430 / sources per day
 ```
 
 | Batch     | Schedule   | Sources/day | Full pass    |
 | --------- | ---------- | ----------- | ------------ |
-| 200       | every 6h   | 800         | 24 days      |
-| 500       | hourly     | 12,000      | 1.6 days     |
-| **1,000** | **hourly** | **24,000**  | **0.8 days** |
-| 2,000     | hourly     | 48,000      | 0.4 days     |
+| 200       | every 6h   | 800         | 44 days      |
+| 500       | hourly     | 12,000      | 3.0 days     |
+| **1,000** | **hourly** | **24,000**  | **1.5 days** |
+| 2,000     | hourly     | 48,000      | 0.7 days     |
 
 The code defaults are deliberately conservative and are **not** a recommendation for
-production. At 24 days per pass a blog's new post could take three weeks to become
+production. At 44 days per pass a blog's new post could take six weeks to become
 searchable, which defeats the goal in the
 [high-level plan](blog-discovery-search-high-level-plan.md) that new posts appear
 automatically.
 
-**Deployed:** batch 1,000, hourly. Measured over the 14 hours after the source list last
-changed, a run of 500 took a median of **188 seconds**, or 0.36 seconds per source, so
-1,000 should land near six minutes — a fifth of the invocation ceiling. That headroom is
-the point: the source list is expected to roughly double, and a run's cost per source is
-not a constant (see below).
+**Deployed:** batch 1,000, hourly. Measured against the 19,383-entry list of 18 August, a
+run of 500 took a median of **188 seconds**, or 0.36 seconds per source, so 1,000 landed
+near six minutes — a fifth of the invocation ceiling. That headroom was the point: the
+list has since roughly doubled, and a run's cost per source is not a constant (see
+below), so the figure above is a floor rather than a current measurement.
 
 ## Constraints to respect
 
@@ -103,12 +103,21 @@ question:
   in its slice in full, and re-fetches the page behind any post whose feed entry is a
   stub. Doing this is what makes a faster cadence cheap rather than merely possible.
 
-**Feeds and sitemaps cost differently.** 40% of sources publish a feed, which is one cheap
-request. The remaining 11,619 need a sitemap walk, which is heavier and is what pushes a
+**Feeds and sitemaps cost differently.** 62% of sources publish a feed, which is one cheap
+request. The remaining 13,297 need a sitemap walk, which is heavier and is what pushes a
 run towards the ceiling. If cadence becomes expensive, checking feed-backed sources more
 often than sitemap-only ones is the obvious split, but it is not worth the complexity
 until measurements justify it. Finding more feeds when the source list is built is the
 cheaper fix, because it moves the work off the crawler permanently.
+
+**A source with no feed and no sitemap is read by neither path.** It stays in the list,
+answers every request and contributes nothing, which from the outside is indistinguishable
+from a blog that has not posted. Sampling the feedless sources put roughly a fifth in that
+position, and every one of them advertised a working feed that the source list had simply
+never recorded. So when the sitemap path finds nothing, the crawler reads the homepage and
+uses a feed the site advertises there. It costs one request, and only where the
+alternative is nothing at all — but a run of `recovered feed from site html` lines means
+the source list is out of date, not that the crawler is healthy.
 
 **Storage caps bite before compute does.** The 50 MB Free-tier ceiling was reached first,
 which is why the service now runs on Basic; see [tech-stack.md](tech-stack.md). Cadence

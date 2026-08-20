@@ -9345,11 +9345,6 @@ sources:
     site: https://www.rserra.it/
     kind: [personal-blogs, independent-web, small-web]
     tags: [tech]
-  - id: seangoedecke
-    name: All posts
-    site: https://www.seangoedecke.com/
-    kind: [personal-blogs, independent-web, small-web]
-    tags: [tech]
   - id: itwenty-posts
     name: All Posts - iTwenty's Space
     site: https://itwenty.me/posts/
@@ -150470,6 +150465,12 @@ sources:
     feed: https://sgillies.net/rss.xml
     kind: [personal-blogs, independent-web, small-web]
     tags: [travel, health]
+  - id: seangoedecke
+    name: Sean Goedecke
+    site: https://www.seangoedecke.com/
+    feed: https://www.seangoedecke.com/rss.xml
+    kind: [personal-blogs, independent-web, small-web]
+    tags: [software-engineering, ai, tech]
   - id: seangransee
     name: Sean Gransee | Full-stack Software Engineer
     site: https://seangransee.com/

@@ -13,7 +13,7 @@ on a timer; the **read path** answers a user's query. They meet only at the sear
 ```mermaid
 flowchart LR
     subgraph Git["Repository"]
-        Y["blogs.yml<br/>19,383 blogs"]
+        Y["blogs.yml<br/>35,430 blogs"]
     end
 
     subgraph Azure["Azure"]
@@ -54,14 +54,16 @@ flowchart TD
     R -->|no| SKIP["Skip"]
     R -->|yes| P{"Has a feed?"}
 
-    P -->|"yes — 7,764 blogs"| F["Fetch RSS/Atom feed"]
-    P -->|"no — 11,619 blogs"| M["Find sitemap<br/>robots.txt, then common paths"]
+    P -->|"yes — 22,133 blogs"| F["Fetch RSS/Atom feed"]
+    P -->|"no — 13,297 blogs"| M["Find sitemap<br/>robots.txt, then common paths"]
 
     F --> ITEMS["Parse entries<br/>title, link, date, content"]
     ITEMS --> FULL{"Feed content<br/>200+ words?"}
     FULL -->|yes| X["Extract text"]
     FULL -->|no| PAGE["Fetch the post page"] --> X
 
+    M -->|"no sitemap"| ALT["Read the homepage<br/>for a declared feed"]
+    ALT --> F
     M --> LINKS["Article-shaped URLs,<br/>newest first, skip stored"]
     LINKS --> FETCH["Fetch the page"]
     FETCH --> LONG{"250+ words?"}
@@ -82,6 +84,11 @@ design — a sitemap lists every page a site has, so each candidate must be fetc
 it can be judged, and the word count is what separates a post from a landing page. Which
 path found an article is recorded on it as its **origin**, because sitemap metadata is
 the less dependable of the two and the UI says so.
+
+A blog with neither is read by neither path, so before giving up the crawler reads the
+homepage and uses a feed the page advertises. That is a repair, not a route: it means
+the source list is missing a feed the blog has been publishing all along, and the
+durable fix is [`blogs-overrides.yml`](../sources/README.md#corrections-by-hand).
 
 Key properties:
 

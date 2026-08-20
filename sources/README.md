@@ -2,11 +2,12 @@
 
 The list of blogs blogme is allowed to crawl, and the tool that builds it.
 
-| Path                               | Contents                                            |
-| ---------------------------------- | --------------------------------------------------- |
-| [`blogs.yml`](blogs.yml)           | The approved source list, read by the discovery job |
-| [`tools/`](tools/README.md)        | The extractor that generates `blogs.yml`            |
-| [`tools/tags.yml`](tools/tags.yml) | The tag vocabulary, edit this to change tagging     |
+| Path                                         | Contents                                            |
+| -------------------------------------------- | --------------------------------------------------- |
+| [`blogs.yml`](blogs.yml)                     | The approved source list, read by the discovery job |
+| [`blogs-overrides.yml`](blogs-overrides.yml) | Corrections kept by hand, re-applied on every build |
+| [`tools/`](tools/README.md)                  | The extractor that generates `blogs.yml`            |
+| [`tools/tags.yml`](tools/tags.yml)           | The tag vocabulary, edit this to change tagging     |
 
 The list is kept in Git so every change goes through normal review, rather than being
 edited through an admin service.
@@ -38,8 +39,8 @@ calls for discovery to be selective rather than exhaustive, so the crawler only 
 visits sites that passed through this list and a human review. See
 [system design](../docs/system-design.md) for the services involved.
 
-The `feed` field is what the discovery job consumes directly. Sources without one need a
-sitemap fallback, which is currently the majority of the list: 7,764 of 19,383 entries
+The `feed` field is what the discovery job consumes directly. Sources without one fall
+back to a sitemap walk, which is slower and less accurate: 22,133 of 35,430 entries
 carry a feed.
 
 ## The list
@@ -68,9 +69,40 @@ blog on a personal-blog list is a personal blog, so as a subject tag it distingu
 nothing and crowds out the tags that do; as a kind it is exactly what you would want to
 filter by.
 
-Entries can be added or corrected by hand. Keep `id` values stable: changing one changes
-the IDs of every article already discovered from that blog. A rebuild preserves the `id`
-of every site already in the file, so only genuinely new sites are assigned one.
+Keep `id` values stable: changing one changes the IDs of every article already
+discovered from that blog. A rebuild preserves the `id` of every site already in the
+file, so only genuinely new sites are assigned one.
+
+## Corrections by hand
+
+`blogs.yml` is generated from nothing on every build, so an edit made there lasts until
+the next one. Put it in [`blogs-overrides.yml`](blogs-overrides.yml) instead and it is
+re-applied every time.
+
+This is not a theoretical convenience. A blog added by hand with a working feed came
+back from a rebuild without one, which moved it to the sitemap path — and since it
+publishes no sitemap, it stopped being crawled at all while still looking present in
+the list.
+
+```yaml
+sources:
+  - site: https://www.seangoedecke.com/
+    name: Sean Goedecke
+    feed: https://www.seangoedecke.com/rss.xml
+    tags: [software-engineering, ai, tech]
+```
+
+Entries are matched to a generated source by `site`, which must be exactly the `site`
+`blogs.yml` carries. Naming a field replaces it; omitting one keeps whatever the build
+found. The fields are the same as above, and anything else fails the build rather than
+being ignored.
+
+An entry carrying a `name` and `tags` can also stand alone, and is **added** when the
+build did not find that site at all — which is how a blog the extractor keeps missing
+gets pinned in. An entry without them can only patch, so one that matches nothing is
+reported rather than quietly becoming a new and largely empty source.
+
+Keep the file short. Every entry in it is one the checks no longer run.
 
 ## How the build works
 
@@ -85,7 +117,8 @@ flowchart LR
     RETRY -->|no| X[Dropped]
     RETRY -->|yes| E
     D -->|yes| E[Read name, find feed,<br/>infer tags]
-    E --> F[blogs.yml]
+    E --> O[Merge blogs-overrides.yml<br/>corrections kept by hand]
+    O --> F[blogs.yml]
     D --> G[link-audit.csv<br/>every link, pass or fail]
 ```
 
@@ -106,7 +139,11 @@ flowchart LR
    the links dropped that way found roughly three quarters of them alive.
 6. **Describe.** Survivors get a name from their feed title, `og:site_name` or `<title>`,
    an RSS/Atom feed if one can be found, and subject tags scored against the vocabulary.
-7. **Write.** `blogs.yml` is validated and written, alongside `link-audit.csv` recording
+   A feed the last build recorded is re-checked and kept unless it is definitely gone;
+   a feed lookup that merely timed out no longer erases one.
+7. **Override.** [`blogs-overrides.yml`](blogs-overrides.yml) is merged in, so a
+   correction made by hand survives the rebuild that would otherwise discard it.
+8. **Write.** `blogs.yml` is validated and written, alongside `link-audit.csv` recording
    every link that was checked, including failures and the reason.
 
 A feed is recorded when a site has one but is not required, so blogs without feeds still

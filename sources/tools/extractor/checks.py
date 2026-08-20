@@ -8,7 +8,7 @@ import re
 import feedparser
 import httpx
 
-from .models import Candidate, FeedInfo
+from .models import Candidate, FeedInfo, FeedLookup
 from .naming import clean_name, declared_feeds, page_metadata
 from .progress import Progress
 from .tags import tags_from_content
@@ -55,47 +55,67 @@ async def fetch_site(
 
 
 async def read_feed(client: httpx.AsyncClient, feed_url: str) -> FeedInfo | None:
-    """Return feed details when the URL really is a feed, else None."""
-    try:
-        r = await client.get(feed_url, follow_redirects=True, timeout=FEED_TIMEOUT)
-        if r.status_code >= 400 or not FEED_ROOT_RE.search(r.content[:2000]):
-            return None
+    """Return feed details when the URL really is a feed, else None.
 
-        parsed = feedparser.parse(r.content[:MAX_FEED_BYTES])
-        if not parsed.feed or not (parsed.entries or parsed.feed.get("title")):
-            return None
-
-        text = [str(parsed.feed.get("title", "")),
-                str(parsed.feed.get("subtitle", ""))]
-        categories: list[str] = []
-        for entry in parsed.entries[:15]:
-            text.append(str(entry.get("title", "")))
-            text.append(str(entry.get("summary", ""))[:500])
-            categories.extend(str(t.get("term", ""))
-                              for t in entry.get("tags", []) or [])
-
-        return FeedInfo(
-            title=clean_name(parsed.feed.get("title")),
-            text=" ".join(text),
-            categories=categories,
-        )
-    except Exception:
+    Transport failures are raised rather than swallowed, because a timeout is not
+    evidence that a blog has no feed. Recording one as such is how a working feed is
+    lost for good: the entry is written without it, the crawler falls back to the
+    slower sitemap path, and for a site with no sitemap it stops reading the blog at
+    all. The caller decides what an unreachable candidate means; see find_feed.
+    """
+    response = await client.get(feed_url, follow_redirects=True, timeout=FEED_TIMEOUT)
+    if response.status_code >= 400 or not FEED_ROOT_RE.search(response.content[:2000]):
         return None
+
+    try:
+        parsed = feedparser.parse(response.content[:MAX_FEED_BYTES])
+    except Exception:
+        # Malformed past what feedparser will tolerate, which is a verdict about the
+        # document rather than a blip in reaching it.
+        return None
+
+    if not parsed.feed or not (parsed.entries or parsed.feed.get("title")):
+        return None
+
+    text = [str(parsed.feed.get("title", "")),
+            str(parsed.feed.get("subtitle", ""))]
+    categories: list[str] = []
+    for entry in parsed.entries[:15]:
+        text.append(str(entry.get("title", "")))
+        text.append(str(entry.get("summary", ""))[:500])
+        categories.extend(str(t.get("term", ""))
+                          for t in entry.get("tags", []) or [])
+
+    return FeedInfo(
+        title=clean_name(parsed.feed.get("title")),
+        text=" ".join(text),
+        categories=categories,
+    )
 
 
 async def find_feed(
     client: httpx.AsyncClient,
     urls: list[str],
     batch: int = 8,
-) -> tuple[str | None, FeedInfo | None]:
-    """First working feed among the given URLs, tried a batch at a time."""
+) -> FeedLookup:
+    """First working feed among the given URLs, tried a batch at a time.
+
+    Reports separately whether any candidate was unreachable, so the caller can tell
+    a blog that has no feed from a run that failed to find one.
+    """
+    inconclusive = False
+
     for start in range(0, len(urls), batch):
         chunk = urls[start:start + batch]
-        results = await asyncio.gather(*(read_feed(client, url) for url in chunk))
-        for url, info in zip(chunk, results):
-            if info is not None:
-                return url, info
-    return None, None
+        results = await asyncio.gather(
+            *(read_feed(client, url) for url in chunk), return_exceptions=True)
+        for url, result in zip(chunk, results):
+            if isinstance(result, BaseException):
+                inconclusive = True
+            elif result is not None:
+                return FeedLookup(url=url, info=result, inconclusive=inconclusive)
+
+    return FeedLookup(inconclusive=inconclusive)
 
 
 async def check_candidate(
@@ -103,6 +123,7 @@ async def check_candidate(
     candidate: Candidate,
     require_feed: bool,
     timeout: httpx.Timeout = SITE_TIMEOUT,
+    known_feeds: dict[str, str] | None = None,
 ) -> Candidate | None:
     """Fill in a reachable candidate, or record why it was dropped."""
     status, content_type, body_or_error, final_url = await fetch_site(client, candidate.site, timeout)
@@ -125,17 +146,30 @@ async def check_candidate(
     candidate.site = canonical_site(final_url) or candidate.site
     page = page_metadata(body_or_error)
 
+    # A feed the last build recorded is tried first and re-checked like any other,
+    # so it is carried forward only while it still works.
+    known_feed = (known_feeds or {}).get(candidate.site)
     advertised = ([candidate.feed] if candidate.feed else []) + \
+        ([known_feed] if known_feed else []) + \
         declared_feeds(body_or_error, candidate.site)
 
     # Sites that advertise a feed cost one request; only the rest get path guesses.
-    feed_url, feed = await find_feed(client, dedupe_urls(advertised))
-    if not feed_url:
+    lookup = await find_feed(client, dedupe_urls(advertised))
+    if not lookup.url:
         guesses = dedupe_urls(feed_guesses_for_site(
             candidate.site), skip=set(advertised))
-        feed_url, feed = await find_feed(client, guesses)
+        guessed = await find_feed(client, guesses)
+        lookup = FeedLookup(
+            url=guessed.url,
+            info=guessed.info,
+            inconclusive=lookup.inconclusive or guessed.inconclusive,
+        )
 
-    candidate.feed = feed_url
+    feed = lookup.info
+    # Nothing found, but the looking was unreliable: keep what the last build knew
+    # rather than writing an absence a timeout invented.
+    candidate.feed = lookup.url or (known_feed if lookup.inconclusive else None)
+
     if require_feed and not candidate.feed:
         candidate.error = "no valid feed found"
         return None
@@ -165,10 +199,12 @@ async def check_candidate_limited(
     limit: asyncio.Semaphore,
     progress: Progress,
     timeout: httpx.Timeout = SITE_TIMEOUT,
+    known_feeds: dict[str, str] | None = None,
 ) -> Candidate | None:
     async with limit:
         try:
-            return await check_candidate(client, candidate, require_feed, timeout)
+            return await check_candidate(
+                client, candidate, require_feed, timeout, known_feeds)
         finally:
             progress.tick()
 

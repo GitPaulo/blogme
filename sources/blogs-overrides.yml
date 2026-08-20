@@ -1,0 +1,28 @@
+# Corrections applied on top of the generated source list, by hand.
+#
+# blogs.yml is rebuilt from nothing every run, so an edit made there lasts until the
+# next build. Put it here instead and it is re-applied every time.
+#
+# Entries are matched to a generated source by `site`, which must be exactly the
+# `site` blogs.yml carries. Naming a field replaces it; omitting one keeps whatever
+# the build found. Fields are the same as in blogs.yml: id, name, site, feed, kind,
+# tags. Anything else fails the build rather than being ignored.
+#
+# An entry carrying a name and tags can also stand alone, and is added when the
+# build did not find that site at all — which is how a blog the extractor keeps
+# missing gets pinned into the list. An entry without them can only patch, so if it
+# matches nothing the build says so instead of inventing a source.
+#
+# Keep this file short. It is a place for what the extractor cannot work out on its
+# own, not a second source list: every entry here is one the checks no longer run.
+
+sources:
+  # The site publishes no sitemap and never has, so without a feed the crawler has
+  # nothing to read and the blog is in the list while contributing nothing. Three
+  # feeds are advertised and all work; the build lost this one to a timeout, which
+  # is fixed, but the blog is worth pinning either way.
+  - site: https://www.seangoedecke.com/
+    name: Sean Goedecke
+    feed: https://www.seangoedecke.com/rss.xml
+    kind: [personal-blogs, independent-web, small-web]
+    tags: [software-engineering, ai, tech]

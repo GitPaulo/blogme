@@ -1,9 +1,16 @@
 package discovery
 
 import (
+	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
+
+	"github.com/GitPaulo/blogme/api/internal/sources"
 )
 
 const rssSample = `<?xml version="1.0"?>
@@ -333,4 +340,136 @@ func mustURL(t *testing.T, raw string) *url.URL {
 		t.Fatalf("url.Parse(%q) = %v", raw, err)
 	}
 	return u
+}
+
+// newLocalDiscoverer builds a Discoverer that will talk to a test server.
+//
+// It does not use New, because the crawl client refuses to connect to anything off
+// the public internet — the guard that stops a source list from being turned into a
+// port scanner, and which a loopback test server falls foul of by design.
+func newLocalDiscoverer(maxPosts int) *Discoverer {
+	client := &http.Client{}
+	f := newFetcher(client)
+
+	return &Discoverer{
+		client:       client,
+		fetcher:      f,
+		robots:       newRobots(f),
+		maxPosts:     maxPosts,
+		contentWords: 1000,
+	}
+}
+
+// A source with no recorded feed and no sitemap is never read at all: it stays in
+// the list, costs a request every pass and contributes nothing, which looks exactly
+// like a blog that has not posted. Most blogs in that position do publish a feed
+// that was simply never recorded, so the crawler asks the homepage before giving up.
+func TestCrawlFallsBackToAFeedTheSiteAdvertises(t *testing.T) {
+	var homepageHits atomic.Int64
+
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		homepageHits.Add(1)
+		_, _ = io.WriteString(w, `<html><head>
+			<link rel="alternate" type="application/rss+xml" href="/rss.xml">
+		</head><body></body></html>`)
+	})
+	mux.HandleFunc("/rss.xml", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `<?xml version="1.0"?>
+		<rss version="2.0"><channel><title>Recovered</title><item>
+			<title>A post that would never have been indexed</title>
+			<link>`+srv.URL+`/posts/one</link>
+		</item></channel></rss>`)
+	})
+	mux.HandleFunc("/posts/one", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `<html><body><article><p>The body of the post.</p></article></body></html>`)
+	})
+
+	d := newLocalDiscoverer(5)
+	// No Feed, which is what sends this down the sitemap path. Nothing here serves a
+	// sitemap or a robots.txt naming one, so that path has nowhere to go.
+	articles, err := d.crawl(context.Background(), sources.Source{ID: "recovered", Site: srv.URL + "/"})
+	if err != nil {
+		t.Fatalf("crawl() error = %v", err)
+	}
+
+	if len(articles) != 1 {
+		t.Fatalf("got %d articles, want 1: the advertised feed was not used", len(articles))
+	}
+	if got := articles[0].URL; got != srv.URL+"/posts/one" {
+		t.Errorf("URL = %q, want the post the feed listed", got)
+	}
+	if got := homepageHits.Load(); got != 1 {
+		t.Errorf("homepage fetched %d times, want 1", got)
+	}
+}
+
+// The fallback must stay a last resort. A site with nothing to offer should cost one
+// look and then be reported as the sitemap failure it is, rather than being retried
+// into a source that quietly costs more every pass than the ones that work.
+func TestCrawlWithoutFeedOrSitemapReportsTheSitemapFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	d := newLocalDiscoverer(5)
+	articles, err := d.crawl(context.Background(), sources.Source{ID: "empty", Site: srv.URL + "/"})
+
+	if err == nil {
+		t.Fatal("crawl() error = nil, want the sitemap failure to survive the fallback")
+	}
+	if len(articles) != 0 {
+		t.Errorf("got %d articles, want 0", len(articles))
+	}
+	if !strings.Contains(err.Error(), "sitemap") {
+		t.Errorf("error = %v, want it to still name the sitemap as the cause", err)
+	}
+}
+
+// A recorded feed is the whole point of the source list, so it must not be spent on
+// a homepage fetch first: the fallback exists for sources that have nothing else.
+func TestCrawlWithARecordedFeedNeverLooksAtTheHomepage(t *testing.T) {
+	var homepageHits atomic.Int64
+
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			homepageHits.Add(1)
+		}
+		http.NotFound(w, r)
+	})
+	mux.HandleFunc("/rss.xml", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `<?xml version="1.0"?>
+		<rss version="2.0"><channel><title>Listed</title><item>
+			<title>A post</title><link>`+srv.URL+`/posts/one</link>
+		</item></channel></rss>`)
+	})
+	mux.HandleFunc("/posts/one", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `<html><body><article><p>Body.</p></article></body></html>`)
+	})
+
+	d := newLocalDiscoverer(5)
+	articles, err := d.crawl(context.Background(),
+		sources.Source{ID: "listed", Site: srv.URL + "/", Feed: srv.URL + "/rss.xml"})
+	if err != nil {
+		t.Fatalf("crawl() error = %v", err)
+	}
+
+	if len(articles) != 1 {
+		t.Fatalf("got %d articles, want 1", len(articles))
+	}
+	if got := homepageHits.Load(); got != 0 {
+		t.Errorf("homepage fetched %d times, want 0", got)
+	}
 }

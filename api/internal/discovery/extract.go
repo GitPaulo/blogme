@@ -195,6 +195,54 @@ func noIndex(node *html.Node) bool {
 	return found
 }
 
+// declaredFeeds returns the feed URLs a page advertises through <link rel="alternate">,
+// in document order and exactly as written, so the caller can resolve them against
+// whatever base it fetched the page from.
+//
+// Matched on the type containing a syndication format rather than on an exact media
+// type, because that attribute is written by hand as often as by a generator. A
+// false positive costs one fetch that fails to parse as a feed; a false negative
+// costs the whole blog.
+func declaredFeeds(node *html.Node) []string {
+	var feeds []string
+
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode && n.DataAtom == atom.Link {
+			var rel, mediaType, href string
+			for _, attr := range n.Attr {
+				switch attr.Key {
+				case "rel":
+					rel = strings.ToLower(attr.Val)
+				case "type":
+					mediaType = strings.ToLower(attr.Val)
+				case "href":
+					href = strings.TrimSpace(attr.Val)
+				}
+			}
+			if href != "" && strings.Contains(rel, "alternate") && isFeedType(mediaType) {
+				feeds = append(feeds, href)
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(node)
+
+	return feeds
+}
+
+// isFeedType reports whether a <link type> names a syndication format.
+func isFeedType(mediaType string) bool {
+	for _, name := range []string{"rss", "atom", "feed", "xml"} {
+		if strings.Contains(mediaType, name) {
+			return true
+		}
+	}
+	return false
+}
+
 // pageMeta is what a bare HTML page can say about itself. A sitemap entry has no
 // feed record behind it, so the page's own metadata is all there is.
 type pageMeta struct {

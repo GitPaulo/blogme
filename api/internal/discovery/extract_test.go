@@ -104,3 +104,34 @@ func TestCleanTextKeepsLessThanInTitles(t *testing.T) {
 		t.Errorf("cleanText() = %q, want entities decoded after stripping", got)
 	}
 }
+
+// A blog with no recorded feed and no sitemap is read only if its homepage can be
+// asked where its feed is, so what counts as an advertisement decides whether the
+// blog is in the corpus at all.
+func TestDeclaredFeedsReadsWhatAPageAdvertises(t *testing.T) {
+	const page = `<html><head>
+		<link rel="alternate" type="application/rss+xml" href="/rss.xml">
+		<link rel="ALTERNATE" type="application/atom+xml" href="https://cdn.example.com/atom.xml">
+		<link type="application/rss+xml" rel="alternate home" href="feed.xml">
+		<link rel="alternate" type="text/html" href="/index.html">
+		<link rel="stylesheet" type="text/css" href="/style.css">
+		<link rel="alternate" type="application/rss+xml">
+		<link rel="icon" href="/favicon.ico">
+	</head><body></body></html>`
+
+	got := declaredFeeds(parseHTML(page))
+	want := []string{
+		"/rss.xml",
+		"https://cdn.example.com/atom.xml",
+		"feed.xml",
+	}
+
+	if len(got) != len(want) {
+		t.Fatalf("got %d feeds %v, want %d", len(got), got, len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("feed %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}

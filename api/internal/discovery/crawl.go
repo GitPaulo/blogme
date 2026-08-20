@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"strings"
 	"time"
@@ -36,17 +37,89 @@ const (
 	// title and have all of it indexed.
 	maxTitleWords  = 40
 	maxAuthorWords = 15
+
+	// How many advertised feeds to try when falling back to feed discovery. A page
+	// can list one per format and one per category; the site-wide feeds come first.
+	maxDeclaredFeeds = 3
 )
 
 // crawl turns one approved blog into articles.
 //
 // A feed describes its own posts, so it is both cheaper and more accurate; the
-// sitemap path exists for the third of the corpus that publishes no feed.
+// sitemap path exists for the third of the corpus that publishes no feed. A blog
+// with neither is served by the last resort below, which asks its homepage where
+// its feed is.
 func (d *Discoverer) crawl(ctx context.Context, s sources.Source) ([]article.Article, error) {
-	if s.Feed == "" {
-		return d.crawlSitemap(ctx, s)
+	if s.Feed != "" {
+		return d.crawlFeed(ctx, s)
 	}
-	return d.crawlFeed(ctx, s)
+
+	articles, err := d.crawlSitemap(ctx, s)
+	if err == nil {
+		return articles, nil
+	}
+
+	// No feed recorded and no sitemap to walk means the blog is never read at all.
+	// That is a hole rather than a slow path: the source stays in the list, costs a
+	// request every pass, and contributes nothing, which from the outside is
+	// indistinguishable from a blog that has not posted. Most sites in that position
+	// do publish a feed and simply never had it recorded, so the homepage is worth
+	// one look before giving up on the source.
+	for _, feed := range d.siteFeeds(ctx, s) {
+		s.Feed = feed
+		found, feedErr := d.crawlFeed(ctx, s)
+		if feedErr != nil {
+			continue
+		}
+		// Said out loud because the source list is what should be carrying this feed:
+		// a run of these is the extractor needing another pass, not a healthy state.
+		slog.InfoContext(ctx, "recovered feed from site html",
+			"source", s.ID, "feed", feed, "articles", len(found))
+		return found, nil
+	}
+
+	return nil, err
+}
+
+// siteFeeds returns the feeds a site advertises in its homepage HTML, resolved to
+// absolute URLs. Only reached when a source has neither a recorded feed nor a
+// usable sitemap, so it costs a request only where the alternative is nothing.
+func (d *Discoverer) siteFeeds(ctx context.Context, s sources.Source) []string {
+	site, err := url.Parse(s.Site)
+	if err != nil || !isHTTP(site) {
+		return nil
+	}
+	if !d.robots.allowed(ctx, site) {
+		return nil
+	}
+
+	raw, err := d.fetcher.get(ctx, s.Site, maxPageBytes)
+	if err != nil {
+		slog.DebugContext(ctx, "feed discovery could not read the site",
+			"source", s.ID, "error", err)
+		return nil
+	}
+
+	var feeds []string
+	for _, href := range declaredFeeds(parseHTML(string(raw))) {
+		ref, err := url.Parse(href)
+		if err != nil {
+			continue
+		}
+		// Resolved against the site, so a relative href like /rss.xml is usable and an
+		// absolute one on another host is kept as written — plenty of blogs syndicate
+		// through a third party.
+		resolved := site.ResolveReference(ref)
+		if !isHTTP(resolved) {
+			continue
+		}
+		feeds = append(feeds, resolved.String())
+		if len(feeds) == maxDeclaredFeeds {
+			break
+		}
+	}
+
+	return feeds
 }
 
 func (d *Discoverer) crawlFeed(ctx context.Context, s sources.Source) ([]article.Article, error) {
