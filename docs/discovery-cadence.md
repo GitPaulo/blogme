@@ -188,6 +188,34 @@ az monitor metrics list \
 One hourly timer means one point per run. A point near `1800` seconds is a run that was
 killed at the ceiling and advanced nothing.
 
+The execution-unit metric is sparse and easy to misread. The pass logs are the
+reliable source, and they live in the Log Analytics workspace behind Application
+Insights. Query the **workspace** rather than the component: `az monitor app-insights
+query` silently applies its own narrow default timespan, so a `where TimeGenerated >
+ago(14d)` clause in that command can still return only the last hour and make a healthy
+app look like it has no history.
+
+```bash
+az monitor log-analytics query -w <WORKSPACE_GUID> --analytics-query   "AppTraces | where TimeGenerated > ago(7d) | where Message has 'discovery pass complete'"
+```
+
+## Alerting
+
+Nothing watches a run except these rules, and the reason they exist is that on
+17 August 2026 twelve of fourteen passes died at the 30-minute ceiling for half a day
+and nothing said so. All three notify the `ag-blogme-ops` action group.
+
+| Rule                              | Fires when                                             | Sev |
+| --------------------------------- | ------------------------------------------------------ | --- |
+| `blogme-discovery-run-failed`     | any pass fails or is killed at the ceiling, in 1h      | 1   |
+| `blogme-discovery-cursor-stalled` | fewer than 2 distinct cursors in 4h, or no pass at all | 1   |
+| `blogme-discovery-pass-slow`      | a pass exceeds 15 minutes, half the ceiling            | 2   |
+
+The cursor rule is the one that matters most, because it is the only end-to-end check:
+a pass can succeed, log cheerfully and still advance nothing, and the cursor is the only
+place that shows it. It is written to fire on an empty window too, so the alert covers
+the timer not firing as well as the timer failing.
+
 ## When batching stops being enough
 
 Batching is the simple answer, and it holds while a run's work fits comfortably in one

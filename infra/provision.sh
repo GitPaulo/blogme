@@ -118,6 +118,18 @@ az resource update \
 	--output none
 echo "ok: http20Enabled=false"
 
+log "Transport"
+# Without this the app answers plain HTTP as happily as HTTPS, so a query can be sent
+# — and read — in the clear. Set here rather than by hand, because a re-provision that
+# quietly reopens it looks exactly like a provision that worked.
+az functionapp update \
+	--name "$FUNCTION_APP" \
+	--resource-group "$RESOURCE_GROUP" \
+	--set httpsOnly=true \
+	--output none
+echo "ok: httpsOnly=true"
+
+
 log "Role assignments for the function app identity"
 PRINCIPAL_ID="$(az functionapp identity show \
 	--name "$FUNCTION_APP" --resource-group "$RESOURCE_GROUP" --query principalId -o tsv)"

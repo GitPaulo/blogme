@@ -147,6 +147,14 @@ resource before creating it:
 | `github-oidc.sh`         | The Entra ID app and federated credential the deploy workflows authenticate with       |
 | `upload-sources.sh`      | Publishes `blogs.yml` to blob storage                                                  |
 
+One setting the scripts apply that is easy to miss, because it looks like a default and
+is not: `httpsOnly` — a Function App answers plain HTTP until told otherwise.
+`http20Enabled` is deliberately **off**, required by the Go preview. There is no
+`healthCheckPath`: the platform would ping it every minute, which on Flex Consumption
+keeps an instance warm and defeats scale-to-zero for a workload that is idle between
+hourly runs. Alerting is set up separately; see
+[discovery-cadence.md](discovery-cadence.md#alerting).
+
 Not Bicep, and not `azd`. Go on Functions is in public preview and only its Azure CLI path is
 documented, so a declarative template would have to be reverse-engineered from CLI behaviour that is
 still moving. Idempotent scripts follow the documentation directly and stay readable. Revisit when
