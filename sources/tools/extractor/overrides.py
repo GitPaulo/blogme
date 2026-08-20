@@ -19,11 +19,11 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
 
 import yaml
 
 from .output import FlowList, source_id
+from .urls import site_key
 
 # Every field an override may set, in the order the generated file writes them.
 # Anything else is a mistake worth stopping for rather than ignoring.
@@ -36,18 +36,6 @@ FLOW_FIELDS = ("kind", "tags")
 # this it can only patch something the build already found, so a `site` that matches
 # nothing is reported rather than quietly becoming a new and largely empty entry.
 STANDALONE_FIELDS = ("name", "tags")
-
-
-def match_key(site: str) -> str:
-    """The form of a site URL two entries are matched on.
-
-    Host case and a trailing slash are the two ways the same blog gets written
-    two ways. Matched loosely so an override lands on the entry it meant, because
-    the alternative is not a miss but a duplicate: a second source for one blog,
-    under a second id, indexing every post twice.
-    """
-    parts = urlsplit(site)
-    return f"{parts.scheme.lower()}://{parts.netloc.lower()}{parts.path.rstrip('/')}"
 
 
 def load_overrides(path: Path | None) -> list[dict[str, Any]]:
@@ -76,9 +64,9 @@ def load_overrides(path: Path | None) -> list[dict[str, Any]]:
             raise ValueError(f"overrides[{idx}] is missing 'site'")
         # Compared the same way entries are matched, so two spellings of one blog
         # are caught here rather than fighting over the same entry later.
-        if match_key(site) in seen:
+        if site_key(site) in seen:
             raise ValueError(f"duplicate site in overrides: {site}")
-        seen.add(match_key(site))
+        seen.add(site_key(site))
 
     return overrides
 
@@ -115,12 +103,12 @@ def apply_overrides(
 
     # Keyed the same way entries are, so an override that spells a site differently
     # still recovers the id that site already had.
-    known_by_key = {match_key(site): entry_id
+    known_by_key = {site_key(site): entry_id
                     for site, entry_id in (known_ids or {}).items()}
 
     # Copied so the merge cannot reach back into what the build produced.
     merged = [dict(entry) for entry in entries]
-    by_site = {match_key(entry["site"]): entry for entry in merged}
+    by_site = {site_key(entry["site"]): entry for entry in merged}
 
     # Every id the build handed out, plus every id the last list did, so an added
     # source cannot take a name that already belongs to a blog.
@@ -130,7 +118,7 @@ def apply_overrides(
 
     for override in overrides:
         site = override["site"]
-        entry = by_site.get(match_key(site))
+        entry = by_site.get(site_key(site))
 
         if entry is not None:
             # `site` is deliberately not patched: the generated one is where the
@@ -144,14 +132,14 @@ def apply_overrides(
 
         # A site the last list carried keeps its id even when this build missed it,
         # for the same reason a generated entry does: article ids are built from it.
-        entry_id = override.get("id") or known_by_key.get(match_key(site))
+        entry_id = override.get("id") or known_by_key.get(site_key(site))
         if entry_id:
             used_ids.add(entry_id)
         else:
             entry_id = source_id(site, used_ids)
 
         entry = {**override, "id": entry_id}
-        by_site[match_key(site)] = entry
+        by_site[site_key(site)] = entry
         merged.append(entry)
 
     # Sorted as build_entries sorts, so a patched name or an added source lands in

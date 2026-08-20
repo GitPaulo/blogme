@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import concurrent.futures
 import os
 import sys
 import time
@@ -31,7 +30,7 @@ from pathlib import Path
 
 import httpx
 
-from extractor.checks import RETRY_SITE_TIMEOUT, check_candidate_limited, never_answered
+from extractor.checks import never_answered
 from extractor.models import Candidate
 from extractor.output import (
     build_entries,
@@ -41,7 +40,7 @@ from extractor.output import (
     write_sources_yaml,
 )
 from extractor.overrides import apply_overrides, load_overrides
-from extractor.progress import Progress, log
+from extractor.progress import log
 from extractor.sourcelists import (
     GitHubClient,
     merge_into,
@@ -50,6 +49,7 @@ from extractor.sourcelists import (
     scan_page,
     scan_repo,
 )
+from extractor.workers import check_all, default_processes
 
 TOOLS_DIR = Path(__file__).resolve().parent
 SOURCES_DIR = TOOLS_DIR.parent
@@ -143,67 +143,66 @@ async def collect_candidates(gh: GitHubClient, args: argparse.Namespace) -> dict
     return all_candidates
 
 
-async def run(args: argparse.Namespace) -> int:
-    # Host lookups run in the loop's default executor; the stock 32 threads throttle everything.
-    asyncio.get_running_loop().set_default_executor(
-        concurrent.futures.ThreadPoolExecutor(
-            max_workers=max(64, args.concurrency))
-    )
-
+async def harvest(args: argparse.Namespace) -> dict[str, Candidate]:
+    """Every candidate the seed lists between them name."""
     client_options = {
         "headers": {"User-Agent": USER_AGENT},
         "timeout": httpx.Timeout(30.0, connect=10.0),
         "limits": httpx.Limits(max_connections=args.concurrency * 8, max_keepalive_connections=256),
     }
 
-    committed = committed_sources(args.output)
-
     async with httpx.AsyncClient(**client_options) as client:
         gh = GitHubClient(client, os.environ.get("GITHUB_TOKEN"))
+        return await collect_candidates(gh, args)
 
-        all_candidates = await collect_candidates(gh, args)
-        log(f"candidate sites before validation: {len(all_candidates)}")
 
-        items = list(all_candidates.items())
-        if args.limit_candidates:
-            items = items[:args.limit_candidates]
-        checked_keys = {key for key, _ in items}
+def run(args: argparse.Namespace) -> int:
+    committed = committed_sources(args.output)
 
-        progress = Progress(len(items))
-        limit = asyncio.Semaphore(args.concurrency)
-        results = await asyncio.gather(
-            *(
-                check_candidate_limited(
-                    client, candidate, args.require_feed, limit, progress,
-                    known_feeds=committed.feeds)
-                for _, candidate in items
-            )
+    all_candidates = asyncio.run(harvest(args))
+    log(f"candidate sites before validation: {len(all_candidates)}")
+
+    items = list(all_candidates.items())
+    if args.limit_candidates:
+        items = items[:args.limit_candidates]
+    checked_keys = {key for key, _ in items}
+    keys = [key for key, _ in items]
+
+    # The checks run across processes because they are bound by this interpreter
+    # rather than by the network; see extractor/workers.py for the measurements.
+    results = check_all(
+        [candidate for _, candidate in items],
+        require_feed=args.require_feed,
+        concurrency=args.concurrency,
+        processes=args.processes,
+        known_feeds=committed.feeds,
+    )
+    # A worker fills in its own copy, so the copies are what the audit must report on.
+    for key, (candidate, _) in zip(keys, results):
+        all_candidates[key] = candidate
+
+    checked = [c for c, ok in results if ok]
+
+    # Sites that never answered get one more chance, slowly. At full concurrency a
+    # connect timeout says as much about the run as about the site, and most of the
+    # links dropped that way turn out to be live blogs.
+    retries = [(key, c) for key, (c, ok) in zip(keys, results)
+               if not ok and never_answered(c)]
+    if retries:
+        recovered = check_all(
+            [c for _, c in retries],
+            require_feed=args.require_feed,
+            concurrency=args.retry_concurrency,
+            processes=args.processes,
+            known_feeds=committed.feeds,
+            slow=True,
+            label="retried",
         )
-        checked = [c for c in results if c is not None]
+        for (key, _), (candidate, _) in zip(retries, recovered):
+            all_candidates[key] = candidate
 
-        # Sites that never answered get one more chance, slowly. At full concurrency a
-        # connect timeout says as much about the run as about the site, and most of the
-        # links dropped that way turn out to be live blogs.
-        retries = [
-            candidate
-            for (_, candidate), result in zip(items, results)
-            if result is None and never_answered(candidate)
-        ]
-        if retries:
-            log(f"retrying {len(retries)} sites that did not answer, at concurrency {args.retry_concurrency}")
-            progress = Progress(len(retries))
-            limit = asyncio.Semaphore(args.retry_concurrency)
-            recovered = await asyncio.gather(
-                *(
-                    check_candidate_limited(
-                        client, candidate, args.require_feed, limit, progress,
-                        RETRY_SITE_TIMEOUT, known_feeds=committed.feeds
-                    )
-                    for candidate in retries
-                )
-            )
-            checked += [c for c in recovered if c is not None]
-            log(f"recovered {sum(1 for c in recovered if c is not None)} of {len(retries)}")
+        checked += [c for c, ok in recovered if ok]
+        log(f"recovered {sum(ok for _, ok in recovered)} of {len(retries)}")
 
     entries = build_entries(checked, committed.ids)
 
@@ -239,7 +238,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--audit-output", type=Path, default=DEFAULT_AUDIT,
                         help="CSV of every checked link. Empty string disables it.")
     parser.add_argument("--concurrency", type=int, default=200,
-                        help="Concurrent site checks. Much above 200 starts losing sites to timeouts.")
+                        help="Site checks in flight across the whole run, not per process.")
+    parser.add_argument("--processes", type=int, default=default_processes(),
+                        help="Worker processes for the checks. 1 keeps everything in one.")
     parser.add_argument("--retry-concurrency", type=int, default=50,
                         help="Concurrent checks in the retry pass over sites that did not answer.")
     parser.add_argument("--repo-concurrency", type=int, default=6,
@@ -264,7 +265,7 @@ def main() -> int:
     args = parse_args(sys.argv[1:])
     started = time.time()
     try:
-        return asyncio.run(run(args))
+        return run(args)
     finally:
         log(f"elapsed: {time.time() - started:.1f}s")
 

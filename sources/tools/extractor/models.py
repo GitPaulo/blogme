@@ -58,5 +58,11 @@ class FeedLookup:
 class Committed:
     """What the last generated list already knew, keyed by site."""
 
+    # Keyed by the site exactly as the list writes it, because an id is only reused
+    # for a source that is unmistakably the same one.
     ids: dict[str, str] = field(default_factory=dict)
+    # Keyed by urls.site_key instead: a seed list names a blog http://www.example.com
+    # where the last build recorded https://example.com, having followed the redirect
+    # the list never did. Matching those to each other is what lets a check reuse the
+    # feed it already has rather than going hunting for it again.
     feeds: dict[str, str] = field(default_factory=dict)

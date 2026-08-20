@@ -1,10 +1,12 @@
 """Link cleaning and canonicalisation.
 
-Two jobs:
+Three jobs:
 
   clean_url       drop links that can never be a blog and strip tracking noise
   canonical_site  collapse a link to the blog it belongs to, so a list containing
                   fifty posts from one site produces one source entry
+  site_key        decide whether two site URLs name the same blog, which is what
+                  lets a rebuild recognise a source it already has
 """
 
 from __future__ import annotations
@@ -210,6 +212,19 @@ def feed_guesses_for_site(site: str) -> list[str]:
 
     seen: set[str] = set()
     return [g for g in guesses if not (g in seen or seen.add(g))]
+
+
+def site_key(site: str) -> str:
+    """The form two site URLs are matched on when deciding they are the same blog.
+
+    A list writes http://www.example.com where the last build recorded
+    https://example.com, because the build followed the redirect and the list never
+    did. Scheme, a leading www and a trailing slash are the three ways that happens,
+    and none of them makes it a different blog.
+    """
+    parsed = urlparse(site)
+    host = (parsed.hostname or "").lower().removeprefix("www.")
+    return f"{host}{(parsed.path or '').rstrip('/')}"
 
 
 def domain_name(site: str) -> str:

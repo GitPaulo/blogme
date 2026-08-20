@@ -98,9 +98,51 @@ Useful flags:
 | `--output PATH`         | Write somewhere other than `sources/blogs.yml`         |
 | `--overrides PATH`      | Corrections to merge in, default `blogs-overrides.yml` |
 
-The full run checks roughly 49k links and takes a couple of hours; the retry pass over the
-sites that did not answer adds to that, since it deliberately runs at a quarter of the
-concurrency. Progress and an estimate are printed to stderr.
+The full run checks roughly 49k links. Progress and an estimate are printed to stderr.
+
+**The run is bound by this interpreter, not by the network**, which is the thing to know
+before tuning any of it. Profiling a pass put the process at 95% of one core, about half
+of that inside feedparser, while the network sat idle. Requests were not timing out
+because sites were slow; they timed out because the event loop could not get round to
+the socket in time — and a feed lookup that times out is written down as a blog having
+no feed.
+
+So the checks run across processes. `--processes` defaults to one fewer than the machine
+has cores, capped at six. `--concurrency` is the number of candidates in flight across
+the whole run and is divided between the workers, so the extra processes buy cores
+rather than sockets. Over the same 800 candidates with the same 200 in flight:
+
+| processes | wall  | sources kept | feeds found |
+| --------- | ----- | ------------ | ----------- |
+| 1         | 71.7s | 465          | 355         |
+| 4         | 38.2s | 534          | 421         |
+| 6         | 33.6s | 535          | 422         |
+
+Faster **and** more complete, which is the only shape of win worth taking here. A pass
+too small to keep the workers busy runs in one process instead; see `MIN_PER_WORKER` in
+[`extractor/workers.py`](extractor/workers.py).
+
+The other saving is not doing work twice. A candidate whose feed is already known — from
+an OPML seed, or from the last build — has its homepage and its feed requested together
+rather than one after the other, and only hunts for a feed if that one has stopped
+working. About 40% of candidates qualify.
+
+### What does not work
+
+Measured, and rejected:
+
+| Change                                        | Result                                                                               |
+| --------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Raise `--concurrency`                         | Throughput barely moves; the retry pass found 180 feeds at 50, 118 at 150, 72 at 300 |
+| Shorten the site timeout to 2.5s connect      | 33% faster, and lost a quarter of the sources and 63 feeds                           |
+| Guess fewer feed paths                        | All seven find feeds the others miss                                                 |
+| Answer on the first success, not the batch    | Worth 3%: the first URL is usually the slow one too                                  |
+| Cap requests in flight rather than candidates | Halves the retry set, but 14% fewer feeds end to end                                 |
+
+They all break the same rule: **a run that finds fewer feeds is not a faster run.** A
+source recorded without a feed falls back to a sitemap walk, and to nothing at all when
+the site publishes no sitemap — which is how a blog stays in the list while quietly
+contributing nothing.
 
 ## Output
 
@@ -133,6 +175,7 @@ extractor/
   naming.py          title, description and feed links from an HTML head
   sourcelists.py     GitHub API access and link extraction
   checks.py          reachability and feed discovery
+  workers.py         spreading the checks over several processes
   overrides.py       merging blogs-overrides.yml into the generated list
   output.py          ids, validation, YAML and CSV writing
 ```

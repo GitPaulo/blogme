@@ -11,7 +11,7 @@ import yaml
 
 from .models import Candidate, Committed
 from .tags import ordered_tags, split_provenance, tagify
-from .urls import MULTI_TENANT_HOST_SUFFIXES, domain_name
+from .urls import MULTI_TENANT_HOST_SUFFIXES, domain_name, site_key
 
 YAML_HEADER = """# Approved sources. Changes go through normal Git review — see docs/system-design.md.
 #
@@ -92,7 +92,7 @@ def committed_sources(path: Path) -> Committed:
 
     return Committed(
         ids={e["site"]: e["id"] for e in entries if e.get("id")},
-        feeds={e["site"]: e["feed"] for e in entries if e.get("feed")},
+        feeds={site_key(e["site"]): e["feed"] for e in entries if e.get("feed")},
     )
 
 
