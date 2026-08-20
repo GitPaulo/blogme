@@ -13,7 +13,7 @@ on a timer; the **read path** answers a user's query. They meet only at the sear
 ```mermaid
 flowchart LR
     subgraph Git["Repository"]
-        Y["blogs.yml<br/>35,430 blogs"]
+        Y["blogs.yml<br/>47,102 blogs"]
     end
 
     subgraph Azure["Azure"]
@@ -54,8 +54,8 @@ flowchart TD
     R -->|no| SKIP["Skip"]
     R -->|yes| P{"Has a feed?"}
 
-    P -->|"yes — 22,133 blogs"| F["Fetch RSS/Atom feed"]
-    P -->|"no — 13,297 blogs"| M["Find sitemap<br/>robots.txt, then common paths"]
+    P -->|"yes — 38,956 blogs"| F["Fetch RSS/Atom feed"]
+    P -->|"no — 8,146 blogs"| M["Find sitemap<br/>robots.txt, then common paths"]
 
     F --> ITEMS["Parse entries<br/>title, link, date, content"]
     ITEMS --> FULL{"Feed content<br/>200+ words?"}

@@ -3,15 +3,16 @@
 > How often discovery runs, how much it does per run, and how to change it.
 > Companion to [system-design.md](system-design.md).
 
-Sized against the source list on **20 August 2026**: 35,430 sources, 22,133 with a feed
-and 13,297 without.
+Sized against the source list on **20 August 2026**: 47,102 sources, 38,956 with a feed
+and 8,146 without.
 
 ## Summary
 
-| Setting                     | Deployed      | Code default    | Meaning                  |
-| --------------------------- | ------------- | --------------- | ------------------------ |
-| `BLOGME_DISCOVERY_SCHEDULE` | `0 0 * * * *` | `0 0 */6 * * *` | Timer cron, hourly       |
-| `BLOGME_DISCOVERY_BATCH`    | `1000`        | `200`           | Sources examined per run |
+| Setting                       | Deployed      | Code default    | Meaning                      |
+| ----------------------------- | ------------- | --------------- | ---------------------------- |
+| `BLOGME_DISCOVERY_SCHEDULE`   | `0 0 * * * *` | `0 0 */6 * * *` | Timer cron, hourly           |
+| `BLOGME_DISCOVERY_BATCH`      | `1000`        | `200`           | Sources examined per run     |
+| `BLOGME_MAX_POSTS_PER_SOURCE` | `30`          | `15`            | Newest posts read per source |
 
 Both are Function App application settings, so changing cadence is a configuration change
 and needs **no redeploy**. The deployed values override the code defaults in
@@ -42,18 +43,18 @@ Coverage is simply how many sources a day the schedule gets through:
 
 ```text
 sources/day = (24 / schedule_hours) x batch_size
-full pass   = 35,430 / sources per day
+full pass   = 47,102 / sources per day
 ```
 
 | Batch     | Schedule   | Sources/day | Full pass    |
 | --------- | ---------- | ----------- | ------------ |
-| 200       | every 6h   | 800         | 44 days      |
-| 500       | hourly     | 12,000      | 3.0 days     |
-| **1,000** | **hourly** | **24,000**  | **1.5 days** |
-| 2,000     | hourly     | 48,000      | 0.7 days     |
+| 200       | every 6h   | 800         | 59 days      |
+| 500       | hourly     | 12,000      | 3.9 days     |
+| **1,000** | **hourly** | **24,000**  | **2.0 days** |
+| 2,000     | hourly     | 48,000      | 1.0 days     |
 
 The code defaults are deliberately conservative and are **not** a recommendation for
-production. At 44 days per pass a blog's new post could take six weeks to become
+production. At 59 days per pass a blog's new post could take two months to become
 searchable, which defeats the goal in the
 [high-level plan](blog-discovery-search-high-level-plan.md) that new posts appear
 automatically.
@@ -103,8 +104,8 @@ question:
   in its slice in full, and re-fetches the page behind any post whose feed entry is a
   stub. Doing this is what makes a faster cadence cheap rather than merely possible.
 
-**Feeds and sitemaps cost differently.** 62% of sources publish a feed, which is one cheap
-request. The remaining 13,297 need a sitemap walk, which is heavier and is what pushes a
+**Feeds and sitemaps cost differently.** 83% of sources publish a feed, which is one cheap
+request. The remaining 8,146 need a sitemap walk, which is heavier and is what pushes a
 run towards the ceiling. If cadence becomes expensive, checking feed-backed sources more
 often than sitemap-only ones is the obvious split, but it is not worth the complexity
 until measurements justify it. Finding more feeds when the source list is built is the
@@ -119,11 +120,22 @@ uses a feed the site advertises there. It costs one request, and only where the
 alternative is nothing at all — but a run of `recovered feed from site html` lines means
 the source list is out of date, not that the crawler is healthy.
 
+**The feed window decides what can ever be found.** A feed lists only its most recent
+posts, and the crawler reads the newest `BLOGME_MAX_POSTS_PER_SOURCE` of them. Anything
+that falls past that window before the source is first crawled successfully is not late,
+it is unreachable: the feed path never revisits it, and only the sitemap path consults
+`store.Has` to fill gaps. A blog with no sitemap has no second route at all, so its
+history is exactly what its feed still lists. This is why the setting is 30 rather than
+the code's 15 — a blog that was in the list for months without a working feed comes back
+with a backlog, and a window of 15 silently truncates it. Raising it is a configuration
+change, but it is not free: it scales both the fetches per pass and the documents in the
+index, so weigh it against the two ceilings below.
+
 **Storage caps bite before compute does.** The 50 MB Free-tier ceiling was reached first,
 which is why the service now runs on Basic; see [tech-stack.md](tech-stack.md). Cadence
 sets how fast the next ceiling arrives, so check index size against the
 [service limits](https://learn.microsoft.com/en-us/azure/search/search-limits-quotas-capacity)
-before raising it. On 18 August 2026 the index held 75,356 documents in 472 MB, or 2.9%
+before raising it. On 20 August 2026 the index held 417,885 documents in 2.4 GB, or 16%
 of Basic's 15 GB, at roughly 6 KB a document. Truncating articles to 1,000 words is what
 keeps a document that small — that cap is the main lever on index size, so raising it for
 recall and raising cadence for freshness both spend the same budget.
