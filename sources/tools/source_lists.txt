@@ -41,6 +41,10 @@ https://github.com/snuzi/devblogs
 https://github.com/mhadikz/The-Best-Tech-Blogs-to-Follow
 https://github.com/MartinsOnuoha/company-engineering-blogs
 https://m8.github.io/refined.blog/
+https://raw.githubusercontent.com/peterc/engblogs/master/engblogs.opml
+https://raw.githubusercontent.com/exajobs/engineering-blogs-collection/main/engineering_blogs.opml
+https://github.com/exajobs/practical-engineering-collection
+https://raw.githubusercontent.com/odysseus0/feed/main/hn-popular-blogs-2025.opml
 https://raw.githubusercontent.com/aiworkflowpro/awesome-rss-feeds-list/main/feeds/en-tech-teams.opml
 https://raw.githubusercontent.com/aiworkflowpro/awesome-rss-feeds-list/main/feeds/en-backend.opml
 https://raw.githubusercontent.com/aiworkflowpro/awesome-rss-feeds-list/main/feeds/en-dev-tools.opml
@@ -53,12 +57,29 @@ https://github.com/topics/programming-blogs
 https://raw.githubusercontent.com/simevidas/web-dev-feeds/master/feeds.opml
 https://raw.githubusercontent.com/impressivewebs/frontend-feeds/master/frontend-feeds.opml
 https://raw.githubusercontent.com/JackyST0/awesome-rsshub-routes/main/feeds.opml
+https://raw.githubusercontent.com/ycjcl868/feeds/master/index.opml
 https://raw.githubusercontent.com/aiworkflowpro/awesome-rss-feeds-list/main/feeds/en-web-frontend.opml
 https://raw.githubusercontent.com/aiworkflowpro/awesome-rss-feeds-list/main/feeds/en-product-design.opml
+https://github.com/dzharii/awesome-typescript
+https://github.com/PatrickJS/awesome-angular
+https://github.com/vuejs/awesome-vue
 
 # Language communities
 https://github.com/RizRiyz/python-blogs
 https://github.com/Yegorov/awesome-ruby-blogs
+https://github.com/vbauer/java-blogs
+https://github.com/vbauer/android-blogs
+https://github.com/Heapy/awesome-kotlin
+https://github.com/fsprojects/awesome-fsharp
+https://github.com/mbuczko/awesome-clojure
+https://github.com/lauris/awesome-scala
+https://github.com/h4cc/awesome-elixir
+https://github.com/erlang-punch/awesome-erlang
+https://github.com/ocaml-community/awesome-ocaml
+https://github.com/ringabout/awesome-nim
+https://github.com/C-BJ/awesome-zig
+https://github.com/zouyee/zig-learning
+https://github.com/svaksha/Julia.jl
 https://raw.githubusercontent.com/aiworkflowpro/awesome-rss-feeds-list/main/feeds/en-mobile.opml
 
 # Security
@@ -79,6 +100,7 @@ https://github.com/vishalshar/awesome_ML_AI_RSS_feed
 https://github.com/leontloveless/ai-rss-feeds
 https://github.com/foorilla/allainews_sources
 https://raw.githubusercontent.com/RSS-Renaissance/awesome-AI-feeds/master/feedlist.opml
+https://raw.githubusercontent.com/amikumar91/ai-signal/main/sources.opml
 https://raw.githubusercontent.com/aiworkflowpro/awesome-rss-feeds-list/main/feeds/en-ai-research.opml
 https://raw.githubusercontent.com/aiworkflowpro/awesome-rss-feeds-list/main/feeds/en-ai-eng.opml
 https://raw.githubusercontent.com/aiworkflowpro/awesome-rss-feeds-list/main/feeds/en-ai-news.opml
@@ -133,6 +155,7 @@ https://github.com/shidenggui/bloghub
 https://github.com/NUAA-Open-Source/BlogRoll
 https://github.com/tuna/blogroll
 https://github.com/olist213/information_subscription
+https://raw.githubusercontent.com/RSS-Renaissance/awesome-blogCN-feeds/master/feedlist.opml
 
 # Feed collections
 # Olshansk/rss-feeds is tens of megabytes of generated feed XML around one curated
