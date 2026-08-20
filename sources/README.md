@@ -127,13 +127,15 @@ flowchart LR
    or structured files that link to blogs. Adding a list is one line; see
    [`tools/README.md`](tools/README.md#adding-a-source-list) for which form to use.
 2. **Harvest.** Every text file in those repositories, and every seed page, is read and
-   every `http(s)` link pulled out, roughly 49,000 of them. On an HTML list the link
-   text is kept as a fallback name.
+   every `http(s)` link pulled out. On an HTML list the link text is kept as a fallback
+   name.
 3. **Collapse.** Each link becomes the blog it belongs to, so fifty article URLs from one
-   site produce one entry. Code hosts, social networks, badges, shorteners and asset
-   subdomains are discarded here.
+   site produce one entry, leaving about 62,000 candidates. Code hosts, social networks,
+   badges, shorteners and asset subdomains are discarded here.
 4. **Check.** Each remaining site is requested once. If it answers, it is in; a 404 or a
    403 settles the question and it is out. Reachability is the only membership rule.
+   This is the long part of the build and runs across several processes, because it is
+   bound by parsing the answers rather than by waiting for them.
 5. **Retry.** A site that gave no answer at all is asked again, slowly. At full
    concurrency a connect timeout describes the run as much as the site, and a sample of
    the links dropped that way found roughly three quarters of them alive.

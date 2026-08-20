@@ -93,12 +93,15 @@ Useful flags:
 | ----------------------- | ------------------------------------------------------ |
 | `--require-feed`        | Keep only sites with a working RSS/Atom feed           |
 | `--limit-candidates N`  | Check the first N links only, for a quick trial run    |
-| `--concurrency N`       | Concurrent site checks, default 200                    |
-| `--retry-concurrency N` | Concurrent checks in the retry pass, default 50        |
+| `--concurrency N`       | Site checks in flight across the run, default 200      |
+| `--processes N`         | Worker processes for the checks; 1 keeps it in one     |
+| `--retry-concurrency N` | Checks in flight during the retry pass, default 50     |
 | `--output PATH`         | Write somewhere other than `sources/blogs.yml`         |
 | `--overrides PATH`      | Corrections to merge in, default `blogs-overrides.yml` |
 
-The full run checks roughly 49k links. Progress and an estimate are printed to stderr.
+A full run checks about 62,000 candidate sites — what the seed lists' links collapse
+to once duplicates and non-blogs are dropped. Progress and an estimate are printed to
+stderr.
 
 **The run is bound by this interpreter, not by the network**, which is the thing to know
 before tuning any of it. Profiling a pass put the process at 95% of one core, about half

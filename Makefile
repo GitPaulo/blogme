@@ -64,7 +64,7 @@ fmt: ## Format all source
 	cd api && gofmt -w .
 	cd web && pnpm run format
 
-sources: ## Rebuild sources/blogs.yml in the background (takes hours)
+sources: ## Rebuild sources/blogs.yml in the background (long-running, uses several cores)
 	cd sources/tools && { [[ -d .venv ]] || $(PYTHON) -m venv .venv; } \
 		&& .venv/$(VENV_BIN)/pip install -q -r requirements.txt
 	cd sources/tools && nohup .venv/$(VENV_BIN)/python build_sources.py >/dev/null 2>build.log &
