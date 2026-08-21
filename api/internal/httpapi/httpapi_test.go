@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -294,5 +295,81 @@ func TestSearchCachesAnAnswerAndNothingElse(t *testing.T) {
 		if got := get(t, tc.handler, tc.target).Header().Get("Cache-Control"); got != "" {
 			t.Errorf("a %s request set Cache-Control %q", tc.name, got)
 		}
+	}
+}
+
+// A page is thinned after the index has ranked it, so reading exactly a page's worth
+// hands back whatever survives — three rows of twenty for a query one blog dominates.
+// Reading further is what fills it, and the request is where that shows up.
+func TestSearchReadsMoreDocumentsThanThePageHolds(t *testing.T) {
+	h, sent := newCapturingHandlers(t, "", emptyResult, DefaultLimits())
+
+	if code := get(t, h, "/api/search?q=go&limit=20").Code; code != http.StatusOK {
+		t.Fatalf("got status %d, want 200", code)
+	}
+
+	requests := sent()
+	if len(requests) != 1 {
+		t.Fatalf("got %d index requests, want 1", len(requests))
+	}
+	if got, want := requests[0]["top"], float64(20*overFetch); got != want {
+		t.Errorf("top = %v, want %v", got, want)
+	}
+}
+
+// Reading past the reranked window would top the page up with rows the reranker never
+// ordered, which is keyword ranking wearing a semantic label. A short page is the
+// honest answer at the tail of that window.
+func TestSearchSemanticReadStaysInsideTheRerankedWindow(t *testing.T) {
+	h, sent := newCapturingHandlers(t, "blogme-semantic", emptyResult, DefaultLimits())
+
+	// The deepest offset semantic ranking allows for this page size.
+	offset := maxOffsetFor(index.RankSemantic, 20)
+	if code := get(t, h, fmt.Sprintf("/api/search?q=go&limit=20&mode=semantic&offset=%d", offset)).Code; code != http.StatusOK {
+		t.Fatalf("got status %d, want 200", code)
+	}
+
+	requests := sent()
+	if len(requests) == 0 {
+		t.Fatal("no index request was made")
+	}
+	if got, want := requests[0]["top"], float64(semanticWindow-offset); got != want {
+		t.Errorf("top = %v, want %v — the read ran past the reranked window", got, want)
+	}
+	// Never below the page size, or the clamp would be shortening pages on its own.
+	if requests[0]["top"].(float64) < 20 {
+		t.Errorf("top = %v, want at least the page size", requests[0]["top"])
+	}
+}
+
+// The client cannot work out where the next page starts, because the rows it received
+// do not say how many documents were read to produce them.
+func TestSearchReportsWhereTheNextPageStarts(t *testing.T) {
+	// A full window, opening with four documents from one blog. The cap keeps three
+	// of those and discards the fourth, so filling a 20-row page reads 21 documents.
+	const window = 20 * overFetch
+	docs := make([]string, window)
+	for i := range window {
+		source := fmt.Sprintf("quiet%d", i)
+		if i < 4 {
+			source = "loud"
+		}
+		docs[i] = fmt.Sprintf(
+			`{"url":"https://example.com/%d","title":"Post","sourceId":%q}`, i, source)
+	}
+	h := newTestHandlers(t, `{"@odata.count":900,"value":[`+strings.Join(docs, ",")+`]}`)
+
+	rec := get(t, h, "/api/search?q=go&limit=20&offset=100")
+	var body searchResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if body.Count != 20 {
+		t.Fatalf("count = %d, want a full page of 20", body.Count)
+	}
+	if want := 100 + 21; body.NextOffset != want {
+		t.Errorf("nextOffset = %d, want %d — rows returned are not documents read",
+			body.NextOffset, want)
 	}
 }

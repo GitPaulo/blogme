@@ -147,9 +147,14 @@ type searchResponse struct {
 //
 // Three posts from one site is rarely what a reader wanted, so this earns its
 // place on ordinary queries; it also means a source that stuffs its posts with
-// popular terms takes three rows rather than the page. Applied to the page that
-// came back rather than by over-fetching, so a page can come back short but the
-// paging arithmetic is untouched.
+// popular terms takes three rows rather than the page.
+//
+// What it costs is that a page is thinned after the index has already chosen it,
+// and that is the whole reason QueryOptions.Fetch and Page.NextOffset exist. Read
+// exactly one page's worth and a dominated query comes back nearly empty: "claude"
+// returned three rows out of twenty, because its first twenty-nine matches were all
+// the same blog. Read further and the page fills, but then the rows returned no
+// longer say how far the reading got, which is what NextOffset carries.
 const maxPerSource = 3
 
 // Ranking modes. Semantic reranks the top keyword matches with a language model, which
@@ -165,10 +170,36 @@ const (
 type QueryOptions struct {
 	Limit  int
 	Offset int
+	// Fetch is how many documents to read to fill those Limit rows. The per-source
+	// cap discards some of what comes back, so reading exactly Limit would hand back
+	// a short page; reading more absorbs that. Unset means Limit. The caller sets it,
+	// including below Limit, because only the caller knows how far the ranking mode
+	// it asked for stays meaningful.
+	Fetch int
 	// Origin, when set to a known discovery method, restricts results to it.
 	Origin string
 	// Rank selects the ranking mode. Empty means semantic, which is the default.
 	Rank string
+}
+
+// Page is one response worth of results.
+type Page struct {
+	Results []article.Result
+	// Total counts every match in the corpus, not the rows on this page.
+	Total int
+	// NextOffset is where the page after this one starts.
+	//
+	// It has to come from here because a page of N rows is not N documents wide: the
+	// per-source cap discards rows after the index has already chosen them, so a
+	// caller advancing by its own page size would step straight over whatever was
+	// discarded and never see it.
+	NextOffset int
+	// Read is how many documents this page was chosen from. Reported separately from
+	// NextOffset, which is jumped to the end of the corpus once the index runs out
+	// and so stops being a measure of anything. Read against len(Results) is how hard
+	// the cap is working on a query, which is worth a log line: the absence of that
+	// number is why a page returning three rows of twenty went unnoticed.
+	Read int
 }
 
 // Ready reports whether this instance can actually read the index.
@@ -184,14 +215,21 @@ func (i *Index) Ready(ctx context.Context) error {
 	return i.do(ctx, http.MethodGet, "/docs/$count", nil, nil)
 }
 
-// Query runs a full-text search and returns one page of ranked results along with
-// the number of matches across the whole corpus.
-func (i *Index) Query(ctx context.Context, q string, opts QueryOptions) ([]article.Result, int, error) {
+// Query runs a full-text search and returns one page of ranked results.
+func (i *Index) Query(ctx context.Context, q string, opts QueryOptions) (Page, error) {
+	// The caller's figure wins when it gives one, including when it is below Limit:
+	// only the caller knows how far the ranking mode it asked for stays meaningful,
+	// and a short page there is better than a wrong one.
+	fetch := opts.Fetch
+	if fetch <= 0 {
+		fetch = opts.Limit
+	}
+
 	// sourceId is selected but never returned to the caller: it is there so one blog
 	// can be stopped from filling the page. See maxPerSource.
 	body := map[string]any{
 		"search":     q,
-		"top":        opts.Limit,
+		"top":        fetch,
 		"skip":       opts.Offset,
 		"count":      true,
 		"queryType":  "simple",
@@ -220,7 +258,7 @@ func (i *Index) Query(ctx context.Context, q string, opts QueryOptions) ([]artic
 		var resp searchResponse
 		err := i.search(ctx, semantic, &resp)
 		if err == nil {
-			return results(resp), resp.Total, nil
+			return selectPage(resp, opts.Offset, opts.Limit, fetch), nil
 		}
 		// Reranking is a metered, throttled resource: the free plan stops at 1,000
 		// queries a month and the service sheds load above roughly ten concurrent
@@ -231,9 +269,9 @@ func (i *Index) Query(ctx context.Context, q string, opts QueryOptions) ([]artic
 
 	var resp searchResponse
 	if err := i.search(ctx, body, &resp); err != nil {
-		return nil, 0, err
+		return Page{}, err
 	}
-	return results(resp), resp.Total, nil
+	return selectPage(resp, opts.Offset, opts.Limit, fetch), nil
 }
 
 // search runs one query under its own time budget.
@@ -249,19 +287,31 @@ func (i *Index) search(ctx context.Context, body map[string]any, out *searchResp
 	return i.do(ctx, http.MethodPost, "/docs/search", body, out)
 }
 
-// results projects the wire response onto the shape the API returns.
-func results(resp searchResponse) []article.Result {
-	out := make([]article.Result, 0, len(resp.Value))
-	perSource := make(map[string]int, len(resp.Value))
+// selectPage turns the documents that came back into one page of results, and
+// reports where the next page starts.
+//
+// The two go together on purpose. Rows are dropped here, after the index has ranked
+// them, so the number of rows returned says nothing about how far into the results
+// they reached — and the next page has to start where this one actually stopped
+// reading, not where its length suggests.
+func selectPage(resp searchResponse, offset, limit, fetch int) Page {
+	out := make([]article.Result, 0, limit)
+	perSource := make(map[string]int, limit)
 
+	read := 0
 	for _, v := range resp.Value {
+		if len(out) == limit {
+			break
+		}
+		read++
+
 		// Documents indexed before sourceId was selected carry none, and an unknown
 		// source cannot be shown to be over its share.
 		if v.SourceID != "" {
-			if perSource[v.SourceID] >= maxPerSource {
+			perSource[v.SourceID]++
+			if perSource[v.SourceID] > maxPerSource {
 				continue
 			}
-			perSource[v.SourceID]++
 		}
 
 		r := article.Result{
@@ -280,7 +330,18 @@ func results(resp searchResponse) []article.Result {
 		}
 		out = append(out, r)
 	}
-	return out
+
+	next := offset + read
+	// Reaching the end of a window that was already short of what was asked for means
+	// the index has nothing further, whatever the count says — so say so, or a caller
+	// paging by NextOffset keeps coming back for the same empty window until its own
+	// guard rail stops it. Both halves matter: a short window the page filled from
+	// before running out still has documents left in it.
+	if read == len(resp.Value) && len(resp.Value) < fetch {
+		next = max(next, resp.Total)
+	}
+
+	return Page{Results: out, Total: resp.Total, NextOffset: next, Read: read}
 }
 
 func (i *Index) do(ctx context.Context, method, path string, body, out any) error {

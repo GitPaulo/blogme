@@ -19,6 +19,13 @@ export type SearchResponse = {
 	count: number;
 	total: number;
 	offset: number;
+	/**
+	 * Where the next page starts. Not `offset + count`: the API drops rows that put one
+	 * blog over its share of a page, after the index has ranked them, so a page is wider
+	 * than the rows it hands back. Advancing by our own page size would step over
+	 * whatever it dropped. Mirrors index.Page.NextOffset.
+	 */
+	nextOffset: number;
 	results: SearchResult[];
 };
 
@@ -147,12 +154,21 @@ function toResponse(body: unknown, query: string, offset: number): SearchRespons
 	const reported =
 		typeof raw.total === 'number' && Number.isFinite(raw.total) ? Math.trunc(raw.total) : 0;
 
+	// It has to move forward, or "load more" asks for this page again for as long as the
+	// reader keeps clicking. An older API that does not send it still pages, one page at
+	// a time, which is exactly what it used to do.
+	const advanced =
+		typeof raw.nextOffset === 'number' && Number.isFinite(raw.nextOffset)
+			? Math.trunc(raw.nextOffset)
+			: 0;
+
 	return {
 		query,
 		count: results.length,
 		// A total below what we already hold would make "load more" contradict itself.
 		total: Math.max(reported, offset + results.length),
 		offset,
+		nextOffset: Math.max(advanced, offset + PAGE_SIZE),
 		results
 	};
 }

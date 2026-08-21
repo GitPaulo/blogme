@@ -3,6 +3,7 @@ package index
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,18 @@ import (
 
 	"github.com/GitPaulo/blogme/api/internal/article"
 )
+
+// query runs a search that is expected to succeed. Every test in this file is about
+// what comes back rather than about failing, so the error check belongs in one place.
+func query(t *testing.T, idx *Index, q string, opts QueryOptions) Page {
+	t.Helper()
+
+	page, err := idx.Query(context.Background(), q, opts)
+	if err != nil {
+		t.Fatalf("query %q: %v", q, err)
+	}
+	return page
+}
 
 // Paging is what the "load more" control rides on, so the request has to carry the
 // offset and ask for the corpus-wide count rather than the page size.
@@ -35,11 +48,9 @@ func TestQueryRequestsPageAndTotal(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	results, total, err := New(srv.URL, "articles", "test-key", "").
-		Query(context.Background(), "go", QueryOptions{Limit: 20, Offset: 40})
-	if err != nil {
-		t.Fatalf("query: %v", err)
-	}
+	page := query(t, New(srv.URL, "articles", "test-key", ""), "go",
+		QueryOptions{Limit: 20, Offset: 40})
+	results, total := page.Results, page.Total
 
 	if sent["top"] != float64(20) || sent["skip"] != float64(40) {
 		t.Errorf("got top=%v skip=%v, want 20 and 40", sent["top"], sent["skip"])
@@ -71,11 +82,8 @@ func TestQueryLeavesMissingDateZero(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	results, _, err := New(srv.URL, "articles", "test-key", "").
-		Query(context.Background(), "go", QueryOptions{Limit: 20})
-	if err != nil {
-		t.Fatalf("query: %v", err)
-	}
+	results := query(t, New(srv.URL, "articles", "test-key", ""), "go",
+		QueryOptions{Limit: 20}).Results
 
 	if len(results) != 1 {
 		t.Fatalf("got %d results, want 1", len(results))
@@ -98,11 +106,8 @@ func TestQueryRequestsSemanticRanking(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, _, err := New(srv.URL, "articles", "test-key", "blogme-semantic").
-		Query(context.Background(), "scaling single threaded servers", QueryOptions{Limit: 20})
-	if err != nil {
-		t.Fatalf("query: %v", err)
-	}
+	query(t, New(srv.URL, "articles", "test-key", "blogme-semantic"),
+		"scaling single threaded servers", QueryOptions{Limit: 20})
 
 	if sent["queryType"] != "semantic" {
 		t.Errorf("queryType = %v, want semantic", sent["queryType"])
@@ -128,11 +133,8 @@ func TestQueryKeywordRankSkipsSemantic(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, _, err := New(srv.URL, "articles", "test-key", "blogme-semantic").
-		Query(context.Background(), "go", QueryOptions{Limit: 20, Rank: RankKeyword})
-	if err != nil {
-		t.Fatalf("query: %v", err)
-	}
+	query(t, New(srv.URL, "articles", "test-key", "blogme-semantic"), "go",
+		QueryOptions{Limit: 20, Rank: RankKeyword})
 
 	if sent["queryType"] != "simple" {
 		t.Errorf("queryType = %v, want simple", sent["queryType"])
@@ -164,11 +166,9 @@ func TestQueryFallsBackWhenSemanticFails(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	res, total, err := New(srv.URL, "articles", "test-key", "blogme-semantic").
-		Query(context.Background(), "go", QueryOptions{Limit: 20})
-	if err != nil {
-		t.Fatalf("query should have fallen back, got error: %v", err)
-	}
+	page := query(t, New(srv.URL, "articles", "test-key", "blogme-semantic"), "go",
+		QueryOptions{Limit: 20})
+	res, total := page.Results, page.Total
 
 	if want := []string{"semantic", "simple"}; !slices.Equal(attempts, want) {
 		t.Errorf("attempts = %v, want %v", attempts, want)
@@ -197,12 +197,9 @@ func TestQueryFiltersByOrigin(t *testing.T) {
 			_, _ = io.WriteString(w, `{"@odata.count":0,"value":[]}`)
 		}))
 
-		_, _, err := New(srv.URL, "articles", "test-key", "").
-			Query(context.Background(), "go", QueryOptions{Limit: 20, Origin: tc.origin})
+		query(t, New(srv.URL, "articles", "test-key", ""), "go",
+			QueryOptions{Limit: 20, Origin: tc.origin})
 		srv.Close()
-		if err != nil {
-			t.Fatalf("query: %v", err)
-		}
 
 		got, _ := sent["filter"].(string)
 		if got != tc.want {
@@ -296,11 +293,9 @@ func TestQueryFallsBackWhenSemanticHangs(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	results, total, err := New(srv.URL, "articles", "test-key", "blogme-semantic").
-		Query(context.Background(), "go", QueryOptions{Limit: 20})
-	if err != nil {
-		t.Fatalf("query: %v", err)
-	}
+	page := query(t, New(srv.URL, "articles", "test-key", "blogme-semantic"), "go",
+		QueryOptions{Limit: 20})
+	results, total := page.Results, page.Total
 
 	if semanticCalls != 1 || keywordCalls != 1 {
 		t.Errorf("semantic calls = %d, keyword calls = %d; want 1 and 1", semanticCalls, keywordCalls)
@@ -321,8 +316,159 @@ func TestQueryAnswersInsideTheBudget(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, total, err := New(srv.URL, "articles", "test-key", "").
-		Query(context.Background(), "go", QueryOptions{Limit: 20}); err != nil || total != 1 {
-		t.Fatalf("total = %d, err = %v; want 1 and no error", total, err)
+	if total := query(t, New(srv.URL, "articles", "test-key", ""), "go",
+		QueryOptions{Limit: 20}).Total; total != 1 {
+		t.Fatalf("total = %d, want 1", total)
+	}
+}
+
+// dominatedBy builds a window whose first `run` documents all belong to one blog and
+// whose remainder is one blog each, which is the shape of a query like "claude":
+// live, its first twenty-nine matches were all the same site.
+func dominatedBy(run, total int) []string {
+	docs := make([]string, total)
+	for i := range total {
+		source := "loud"
+		if i >= run {
+			source = fmt.Sprintf("quiet%d", i)
+		}
+		docs[i] = fmt.Sprintf(
+			`{"url":"https://example.com/%03d","title":"Post %03d","sourceId":%q}`, i, i, source)
+	}
+	return docs
+}
+
+// windowServer answers like the index does: honour skip and top over a fixed corpus.
+func windowServer(t *testing.T, docs []string) *httptest.Server {
+	t.Helper()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Skip int `json:"skip"`
+			Top  int `json:"top"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		window := docs[min(body.Skip, len(docs)):min(body.Skip+body.Top, len(docs))]
+		_, _ = io.WriteString(w, fmt.Sprintf(
+			`{"@odata.count":%d,"value":[%s]}`, len(docs), strings.Join(window, ",")))
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// Reading exactly one page's worth is what made "claude" return three rows out of
+// twenty. The rows were never missing — they sat just past where a page-sized read
+// looks — so reading further is what fills the page without giving up the cap.
+func TestQueryOverFetchesToFillAPageOneSourceDominates(t *testing.T) {
+	const run = 29
+
+	srv := windowServer(t, dominatedBy(run, 100))
+	idx := New(srv.URL, "articles", "test-key", "")
+
+	short := query(t, idx, "q", QueryOptions{Limit: 20})
+	if len(short.Results) != maxPerSource {
+		t.Fatalf("reading one page's worth gave %d rows, want %d — the fixture is not dominated",
+			len(short.Results), maxPerSource)
+	}
+
+	full := query(t, idx, "q", QueryOptions{Limit: 20, Fetch: 60})
+	if len(full.Results) != 20 {
+		t.Errorf("got %d rows, want a full page of 20", len(full.Results))
+	}
+
+	// Filling the page must not be a way around the cap: the loud blog still holds
+	// three rows of it and no more.
+	loud := 0
+	for _, r := range full.Results {
+		var n int
+		if _, err := fmt.Sscanf(r.URL, "https://example.com/%d", &n); err == nil && n < run {
+			loud++
+		}
+	}
+	if loud != maxPerSource {
+		t.Errorf("the dominant blog took %d rows, want %d", loud, maxPerSource)
+	}
+}
+
+// The whole point of NextOffset: rows returned and documents read are different
+// numbers, and only the second one can drive paging.
+func TestQueryNextOffsetCountsDocumentsReadNotRowsReturned(t *testing.T) {
+	srv := windowServer(t, dominatedBy(29, 100))
+
+	page := query(t, New(srv.URL, "articles", "test-key", ""), "q",
+		QueryOptions{Limit: 20, Fetch: 60})
+
+	if page.NextOffset == len(page.Results) {
+		t.Fatalf("NextOffset = %d, which is just the row count — the cap read further than that",
+			page.NextOffset)
+	}
+	// Three of the first 29 survive, so 17 more are needed from the tail: 29+17 = 46.
+	if want := 46; page.NextOffset != want {
+		t.Errorf("NextOffset = %d, want %d", page.NextOffset, want)
+	}
+}
+
+// Paging is the contract "load more" rides on. Walk a corpus one blog dominates by
+// following NextOffset and account for every row: nothing seen twice, and nothing
+// silently stepped over by a stride that assumed pages are as wide as they are long.
+func TestQueryPagingFollowingNextOffsetLosesAndRepeatsNothing(t *testing.T) {
+	const (
+		corpus = 100
+		limit  = 20
+	)
+
+	srv := windowServer(t, dominatedBy(29, corpus))
+	idx := New(srv.URL, "articles", "test-key", "")
+
+	seen := map[string]int{}
+	pages := 0
+	for offset := 0; offset < corpus; pages++ {
+		if pages > corpus {
+			t.Fatal("paging did not terminate")
+		}
+
+		page := query(t, idx, "q", QueryOptions{Limit: limit, Offset: offset, Fetch: limit * 3})
+		for _, r := range page.Results {
+			seen[r.URL]++
+		}
+		if page.NextOffset <= offset {
+			t.Fatalf("offset %d: NextOffset = %d, which would page forever", offset, page.NextOffset)
+		}
+		offset = page.NextOffset
+	}
+
+	for i := range corpus {
+		url := fmt.Sprintf("https://example.com/%03d", i)
+		// The cap deliberately discards some of the dominant blog, so a row being
+		// absent is allowed; being present twice never is.
+		if seen[url] > 1 {
+			t.Errorf("%s was returned %d times", url, seen[url])
+		}
+	}
+	// Every quiet blog is past the run and inside the cap, so all of them must appear.
+	for i := 29; i < corpus; i++ {
+		url := fmt.Sprintf("https://example.com/%03d", i)
+		if seen[url] == 0 {
+			t.Errorf("%s was never returned by any page", url)
+		}
+	}
+}
+
+// A window shorter than the one asked for means the index has nothing left. Without
+// saying so, a caller driven by NextOffset would keep asking for the same empty page.
+func TestQueryNextOffsetStopsPagingWhenTheIndexRunsOut(t *testing.T) {
+	srv := windowServer(t, dominatedBy(0, 5))
+
+	page := query(t, New(srv.URL, "articles", "test-key", ""), "q",
+		QueryOptions{Limit: 20, Fetch: 60})
+
+	if len(page.Results) != 5 {
+		t.Fatalf("got %d rows, want 5", len(page.Results))
+	}
+	if page.NextOffset < page.Total {
+		t.Errorf("NextOffset = %d with total %d, so paging would continue past the end",
+			page.NextOffset, page.Total)
 	}
 }

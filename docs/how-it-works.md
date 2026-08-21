@@ -153,9 +153,26 @@ rather than enforce a budget: they turn "burn the month's reranking in a minute"
 "burn it over many hours", which is long enough to notice. A global cap is what a
 budget would need, and only a paid semantic plan makes one worth setting.
 
-A page also carries at most three results from any one blog. Three posts from one site is
+A page carries at most three results from any one blog. Three posts from one site is
 rarely what a reader wanted, and it means a source that stuffs its posts with popular
-terms takes three rows rather than the whole page.
+terms takes three rows rather than the page.
+
+That cap thins a page after the index has already ranked it, which is a more awkward
+thing to do than it sounds, and two pieces of the design exist only to make it safe.
+
+**More documents are read than the page holds** — three for every row. Reading exactly a
+page's worth returns however many happen to survive: searching "claude" gave three rows
+out of twenty, because its first twenty-nine matches were all the same site. The other
+seventeen rows were never missing, they simply sat past where a page-sized read looks;
+the same query yields 24 usable rows inside its first 50 documents. In semantic mode the
+read stops at the reranked window instead, since filling a page from past it would be
+keyword ordering wearing a semantic label.
+
+**The API says where the next page starts**, in `nextOffset`, and clients must use it
+instead of adding their own page size. A page of twenty rows is not twenty documents
+wide once the cap has removed some, so a fixed stride steps over whatever was removed and
+skips it for good rather than deferring it. This is what makes "load more" reach every
+result exactly once.
 
 Ranking happens in two stages. Keyword scoring picks the candidates, weighted towards the
 title, and then Azure AI Search's **semantic ranker** reorders them with a language model

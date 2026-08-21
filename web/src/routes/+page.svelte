@@ -17,7 +17,6 @@
 		MAX_QUERY_LENGTH,
 		maxOffsetFor,
 		MIN_QUERY_LENGTH,
-		PAGE_SIZE,
 		search,
 		SearchError,
 		type Origin,
@@ -248,7 +247,10 @@
 			if (controller !== current) return false;
 			results = offset === 0 ? response.results : merge(results, response.results);
 			total = response.total;
-			nextOffset = offset + PAGE_SIZE;
+			// The API's figure rather than a stride of our own: it drops rows that put
+			// one blog over its share of a page, so a page is wider than the rows it
+			// returns, and counting by page size would step over whatever it dropped.
+			nextOffset = response.nextOffset;
 			status = 'done';
 			return true;
 		} catch (e) {

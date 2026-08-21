@@ -33,6 +33,8 @@ const (
 	// Keyword ranking scores the whole result set, so it can page as deep as is worth
 	// paying for. Relevance is long gone by this depth, so the tail stops here.
 	maxKeywordOffset = 1000
+	// Documents read per row a page is meant to hold. See fetchFor.
+	overFetch = 3
 	// How much of a query reaches the logs. Knowing what was searched for is the
 	// difference between "search is slow" and "this search is slow", but a query is
 	// third-party input and the telemetry bill is charged by volume.
@@ -88,6 +90,26 @@ func maxOffsetFor(rank string, limit int) int {
 		return maxKeywordOffset
 	}
 	return max(semanticWindow-limit, 0)
+}
+
+// fetchFor reports how many documents to read to fill a page of the given size.
+//
+// More than the page holds, because the per-source cap discards rows after the index
+// has ranked them: read exactly a page's worth and a query one blog dominates comes
+// back with whatever survives. "claude" returned three rows of twenty, its first
+// twenty-nine matches all being the same site — and the same query yields 24 usable
+// rows inside its first 50 documents, so the results were there, just past where a
+// page-sized read looks. Three times is that measured worst case with room to spare;
+// the cost is documents transferred, so there is no case for making it larger.
+func fetchFor(rank string, limit, offset int) int {
+	fetch := limit * overFetch
+	if rank == index.RankKeyword {
+		return fetch
+	}
+	// Semantic ranking only orders the reranked window. Reading past it would top the
+	// page up with rows the reranker never sorted — keyword order wearing a semantic
+	// label — so the tail of that window returns a short page instead.
+	return min(fetch, max(semanticWindow-offset, 0))
 }
 
 type Handlers struct {
@@ -147,10 +169,14 @@ func (h *Handlers) logThrottled(ctx context.Context, scope, caller string, wait 
 type searchResponse struct {
 	Query string `json:"query"`
 	// Count is the size of this page; Total is how many matches exist in all.
-	Count   int              `json:"count"`
-	Total   int              `json:"total"`
-	Offset  int              `json:"offset"`
-	Results []article.Result `json:"results"`
+	Count  int `json:"count"`
+	Total  int `json:"total"`
+	Offset int `json:"offset"`
+	// NextOffset is the offset to ask for to continue from here. A client must use
+	// it rather than adding its own page size: the per-source cap drops rows after
+	// ranking, so a page is wider than the rows it returns. See index.Page.
+	NextOffset int              `json:"nextOffset"`
+	Results    []article.Result `json:"results"`
 }
 
 // searchParams is a search request that has already been checked over.
@@ -278,9 +304,10 @@ func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
 		p.rank, downgraded = index.RankKeyword, true
 	}
 
-	results, total, err := h.index.Query(ctx, p.q, index.QueryOptions{
+	page, err := h.index.Query(ctx, p.q, index.QueryOptions{
 		Limit:  p.limit,
 		Offset: p.offset,
+		Fetch:  fetchFor(p.rank, p.limit, p.offset),
 		Origin: p.origin,
 		Rank:   p.rank,
 	})
@@ -302,8 +329,9 @@ func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
 		"rank", p.rank,
 		"origin", p.origin,
 		"offset", p.offset,
-		"count", len(results),
-		"total", total,
+		"count", len(page.Results),
+		"total", page.Total,
+		"read", page.Read,
 		"downgraded", downgraded,
 		"duration_ms", time.Since(started).Milliseconds())
 
@@ -313,11 +341,12 @@ func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "public, max-age="+strconv.Itoa(searchMaxAge))
 
 	writeJSON(ctx, w, http.StatusOK, searchResponse{
-		Query:   p.q,
-		Count:   len(results),
-		Total:   total,
-		Offset:  p.offset,
-		Results: results,
+		Query:      p.q,
+		Count:      len(page.Results),
+		Total:      page.Total,
+		Offset:     p.offset,
+		NextOffset: page.NextOffset,
+		Results:    page.Results,
 	})
 }
 
