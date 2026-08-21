@@ -1,8 +1,10 @@
 <script lang="ts">
+	import { Badge } from 'flowbite-svelte';
 	import { ArrowUpRightFromSquareOutline } from 'flowbite-svelte-icons';
 	import { prefersReducedMotion } from 'svelte/motion';
 	import { fade } from 'svelte/transition';
 	import { safeHttpUrl } from '$lib/api';
+	import { visited } from '$lib/visited/store.svelte';
 
 	// One panel for the whole app: anchors opt in with a `data-preview` attribute and the
 	// listeners are delegated, so a page of result cards costs nothing until a pointer
@@ -206,10 +208,18 @@
 					onerror={(event) => event.currentTarget.remove()}
 				/>
 				<span class="truncate text-gray-500 dark:text-gray-400">{target.host}</span>
+				<!-- Beside the host rather than on the result card: this row is the one line
+				that describes the destination, and having been here before is a fact about the
+				destination. Grey, because it reports what the reader already did rather than
+				telling them something about the post. -->
+				{#if visited.has(target.url)}
+					<Badge color="gray" class="shrink-0">Visited</Badge>
+				{/if}
 				<a
 					href={target.url}
 					target="_blank"
 					rel="noopener noreferrer"
+					data-visit
 					class="ms-auto flex shrink-0 items-center gap-1 rounded-sm font-medium text-primary-600 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 dark:text-primary-400"
 				>
 					Open

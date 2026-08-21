@@ -22,7 +22,8 @@ const SAVED_AT = 'savedAt';
 
 const db = database('blogme', 1, [{ name: STORE, keyPath: 'url', index: SAVED_AT }]);
 
-export const put = (bookmark: Bookmark) => db.request(STORE, 'readwrite', (store) => store.put(bookmark));
+export const put = (bookmark: Bookmark) =>
+	db.request(STORE, 'readwrite', (store) => store.put(bookmark));
 
 export const remove = (url: string) => db.request(STORE, 'readwrite', (store) => store.delete(url));
 

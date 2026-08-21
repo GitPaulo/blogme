@@ -494,11 +494,14 @@
 						<div class="flex items-start gap-3">
 							<div class="min-w-0 flex-1">
 								<Heading tag="h2" class="text-lg font-semibold">
+									<!-- data-preview opens the shared hover panel; data-visit tells the shared
+									tracker that following this link counts as reading the article. -->
 									<a
 										href={result.url}
 										target="_blank"
 										rel="noopener noreferrer"
 										data-preview
+										data-visit
 										class="line-clamp-2 rounded-sm break-words text-gray-900 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 dark:text-white"
 									>
 										{result.title}
