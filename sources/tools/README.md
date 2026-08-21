@@ -188,6 +188,21 @@ extractor/
 - Article URLs collapse to the blog they belong to, so a list of fifty posts from one
   site produces one entry. Multi-tenant hosts (`medium.com/@user`,
   `*.github.io/project/`) and `/blog/` style paths are preserved.
+- A platform's own front page is dropped once the list also holds writers published
+  under it. `qiita.com` shadows fifty-one of them, `dev.to` forty-nine: crawling the
+  front page reaches every writer on the site, and since an article's id is its source
+  plus its URL, the same post arrives twice — once under the platform and once under
+  the author. Seventeen such roots came out of a 47,102-entry list, `lwn.net` and
+  `www.mit.edu` among them, each already covered by the `/Articles/` or `/~user/`
+  entries beneath it.
+
+  The test is a host known to put its writers in _paths_, or a path that names its
+  author with `@` or `~`. Not `*.github.io`, where the tenant is the subdomain and the
+  root is somebody's actual blog — an earlier draft used the wider test and deleted
+  `lilianweng.github.io/` while keeping its project pages, which is the failure this
+  distinction exists to prevent. Nesting alone is not enough either: `adactio.com/journal/`
+  sits under `adactio.com/` and both are wanted, being sections of one person's blog.
+
 - A site that answers is in and a site that refuses is out, but a site that says nothing
   gets a second, slower attempt. At 200 concurrent checks a connect timeout is as likely
   to describe the run as the site: sampling the links dropped that way found roughly

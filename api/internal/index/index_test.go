@@ -472,3 +472,52 @@ func TestQueryNextOffsetStopsPagingWhenTheIndexRunsOut(t *testing.T) {
 			page.NextOffset, page.Total)
 	}
 }
+
+// A document's key is its source and its URL together, so one article listed under
+// two sources is two documents and can land on a page twice. The browser drops the
+// repeat, which leaves the reader with a short page and a count that overstates it:
+// live, "claude" returned twenty rows of which only seventeen were distinct.
+func TestQueryDropsRepeatedURLsWithinAPage(t *testing.T) {
+	docs := []string{
+		`{"url":"https://example.com/a","title":"A","sourceId":"one"}`,
+		`{"url":"https://example.com/a","title":"A","sourceId":"two"}`,
+		`{"url":"https://example.com/a","title":"A","sourceId":"three"}`,
+		`{"url":"https://example.com/b","title":"B","sourceId":"one"}`,
+	}
+	srv := windowServer(t, docs)
+
+	page := query(t, New(srv.URL, "articles", "test-key", ""), "q",
+		QueryOptions{Limit: 20, Fetch: 60})
+
+	if len(page.Results) != 2 {
+		t.Fatalf("got %d rows, want 2 distinct urls", len(page.Results))
+	}
+	// Every document was still read, so paging steps over the repeats rather than
+	// meeting them again on the next page.
+	if page.Read != len(docs) {
+		t.Errorf("read = %d, want %d", page.Read, len(docs))
+	}
+}
+
+// A repeat must not spend one of its source's three rows, or a site listed twice
+// would quietly get less of the page than a site listed once.
+func TestQueryRepeatsDoNotSpendTheSourcesShare(t *testing.T) {
+	var docs []string
+	// The same article twice, then four more from the same source.
+	docs = append(docs,
+		`{"url":"https://example.com/a","title":"A","sourceId":"loud"}`,
+		`{"url":"https://example.com/a","title":"A","sourceId":"loud"}`)
+	for i := range 4 {
+		docs = append(docs, fmt.Sprintf(
+			`{"url":"https://example.com/%d","title":"P","sourceId":"loud"}`, i))
+	}
+	srv := windowServer(t, docs)
+
+	page := query(t, New(srv.URL, "articles", "test-key", ""), "q",
+		QueryOptions{Limit: 20, Fetch: 60})
+
+	if len(page.Results) != maxPerSource {
+		t.Errorf("got %d rows, want %d — the repeat ate part of the source's share",
+			len(page.Results), maxPerSource)
+	}
+}

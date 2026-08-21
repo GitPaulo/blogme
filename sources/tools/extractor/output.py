@@ -11,7 +11,8 @@ import yaml
 
 from .models import Candidate, Committed
 from .tags import ordered_tags, split_provenance, tagify
-from .urls import MULTI_TENANT_HOST_SUFFIXES, domain_name, site_key
+from .urls import (MULTI_TENANT_HOST_SUFFIXES, MULTI_TENANT_HOSTS,
+                   domain_name, site_key)
 
 YAML_HEADER = """# Approved sources. Changes go through normal Git review — see docs/system-design.md.
 #
@@ -139,6 +140,47 @@ def build_entries(checked: list[Candidate], known: dict[str, str] | None = None)
         entries.append(entry)
 
     return entries
+
+
+def drop_platform_roots(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop a host's bare root when the list also holds writers published under it.
+
+    A platform's front page is nobody's blog, and crawling it reaches every writer on
+    the site. An article's key is its source and its URL together, so the same post
+    found once under `qiita.com` and again under `qiita.com/uasi/` is two documents,
+    two blobs and two rows competing for one page. Fifty-one writers sit under
+    `qiita.com` alone.
+
+    Only the root goes. The writers are the blogs and they stay, which is the
+    opposite of what a plain "this path is inside that one" rule would do — and why
+    that rule is not the one used here: `adactio.com/journal/` is a section of the
+    same person's blog, not a different author, and both of those entries are wanted.
+
+    The test is deliberately not MULTI_TENANT_HOST_SUFFIXES, which answers a different
+    question. On `*.github.io` the tenant is the subdomain, so `lilianweng.github.io/`
+    is somebody's blog and only the project pages beneath it are separate — dropping
+    that root would delete the blog and keep its scaffolding. Tenancy has to be in the
+    path for this rule to apply, which is either a host known to work that way or a
+    path naming its author outright.
+
+    Two passes over a list and one set, on a run that has already spent minutes on
+    tens of thousands of network checks.
+    """
+    seen: list[tuple[dict[str, Any], str, list[str]]] = []
+    tenanted: set[str] = set()
+
+    for entry in entries:
+        parsed = urlparse(entry["site"])
+        host = (parsed.hostname or "").lower().strip(".")
+        segments = [s for s in (parsed.path or "").split("/") if s]
+        seen.append((entry, host, segments))
+        # Either a platform already known to put its writers in paths, or a path
+        # naming its author outright — which is what catches the ones nobody listed.
+        if segments and (host in MULTI_TENANT_HOSTS or segments[0].startswith(("@", "~"))):
+            tenanted.add(host)
+
+    return [entry for entry, host, segments in seen
+            if segments or host not in tenanted]
 
 
 def validate_entries(entries: list[dict[str, Any]]) -> None:

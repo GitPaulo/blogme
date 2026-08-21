@@ -92,18 +92,38 @@ durable fix is [`blogs-overrides.yml`](../sources/README.md#corrections-by-hand)
 
 Key properties:
 
-| Property        | How                                                                              |
-| --------------- | -------------------------------------------------------------------------------- |
-| Bounded runtime | Fixed batch of blogs per run, never the whole list                               |
-| Resumable       | Cursor stores the last source **ID**, so it survives list regeneration           |
-| Polite          | robots.txt respected; concurrency capped per registrable domain                  |
-| Idempotent      | Article IDs are a hash of the URL, so re-crawling updates rather than duplicates |
-| Incremental     | Sitemap pages already stored are skipped, so later runs reach deeper             |
-| Fault isolated  | One failing blog is logged and skipped; the pass continues                       |
+| Property        | How                                                                       |
+| --------------- | ------------------------------------------------------------------------- |
+| Bounded runtime | Fixed batch of blogs per run, never the whole list                        |
+| Resumable       | Cursor stores the last source **ID**, so it survives list regeneration    |
+| Polite          | robots.txt respected; concurrency capped per registrable domain           |
+| Idempotent      | Article IDs are the source plus a hash of the URL, so re-crawling updates |
+| Incremental     | Sitemap pages already stored are skipped, so later runs reach deeper      |
+| Fault isolated  | One failing blog is logged and skipped; the pass continues                |
 
 The per-domain cap matters more than it looks: shared platforms host thousands of the
 sources, with `bearblog.dev` alone accounting for over a thousand. Limiting by hostname
 would not help, because each blog is its own subdomain of the same server.
+
+Idempotent within a source, that is, and the qualifier is the interesting part. Because
+the id carries the source, one article reachable from two of them is two documents —
+two blobs, two index entries, two rows competing for a page. That happens whenever the
+list holds a site twice, or an aggregator republishes somebody else's post: searching
+"claude" returned twenty rows of which seventeen were distinct, three of them repeats of
+the same two articles. So duplicates are removed at three points, and each one covers
+something the others cannot see:
+
+| Where            | Removes                                           |
+| ---------------- | ------------------------------------------------- |
+| Source list      | Platform roots that shadow the writers beneath    |
+| API, per page    | A URL already used by an earlier row on that page |
+| Browser, on load | A URL already on screen from an earlier page      |
+
+The source list is the only place that can stop the duplicate being crawled at all; the
+API is the only place that sees a whole page before anyone renders it; and the browser is
+the only one that can see across pages. Removing the cause upstream does not retire the
+guards downstream, because the list is rebuilt from other people's lists and will always
+find new ways to name the same blog twice.
 
 ## Read path — answering a query
 

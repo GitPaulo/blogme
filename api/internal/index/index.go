@@ -297,6 +297,7 @@ func (i *Index) search(ctx context.Context, body map[string]any, out *searchResp
 func selectPage(resp searchResponse, offset, limit, fetch int) Page {
 	out := make([]article.Result, 0, limit)
 	perSource := make(map[string]int, limit)
+	seen := make(map[string]struct{}, limit)
 
 	read := 0
 	for _, v := range resp.Value {
@@ -305,6 +306,20 @@ func selectPage(resp searchResponse, offset, limit, fetch int) Page {
 		}
 		read++
 
+		// One article can be indexed more than once, because a document's key is its
+		// source and its URL together: a site listed twice, or an aggregator carrying
+		// someone else's post, produces the same URL under two source ids. Live,
+		// "claude" filled three of its twenty rows with two repeated articles. The
+		// browser drops them again on arrival, which only means the reader gets a
+		// short page and the count on it is a lie.
+		if _, repeat := seen[v.URL]; repeat {
+			continue
+		}
+		seen[v.URL] = struct{}{}
+
+		// Counted after the repeat check, so a duplicate does not also spend one of
+		// its source's three rows.
+		//
 		// Documents indexed before sourceId was selected carry none, and an unknown
 		// source cannot be shown to be over its share.
 		if v.SourceID != "" {

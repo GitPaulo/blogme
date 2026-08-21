@@ -35,6 +35,7 @@ from extractor.models import Candidate
 from extractor.output import (
     build_entries,
     committed_sources,
+    drop_platform_roots,
     validate_entries,
     write_audit_csv,
     write_sources_yaml,
@@ -205,6 +206,13 @@ def run(args: argparse.Namespace) -> int:
         log(f"recovered {sum(ok for _, ok in recovered)} of {len(retries)}")
 
     entries = build_entries(checked, committed.ids)
+
+    # Before the overrides, so a platform root that is genuinely wanted can be put
+    # back by hand and stay put across rebuilds.
+    deduped = drop_platform_roots(entries)
+    if len(deduped) != len(entries):
+        log(f"platform roots dropped: {len(entries) - len(deduped)}")
+    entries = deduped
 
     overrides = load_overrides(args.overrides)
     entries, unmatched = apply_overrides(entries, overrides, committed.ids)

@@ -164,6 +164,12 @@ def clean_url(raw: str) -> str | None:
     )
 
 
+def is_multi_tenant_host(host: str) -> bool:
+    """Whether a host gives each writer their own path, so its root is nobody's blog."""
+    host = host.lower().strip(".")
+    return host in MULTI_TENANT_HOSTS or host.endswith(MULTI_TENANT_HOST_SUFFIXES)
+
+
 def canonical_site(site: str) -> str | None:
     """Collapse a link to the blog it belongs to: an article URL becomes its blog root."""
     parsed = urlparse(site)
@@ -177,7 +183,7 @@ def canonical_site(site: str) -> str | None:
     if segments:
         first = segments[0]
         low = first.lower()
-        multi_tenant = host in MULTI_TENANT_HOSTS or host.endswith(MULTI_TENANT_HOST_SUFFIXES)
+        multi_tenant = is_multi_tenant_host(host)
         if low.startswith(("@", "~")):
             keep = first
         elif low in BLOG_PATH_SEGMENTS:
