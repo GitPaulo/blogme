@@ -194,6 +194,15 @@ wide once the cap has removed some, so a fixed stride steps over whatever was re
 skips it for good rather than deferring it. This is what makes "load more" reach every
 result exactly once.
 
+A search matches only documents containing **every** word of the query. Matching any of
+them was the original choice, meant to hand the reranker a wide field to sort out, and
+measured against the queries people actually type it was the wrong trade: "ai text
+watermarks" reported 185,796 matches, of which 265 held all three words and the rest
+merely said "text". Requiring all of them put "How AI text watermarking works" first and
+moved a search for "sean goedecke" from rank 39 to 14 among his own posts, while leaving
+the top of "github actions" — the most searched query here — untouched. Every query on
+record still returns something.
+
 Ranking happens in two stages. Keyword scoring picks the candidates, weighted towards the
 title, and then Azure AI Search's **semantic ranker** reorders them with a language model
 — which is what makes a query phrased as a sentence work rather than only a bag of
@@ -202,6 +211,15 @@ the entire result set the API offers: past it, ordering would quietly revert to 
 scoring part-way down a scroll. Reranking is metered, so a query is downgraded to keyword
 ranking when the throttle says the budget is spent, and retried without it if the service
 refuses anyway. Search degrades rather than failing, either way.
+
+The index also carries a scoring profile named `relevance`, weighting title above author
+above summary above content, and **no query sends it**. That is worth stating plainly
+because it looks like an oversight worth correcting and is not: applying it was measured
+against `claude`, `rust ownership`, `sean goedecke`, `github actions` and `python`, and
+returned byte-identical results every time — the same rank 39 for the one query it should
+most have helped. The default scoring already normalises by field length, which is most of
+what those weights were reaching for. Wire it up only with a measurement that shows it
+doing something.
 
 A search lives in the address bar. The query, the ranking mode and the `origin` filter —
 everything the server was asked for — are written back as `?q=`, `?mode=` and `?origin=`,

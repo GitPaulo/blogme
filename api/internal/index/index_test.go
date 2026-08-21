@@ -115,8 +115,11 @@ func TestQueryRequestsSemanticRanking(t *testing.T) {
 	if sent["semanticConfiguration"] != "blogme-semantic" {
 		t.Errorf("semanticConfiguration = %v", sent["semanticConfiguration"])
 	}
-	if sent["searchMode"] != "any" {
-		t.Errorf("searchMode = %v, want any so the reranker gets a wide candidate set", sent["searchMode"])
+	// The reranker orders the top fifty candidates whichever mode picked them, so it
+	// is better served by fifty that contain the whole query than by fifty drawn from
+	// everything containing any word of it.
+	if sent["searchMode"] != "all" {
+		t.Errorf("searchMode = %v, want all", sent["searchMode"])
 	}
 }
 
@@ -519,5 +522,27 @@ func TestQueryRepeatsDoNotSpendTheSourcesShare(t *testing.T) {
 	if len(page.Results) != maxPerSource {
 		t.Errorf("got %d rows, want %d — the repeat ate part of the source's share",
 			len(page.Results), maxPerSource)
+	}
+}
+
+// Every word of the query has to appear. Asking for any of them made the corpus look
+// far larger than it was — "ai text watermarks" reported 185,796 matches where 265
+// documents held all three words — and filled the tail of every result set with pages
+// that happened to say "text".
+func TestQueryRequiresEveryWordOfTheQuery(t *testing.T) {
+	var sent map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		_, _ = io.WriteString(w, `{"@odata.count":0,"value":[]}`)
+	}))
+	defer srv.Close()
+
+	query(t, New(srv.URL, "articles", "test-key", ""), "ai text watermarks",
+		QueryOptions{Limit: 20})
+
+	if sent["searchMode"] != "all" {
+		t.Errorf("searchMode = %v, want all", sent["searchMode"])
 	}
 }

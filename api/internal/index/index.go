@@ -227,13 +227,22 @@ func (i *Index) Query(ctx context.Context, q string, opts QueryOptions) (Page, e
 
 	// sourceId is selected but never returned to the caller: it is there so one blog
 	// can be stopped from filling the page. See maxPerSource.
+	//
+	// searchMode "all" requires every word of the query, where "any" needs only one.
+	// "any" was chosen to hand the reranker a wide field to sort out, and against the
+	// queries people actually type it was the wrong trade: "ai text watermarks"
+	// reported 185,796 matches, of which 265 contained all three words, and the rest
+	// were pages that merely said "text". Requiring all of them put "How AI text
+	// watermarking works" first, moved a search for "sean goedecke" from rank 39 to
+	// 14 among his own posts, and left the top of "github actions" — the single most
+	// searched query here — exactly as it was. No query on record returns nothing.
 	body := map[string]any{
 		"search":     q,
 		"top":        fetch,
 		"skip":       opts.Offset,
 		"count":      true,
 		"queryType":  "simple",
-		"searchMode": "any",
+		"searchMode": "all",
 		"select":     "url,title,author,origin,summary,topics,publishedAt,sourceId",
 	}
 
@@ -249,9 +258,10 @@ func (i *Index) Query(ctx context.Context, q string, opts QueryOptions) (Page, e
 
 	if i.semantic != "" && opts.Rank != RankKeyword {
 		semantic := maps.Clone(body)
-		// Keyword scoring picks the candidates, the reranker decides their order. That
-		// division is why searchMode stays "any": a wide net is exactly what the
-		// reranker wants to sort out, and it is what made "any" a liability before.
+		// Keyword scoring picks the candidates, the reranker decides their order. It
+		// reorders the top fifty of them either way, so the narrower field "all" hands
+		// it is fifty better candidates rather than fifty of a much larger and looser
+		// set — which is the reverse of the reasoning that first chose "any".
 		semantic["queryType"] = "semantic"
 		semantic["semanticConfiguration"] = i.semantic
 
