@@ -50,8 +50,21 @@ const (
 // with neither is served by the last resort below, which asks its homepage where
 // its feed is.
 func (d *Discoverer) crawl(ctx context.Context, s sources.Source) ([]article.Article, error) {
+	// A recorded feed is the fast path, not the only one. When it stops working the
+	// source used to end here, which put it in exactly the position described below —
+	// in the list, costing a request a pass, contributing nothing — but harder to
+	// notice, because the list says the blog has a feed and the failure looks like a
+	// blog that went quiet. A feed that 404s or no longer parses is not evidence the
+	// blog stopped publishing, so clear it and take the routes a source without one
+	// already gets.
+	var feedErr error
 	if s.Feed != "" {
-		return d.crawlFeed(ctx, s)
+		articles, err := d.crawlFeed(ctx, s)
+		if err == nil {
+			return articles, nil
+		}
+		feedErr = err
+		s.Feed = ""
 	}
 
 	articles, err := d.crawlSitemap(ctx, s)
@@ -76,6 +89,13 @@ func (d *Discoverer) crawl(ctx context.Context, s sources.Source) ([]article.Art
 		slog.InfoContext(ctx, "recovered feed from site html",
 			"source", s.ID, "feed", feed, "articles", len(found))
 		return found, nil
+	}
+
+	// When a recorded feed was what failed, that is the more useful thing to report:
+	// it names a correction the source list can carry, where "no usable sitemap" only
+	// says the fallback was not available either.
+	if feedErr != nil {
+		return nil, feedErr
 	}
 
 	return nil, err

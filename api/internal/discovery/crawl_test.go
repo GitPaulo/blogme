@@ -473,3 +473,59 @@ func TestCrawlWithARecordedFeedNeverLooksAtTheHomepage(t *testing.T) {
 		t.Errorf("homepage fetched %d times, want 0", got)
 	}
 }
+
+// A feed goes stale without the blog going quiet: the URL 404s, or the XML stops
+// parsing, while the site carries on publishing and still has a sitemap. Ending the
+// source on that failure left it in the list costing a request a pass and returning
+// nothing — the same hole the site-HTML fallback was added to close, but hidden
+// behind a source list that claims the blog has a feed.
+//
+// The sitemap here is valid and empty, which is what keeps the test off the article
+// store: reaching the walk at all is the behaviour under test, and an empty one is
+// reached and returns without a single lookup.
+func TestCrawlWithABrokenFeedStillReachesTheSitemap(t *testing.T) {
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	mux.HandleFunc("/rss.xml", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	})
+	mux.HandleFunc("/sitemap.xml", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `<?xml version="1.0"?><urlset></urlset>`)
+	})
+
+	d := newLocalDiscoverer(5)
+	articles, err := d.crawl(context.Background(),
+		sources.Source{ID: "stale", Site: srv.URL + "/", Feed: srv.URL + "/rss.xml"})
+
+	// Before the fallback the broken feed ended the source here and this was the
+	// feed's own error, whatever the site still published.
+	if err != nil {
+		t.Fatalf("crawl() error = %v, want the sitemap to have been reached", err)
+	}
+	if len(articles) != 0 {
+		t.Errorf("got %d articles, want 0 from an empty sitemap", len(articles))
+	}
+}
+
+// When every route fails, the recorded feed is the one worth naming: it points at a
+// correction the source list can carry, where the sitemap failure only says the
+// fallback was not there either.
+func TestCrawlWithABrokenFeedAndNoSitemapReportsTheFeed(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	d := newLocalDiscoverer(5)
+	_, err := d.crawl(context.Background(),
+		sources.Source{ID: "gone", Site: srv.URL + "/", Feed: srv.URL + "/rss.xml"})
+
+	if err == nil {
+		t.Fatal("crawl() error = nil, want the feed failure to survive the fallback")
+	}
+	if !strings.Contains(err.Error(), "feed") {
+		t.Errorf("error = %v, want it to name the feed as the cause", err)
+	}
+}

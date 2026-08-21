@@ -120,6 +120,20 @@ uses a feed the site advertises there. It costs one request, and only where the
 alternative is nothing at all — but a run of `recovered feed from site html` lines means
 the source list is out of date, not that the crawler is healthy.
 
+**A recorded feed that has gone stale is the same hole, better hidden.** A feed URL that
+now 404s, or whose XML no longer parses, used to end the source outright: having a feed
+sent it down the fast path, and failing there returned an error rather than trying
+anything else. The blog was then in the list contributing nothing, exactly like the case
+above, except that the list said it had a feed — so the failure read as a quiet blog
+rather than a broken route. A feed going stale is not evidence a blog stopped publishing,
+so the recorded feed is now cleared on failure and the source takes the sitemap and
+homepage routes a feedless one already gets. Measured over one full sweep, 287 sources
+fail on `parse feed` and 252 on `fetch feed`; those 539 had no second route at all.
+
+The error a wholly failed source reports is still the feed's, not the sitemap's, because
+the feed is the one naming a correction [`blogs-overrides.yml`](../sources/README.md#corrections-by-hand)
+can carry.
+
 **The feed window decides what can ever be found.** A feed lists only its most recent
 posts, and the crawler reads the newest `BLOGME_MAX_POSTS_PER_SOURCE` of them. Anything
 that falls past that window before the source is first crawled successfully is not late,
@@ -135,10 +149,33 @@ index, so weigh it against the two ceilings below.
 which is why the service now runs on Basic; see [tech-stack.md](tech-stack.md). Cadence
 sets how fast the next ceiling arrives, so check index size against the
 [service limits](https://learn.microsoft.com/en-us/azure/search/search-limits-quotas-capacity)
-before raising it. On 20 August 2026 the index held 417,885 documents in 2.4 GB, or 16%
-of Basic's 15 GB, at roughly 6 KB a document. Truncating articles to 1,000 words is what
-keeps a document that small — that cap is the main lever on index size, so raising it for
-recall and raising cadence for freshness both spend the same budget.
+before raising it. Truncating articles to 1,000 words is what keeps a document to roughly
+6 KB — that cap is the main lever on index size, so raising it for recall and raising
+cadence for freshness both spend the same budget.
+
+Raising the window to 30 did exactly what the paragraph above warns of, and the figures
+are the reason to take that warning seriously:
+
+| Measured                | 20 Aug 2026 | 21 Aug 2026, 12:00 UTC |
+| ----------------------- | ----------- | ---------------------- |
+| Documents in the index  | 417,885     | 531,757                |
+| Index storage           | 2.4 GB      | 3.24 GB (20% of quota) |
+| Articles found per pass | ~9,500      | ~13,800                |
+
+Index storage grew about 0.89 GB a day over that period, which puts Basic's 15 GiB quota
+roughly **two weeks out** if the rate holds. It should not hold — a full sweep of the
+source list takes 47 hours, so the step change from a wider window works through the
+corpus and then flattens as passes start revisiting posts already indexed. Watch it
+rather than assume it: `blogme-index-storage-high` fires at 60% of quota, and indexing
+fails outright at 100%, so the alert is the last comfortable moment to choose between
+pruning the corpus and changing tier.
+
+Two counts disagree and it is worth knowing which to trust. `/servicestats` reports
+531,757 documents while a match-all through the public API reports 432,325. Service
+statistics are documented as approximate and this index is written to every hour, so the
+gap is most likely ingestion lag — but it has not been run down. `storageSize` from the
+same endpoint is the number the quota is enforced against, so size decisions should use
+that and not either document count.
 
 **Compute is the cheap part.** The plan is Flex Consumption with 2 GB instances, billed at
 $0.000037 per GB-second beyond a monthly grant of 100,000 GB-seconds. At batch 500 the
@@ -203,13 +240,34 @@ az monitor log-analytics query -w <WORKSPACE_GUID> --analytics-query   "AppTrace
 
 Nothing watches a run except these rules, and the reason they exist is that on
 17 August 2026 twelve of fourteen passes died at the 30-minute ceiling for half a day
-and nothing said so. All three notify the `ag-blogme-ops` action group.
+and nothing said so. All of them notify the `ag-blogme-ops` action group.
 
-| Rule                              | Fires when                                             | Sev |
-| --------------------------------- | ------------------------------------------------------ | --- |
-| `blogme-discovery-run-failed`     | any pass fails or is killed at the ceiling, in 1h      | 1   |
-| `blogme-discovery-cursor-stalled` | fewer than 2 distinct cursors in 4h, or no pass at all | 1   |
-| `blogme-discovery-pass-slow`      | a pass exceeds 15 minutes, half the ceiling            | 2   |
+| Rule                              | Fires when                                             | Sev | Needs  |
+| --------------------------------- | ------------------------------------------------------ | --- | ------ |
+| `blogme-discovery-run-failed`     | a pass fails or is killed at the ceiling               | 1   | 2 of 3 |
+| `blogme-discovery-cursor-stalled` | fewer than 2 distinct cursors in 4h, or no pass at all | 1   | 1 of 1 |
+| `blogme-discovery-pass-slow`      | a pass exceeds 15 minutes, half the ceiling            | 2   | 2 of 3 |
+| `blogme-index-storage-high`       | index storage passes 60% of Basic's 15 GiB quota       | 2   | 6h avg |
+| `blogme-search-failing`           | searches return errors                                 | 2   | 2 of 3 |
+
+The first three watch whether a pass ran, the fourth watches what the passes have been
+accumulating — which no amount of run-level success would ever reveal — and the last
+watches the read path the corpus exists to serve.
+
+**The "needs" column is what keeps them quiet.** A single failed pass is not an incident:
+the cursor only advances on success, so a pass killed by a deploy simply re-runs the
+identical range an hour later. Requiring two of three consecutive evaluations means a
+transient failure passes in silence while a genuine outage — twelve of fourteen passes,
+as on 17 August — still alerts within two hours. `blogme-index-storage-high` averages over
+six hours for the same reason: indexing briefly allocates well above the resting size, and
+a rule reading the peak would flap across the threshold for days.
+
+A percentage is the wrong shape for a rule here and it is worth saying why, because the
+metric exists and looks useful. `ThrottledSearchQueriesPercentage` was tried and removed:
+at roughly six searches an hour, one throttled query is one hundred percent of its minute,
+and no averaging window repairs that — the empty minutes contribute no samples to average
+against. `blogme-search-failing` counts failed requests instead, so quiet traffic produces
+small numbers rather than large percentages.
 
 The cursor rule is the one that matters most, because it is the only end-to-end check:
 a pass can succeed, log cheerfully and still advance nothing, and the cursor is the only

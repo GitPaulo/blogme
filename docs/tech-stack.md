@@ -163,7 +163,8 @@ ever recorded and well past what the Basic search tier behind it can answer, so 
 the loss without bounding real traffic. `blogme-instances-scaling-out` (sev 2) says when
 more than five are running, which normal operation has never needed; the observed peak is
 two. A budget alert cannot do that job, because budgets evaluate every 8–24 hours and
-notify rather than cap.
+notify rather than cap. It reads the fifteen-minute average rather than the peak, so a deploy or a
+cold-start burst does not trip it.
 
 Not Bicep, and not `azd`. Go on Functions is in public preview and only its Azure CLI path is
 documented, so a declarative template would have to be reverse-engineered from CLI behaviour that is
