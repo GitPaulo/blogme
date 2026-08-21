@@ -5,8 +5,14 @@
 	import GithubLink from '$lib/components/GithubLink.svelte';
 	import LinkPreview from '$lib/components/LinkPreview.svelte';
 	import ThemeToggle from '$lib/components/ThemeToggle.svelte';
+	import { visited } from '$lib/visited/store.svelte';
 
 	let { children } = $props();
+
+	// Mounted here rather than beside the preview panel, which only installs itself on
+	// devices that can hover: an article opened by tap counts the same as one opened by
+	// click, whether or not this device will ever draw the mark.
+	$effect(() => visited.track());
 </script>
 
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>
