@@ -30,6 +30,12 @@ type Limits struct {
 	// PerMinute and Burst apply to every search, keyed by caller address.
 	PerMinute int
 	Burst     int
+	// AllPerMinute and AllBurst apply to every search from everyone at once.
+	// A per-caller limit is no limit at all against traffic spread over many
+	// addresses, which is what a flood looks like; this is the only figure that
+	// bounds what the instance will serve in total.
+	AllPerMinute int
+	AllBurst     int
 	// SemanticPerMinute and SemanticBurst additionally apply to one caller's
 	// semantic queries.
 	SemanticPerMinute int
@@ -45,14 +51,34 @@ type Limits struct {
 // does.
 func DefaultLimits() Limits {
 	return Limits{
-		PerMinute:         60,
-		Burst:             30,
+		PerMinute: 60,
+		Burst:     30,
+		// Set from what the service can actually serve rather than from what it
+		// receives: the search tier folds well below this, so a limit here can only
+		// ever refuse traffic that was going to fail anyway. Busiest real minute
+		// observed is under one search, so this is four orders of magnitude clear of
+		// ordinary use and will not fire on a good day, however good the day gets.
+		AllPerMinute:      600,
+		AllBurst:          300,
 		SemanticPerMinute: 10,
 		SemanticBurst:     5,
 		SemanticPerHour:   60,
 		SemanticHourBurst: 15,
 	}
 }
+
+// How often a rejection may be logged, and how many lines may arrive at once.
+//
+// A flood produces one refusal per request, and a log record per refusal turns the
+// cheapest path in the service into the most expensive one: telemetry is billed by
+// volume, so the logging outgrows the compute it was meant to protect. Rate-limiting
+// the log rather than dropping it keeps the signal — every line carries the running
+// count of refusals, so how far "refused_total" jumps between two lines is the rate
+// the flood was arriving at, and nothing is lost by the lines that never happened.
+const (
+	throttleLogPerMinute = 6
+	throttleLogBurst     = 3
+)
 
 // How often idle buckets are swept out of the map. A discovery-free API instance
 // can live for days, and a map keyed by caller address would otherwise only grow.

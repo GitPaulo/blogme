@@ -61,6 +61,8 @@ func searchLimits() httpapi.Limits {
 	return httpapi.Limits{
 		PerMinute:         envInt("BLOGME_SEARCH_RATE_PER_MINUTE", d.PerMinute),
 		Burst:             envInt("BLOGME_SEARCH_RATE_BURST", d.Burst),
+		AllPerMinute:      envInt("BLOGME_SEARCH_RATE_ALL_PER_MINUTE", d.AllPerMinute),
+		AllBurst:          envInt("BLOGME_SEARCH_RATE_ALL_BURST", d.AllBurst),
 		SemanticPerMinute: envInt("BLOGME_SEMANTIC_RATE_PER_MINUTE", d.SemanticPerMinute),
 		SemanticBurst:     envInt("BLOGME_SEMANTIC_RATE_BURST", d.SemanticBurst),
 		SemanticPerHour:   envInt("BLOGME_SEMANTIC_RATE_PER_HOUR", d.SemanticPerHour),

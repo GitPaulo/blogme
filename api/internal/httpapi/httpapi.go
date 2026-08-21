@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -96,8 +97,15 @@ type Handlers struct {
 	// single caller can spend. See ratelimit.go for what each one protects.
 	limits         Limits
 	perClient      *limiter
+	all            *limiter
 	semanticClient *limiter
 	semanticAll    *limiter
+
+	// Throttling is loud when it fires, but not once per refused request: see
+	// throttleLogPerMinute. refused counts every refusal this instance has made,
+	// and rides on each line that gets past the gate.
+	throttleLog *limiter
+	refused     atomic.Int64
 }
 
 func New(idx *index.Index, limits Limits) *Handlers {
@@ -105,9 +113,35 @@ func New(idx *index.Index, limits Limits) *Handlers {
 		index:          idx,
 		limits:         limits,
 		perClient:      newLimiter(float64(limits.PerMinute), limits.Burst),
+		all:            newLimiter(float64(limits.AllPerMinute), limits.AllBurst),
 		semanticClient: newLimiter(float64(limits.SemanticPerMinute), limits.SemanticBurst),
 		semanticAll:    newLimiter(float64(limits.SemanticPerHour)/60, limits.SemanticHourBurst),
+		throttleLog:    newLimiter(throttleLogPerMinute, throttleLogBurst),
 	}
+}
+
+// logThrottled reports a refusal without letting the reporting become the flood.
+//
+// Warn, not Info: being throttled is either abuse worth looking at or a limit set
+// too low, and both need someone to notice. scope says which limit was reached, so
+// "one caller is hammering us" and "everyone at once is" are not the same line.
+//
+// refused_total is cumulative for the life of the instance rather than a count of
+// what the gate just held back, so no refusal is ever lost to a burst that stopped
+// before the next line was due. It also reads better than a delta would: the jump
+// between two consecutive lines is the rate the flood was arriving at.
+func (h *Handlers) logThrottled(ctx context.Context, scope, caller string, wait time.Duration, now time.Time) {
+	refused := h.refused.Add(1)
+
+	if ok, _ := h.throttleLog.allow(globalKey, now); !ok {
+		return
+	}
+
+	slog.WarnContext(ctx, "search throttled",
+		"scope", scope,
+		"caller", caller,
+		"retry_after_s", int(wait.Seconds())+1,
+		"refused_total", refused)
 }
 
 type searchResponse struct {
@@ -203,11 +237,19 @@ func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
 	// Before any work, including validation: an execution costs money whatever the
 	// request turns out to say.
 	if ok, wait := h.perClient.allow(caller, started); !ok {
-		// Warn, not Info: being throttled is either abuse worth looking at or a limit
-		// set too low, and both need someone to notice.
-		slog.WarnContext(ctx, "search throttled",
-			"caller", caller, "retry_after_s", int(wait.Seconds())+1)
+		h.logThrottled(ctx, "caller", caller, wait, started)
 		writeRateLimited(ctx, w, h.limits.PerMinute, wait)
+		return
+	}
+
+	// Second, so that a caller already over their own limit is stopped by their own
+	// bucket rather than by the one everybody shares — the same order, and for the
+	// same reason, as the two reranking budgets in allowSemantic. Reaching this one
+	// means the instance as a whole is over, which no amount of per-caller limiting
+	// would have caught: a flood arrives from many addresses, each of them polite.
+	if ok, wait := h.all.allow(globalKey, started); !ok {
+		h.logThrottled(ctx, "service", caller, wait, started)
+		writeRateLimited(ctx, w, h.limits.AllPerMinute, wait)
 		return
 	}
 

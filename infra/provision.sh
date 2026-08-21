@@ -129,6 +129,19 @@ az functionapp update \
 	--output none
 echo "ok: httpsOnly=true"
 
+log "Scale ceiling"
+# The only hard limit on what this app can cost. Flex Consumption defaults to 100
+# instances and bills each one for its memory for as long as it is up, so a flood
+# arriving while nobody is awake is a four-figure day. Ten is five times the busiest
+# hour ever recorded here, and still far more than the Basic search tier behind it
+# can answer — so this caps the bill without ever capping real traffic.
+az functionapp scale config set \
+	--name "$FUNCTION_APP" \
+	--resource-group "$RESOURCE_GROUP" \
+	--maximum-instance-count 10 \
+	--output none
+echo "ok: maximumInstanceCount=10"
+
 
 log "Role assignments for the function app identity"
 PRINCIPAL_ID="$(az functionapp identity show \

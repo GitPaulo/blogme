@@ -33,6 +33,19 @@ const (
 	maxErrorBytes = 2 << 10
 )
 
+// queryTimeout is how long one search of the index may take.
+//
+// An execution is billed for its whole duration at the instance's memory size, so a
+// query left to run out the HTTP client's 30 seconds costs some nine hundred times
+// what a healthy one does — and answers a reader who left long ago. The slowest
+// search seen in production is under 1.5s, so this is several times the worst real
+// case. It is applied per request rather than to the client, because the client is
+// shared with Upsert, which posts a thousand documents at a time and needs every
+// second of the longer budget.
+//
+// A variable only so the tests can shorten it; nothing in the service reassigns it.
+var queryTimeout = 5 * time.Second
+
 type Index struct {
 	endpoint string
 	name     string
@@ -205,7 +218,7 @@ func (i *Index) Query(ctx context.Context, q string, opts QueryOptions) ([]artic
 		semantic["semanticConfiguration"] = i.semantic
 
 		var resp searchResponse
-		err := i.do(ctx, http.MethodPost, "/docs/search", semantic, &resp)
+		err := i.search(ctx, semantic, &resp)
 		if err == nil {
 			return results(resp), resp.Total, nil
 		}
@@ -217,10 +230,23 @@ func (i *Index) Query(ctx context.Context, q string, opts QueryOptions) ([]artic
 	}
 
 	var resp searchResponse
-	if err := i.do(ctx, http.MethodPost, "/docs/search", body, &resp); err != nil {
+	if err := i.search(ctx, body, &resp); err != nil {
 		return nil, 0, err
 	}
 	return results(resp), resp.Total, nil
+}
+
+// search runs one query under its own time budget.
+//
+// Per call rather than around the pair of them, so that a semantic attempt which
+// burns the whole budget still leaves the keyword fallback a full one. Sharing a
+// deadline would turn the slow case into the failing case, which is the outcome
+// the fallback exists to prevent.
+func (i *Index) search(ctx context.Context, body map[string]any, out *searchResponse) error {
+	ctx, cancel := context.WithTimeout(ctx, queryTimeout)
+	defer cancel()
+
+	return i.do(ctx, http.MethodPost, "/docs/search", body, out)
 }
 
 // results projects the wire response onto the shape the API returns.

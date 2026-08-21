@@ -264,3 +264,65 @@ func TestReadyDoesNotRerank(t *testing.T) {
 		t.Errorf("got query %q, want no semantic parameters", query)
 	}
 }
+
+// A reranker that hangs must not take the search down with it. The budget is per
+// request rather than shared across the pair, so the keyword fallback still gets a
+// whole one; sharing a deadline would turn every slow semantic query into a failure,
+// which is precisely what falling back exists to avoid.
+func TestQueryFallsBackWhenSemanticHangs(t *testing.T) {
+	queryTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { queryTimeout = 5 * time.Second })
+
+	var semanticCalls, keywordCalls int
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+
+		if request["queryType"] == "semantic" {
+			semanticCalls++
+			// Longer than the budget, and longer than the fallback will need.
+			time.Sleep(200 * time.Millisecond)
+			return
+		}
+
+		keywordCalls++
+		_, _ = io.WriteString(w, `{
+			"@odata.count": 1,
+			"value": [{"url": "https://example.com/post", "title": "A post"}]
+		}`)
+	}))
+	defer srv.Close()
+
+	results, total, err := New(srv.URL, "articles", "test-key", "blogme-semantic").
+		Query(context.Background(), "go", QueryOptions{Limit: 20})
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+
+	if semanticCalls != 1 || keywordCalls != 1 {
+		t.Errorf("semantic calls = %d, keyword calls = %d; want 1 and 1", semanticCalls, keywordCalls)
+	}
+	if total != 1 || len(results) != 1 {
+		t.Fatalf("total = %d, results = %d; want 1 and 1", total, len(results))
+	}
+}
+
+// The budget bounds a single request, so a search that is merely slow still answers.
+func TestQueryAnswersInsideTheBudget(t *testing.T) {
+	queryTimeout = 500 * time.Millisecond
+	t.Cleanup(func() { queryTimeout = 5 * time.Second })
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(50 * time.Millisecond)
+		_, _ = io.WriteString(w, `{"@odata.count": 1, "value": [{"url": "https://example.com/p", "title": "P"}]}`)
+	}))
+	defer srv.Close()
+
+	if _, total, err := New(srv.URL, "articles", "test-key", "").
+		Query(context.Background(), "go", QueryOptions{Limit: 20}); err != nil || total != 1 {
+		t.Fatalf("total = %d, err = %v; want 1 and no error", total, err)
+	}
+}
