@@ -19,7 +19,6 @@
 		MIN_QUERY_LENGTH,
 		search,
 		SearchError,
-		type Origin,
 		type Rank,
 		type SearchResult
 	} from '$lib/api';
@@ -54,9 +53,6 @@
 	// subscription for each field the filter pass touches.
 	let results = $state.raw<SearchResult[]>([]);
 	let filters = $state(emptyFilters());
-	// Unlike the other filters this one narrows the corpus, not the loaded page, so it
-	// travels with the request rather than living in Filters.
-	let sitemappedOnly = $state(false);
 	// Which ranking the search box asks for. Semantic understands a query phrased as a
 	// sentence; keyword is literal, and is the one that can page deep. Keyword is the
 	// default: it needs no reranker call and has no page-depth limit.
@@ -86,7 +82,6 @@
 	const opening = new URLSearchParams(browser ? location.search : '');
 
 	const term = $derived(clampQuery(query));
-	const origin = $derived<Origin | undefined>(sitemappedOnly ? 'sitemap' : undefined);
 	const searchable = $derived(term.length >= MIN_QUERY_LENGTH);
 	const tooShort = $derived(term.length > 0 && !searchable);
 	const rank = $derived<Rank>(semanticRanking ? 'semantic' : 'keyword');
@@ -126,11 +121,7 @@
 			: 'Keyword ranking: matches the words you typed. Switch to semantic ranking.'
 	);
 	// An empty corpus-narrowing filter reads as an empty index unless we say otherwise.
-	const emptyMessage = $derived(
-		sitemappedOnly
-			? 'No sitemapped results found. Turn off Sitemapped, or try a different search.'
-			: 'No results found. Try a different search.'
-	);
+	const emptyMessage = 'No results found. Try a different search.';
 
 	// The bookmarked filter needs the saved keys, which the drawer would otherwise only
 	// load on its own schedule.
@@ -149,7 +140,6 @@
 	$effect(() => {
 		query = clampQuery(opening.get('q') ?? '');
 		semanticRanking = opening.get('mode') === 'semantic';
-		sitemappedOnly = opening.get('origin') === 'sitemap';
 	});
 
 	// Watching the document rather than recomputing per render: every filter, page and
@@ -209,12 +199,11 @@
 	// Called once per search rather than once per keystroke. Both because a URL should
 	// describe results that exist, and because browsers throttle history writes — Safari
 	// stops at a hundred in thirty seconds, which is a fast typist.
-	function syncUrl(value: string, only?: Origin, ranking?: Rank) {
+	function syncUrl(value: string, ranking?: Rank) {
 		const params = new URLSearchParams();
 		if (value) {
 			params.set('q', value);
 			if (ranking === 'semantic') params.set('mode', ranking);
-			if (only) params.set('origin', only);
 		}
 
 		const next = params.toString();
@@ -230,7 +219,7 @@
 	}
 
 	/** Resolves true when this call is the one that landed a page. */
-	async function run(value: string, offset: number, only: Origin | undefined, ranking: Rank) {
+	async function run(value: string, offset: number, ranking: Rank) {
 		cancel();
 		const current = new AbortController();
 		controller = current;
@@ -239,13 +228,12 @@
 			status = 'loading';
 			// Filters describe the result set on screen, so a fresh search starts clean.
 			filters = emptyFilters();
-			syncUrl(value, only, ranking);
+			syncUrl(value, ranking);
 		}
 		error = '';
 		try {
 			const response = await search(value, {
 				offset,
-				origin: only,
 				rank: ranking,
 				signal: current.signal
 			});
@@ -290,7 +278,6 @@
 		// Pinned for the whole chase: reading these per request would pair a query the
 		// user has since edited with an offset counted against the previous one.
 		const value = term;
-		const only = origin;
 		const ranking = rank;
 		const before = shown;
 		const readerTookOver = watchReaderScroll();
@@ -298,11 +285,11 @@
 		try {
 			const deadline = Date.now() + CHASE_BUDGET_MS;
 			for (let page = 0; page < MAX_CHASE; page++) {
-				if (!(await run(value, nextOffset, only, ranking))) break;
+				if (!(await run(value, nextOffset, ranking))) break;
 				if (shown > before || !hasMore || Date.now() >= deadline) break;
 				// The search this chase belongs to is no longer the one on screen. Leaving
 				// now also spares the debounce the next run() would cancel out from under.
-				if (term !== value || origin !== only || rank !== ranking) break;
+				if (term !== value || rank !== ranking) break;
 			}
 		} finally {
 			loadingMore = false;
@@ -366,14 +353,13 @@
 		}
 
 		const value = term;
-		const only = origin;
 		// Read inside the effect so flipping the ranking mode re-runs the current search
 		// rather than only affecting the next one the user types.
 		const ranking = rank;
 		// The pending debounce is still work in progress, so the spinner stays up throughout.
 		status = 'loading';
 		clearTimeout(timer);
-		timer = setTimeout(() => run(value, 0, only, ranking), DEBOUNCE_MS);
+		timer = setTimeout(() => run(value, 0, ranking), DEBOUNCE_MS);
 		return () => clearTimeout(timer);
 	});
 
@@ -385,7 +371,7 @@
 		event.preventDefault();
 		clearTimeout(timer);
 		if (!searchable) return;
-		run(term, 0, origin, rank);
+		run(term, 0, rank);
 	}
 </script>
 
@@ -485,7 +471,7 @@
 				</div>
 			{/if}
 
-			<FilterBar {results} bind:filters bind:sitemapped={sitemappedOnly} />
+			<FilterBar {results} bind:filters />
 
 			{#if status === 'done' && loaded === 0}
 				<Alert color="gray" class="mt-4">{emptyMessage}</Alert>

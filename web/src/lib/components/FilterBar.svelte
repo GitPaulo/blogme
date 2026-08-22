@@ -1,12 +1,6 @@
 <script lang="ts">
 	import { Badge, Button, Input, Label, Modal, MultiSelect, Tooltip } from 'flowbite-svelte';
-	import {
-		BookmarkSolid,
-		CalendarMonthOutline,
-		CloseOutline,
-		EyeSolid,
-		GlobeOutline
-	} from 'flowbite-svelte-icons';
+	import { BookmarkSolid, CalendarMonthOutline, CloseOutline, EyeSolid } from 'flowbite-svelte-icons';
 	import type { SearchResult } from '$lib/api';
 	import { formatDate } from '$lib/date';
 	import {
@@ -18,20 +12,14 @@
 		type Filters
 	} from '$lib/filters';
 
-	// Sitemapped is separate from the rest: the others narrow what is already loaded,
-	// whereas this one is answered by the search itself.
-	let {
-		results,
-		filters = $bindable(),
-		sitemapped = $bindable()
-	}: { results: SearchResult[]; filters: Filters; sitemapped: boolean } = $props();
+	let { results, filters = $bindable() }: { results: SearchResult[]; filters: Filters } = $props();
 
 	let dateOpen = $state(false);
 
 	// Nothing is published in the future, so a stray year cannot empty the list.
 	const today = new Date().toISOString().slice(0, 10);
 	const tagItems = $derived(filterTags(results).map((tag) => ({ value: tag, name: tag })));
-	const active = $derived(isFiltered(filters) || sitemapped);
+	const active = $derived(isFiltered(filters));
 	const ranged = $derived(filters.from !== '' || filters.to !== '');
 	const dateLabel = $derived(
 		ranged
@@ -117,23 +105,6 @@ that made the select taller pulled it further out of line. -->
 
 	<Button
 		size="sm"
-		color={sitemapped ? 'primary' : 'alternative'}
-		class="shrink-0 gap-2"
-		aria-pressed={sitemapped}
-		aria-label="Sitemapped"
-		onclick={() => (sitemapped = !sitemapped)}
-	>
-		<!-- A globe, not a branch: these came off the open site, and the branch read as
-			version control. -->
-		<GlobeOutline class="h-4 w-4" />
-		<span class="hidden sm:inline">Sitemapped</span>
-	</Button>
-	<Tooltip class="max-w-64 text-center">
-		Show only posts found through a site's page list instead of its feed.
-	</Tooltip>
-
-	<Button
-		size="sm"
 		color="red"
 		outline
 		class="shrink-0 gap-1.5"
@@ -141,7 +112,6 @@ that made the select taller pulled it further out of line. -->
 		aria-label="Clear filters"
 		onclick={() => {
 			filters = emptyFilters();
-			sitemapped = false;
 		}}
 	>
 		<CloseOutline class="h-4 w-4" />
