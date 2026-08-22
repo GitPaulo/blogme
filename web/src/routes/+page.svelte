@@ -481,19 +481,26 @@
 			<div class="mt-3 space-y-4" bind:this={resultList}>
 				{#each filtered as result (result.url)}
 					{@const published = formatDate(result.publishedAt)}
+					{@const opened = visited.has(result.url)}
 					<Card class="max-w-none p-4">
 						<div class="flex items-start gap-3">
 							<div class="min-w-0 flex-1">
 								<Heading tag="h2" class="text-lg font-semibold">
 									<!-- data-preview opens the shared hover panel; data-visit tells the shared
-									tracker that following this link counts as reading the article. -->
+									tracker that following this link counts as reading the article.
+
+									An opened post takes the theme's blue, a step darker than the accent the
+									buttons wear: at eighteen pixels of semibold that accent shouts, and this
+									is a note about the post rather than the thing to look at. -->
 									<a
 										href={result.url}
 										target="_blank"
 										rel="noopener noreferrer"
 										data-preview
 										data-visit
-										class="line-clamp-2 rounded-sm break-words text-gray-900 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 dark:text-white"
+										class="line-clamp-2 rounded-sm break-words hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 {opened
+											? 'text-primary-700 dark:text-primary-400'
+											: 'text-gray-900 dark:text-white'}"
 									>
 										{result.title}
 									</a>
