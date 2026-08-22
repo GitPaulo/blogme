@@ -120,7 +120,6 @@
 			? 'Semantic ranking: finds posts about the idea. Switch to keyword ranking.'
 			: 'Keyword ranking: matches the words you typed. Switch to semantic ranking.'
 	);
-	// An empty corpus-narrowing filter reads as an empty index unless we say otherwise.
 	const emptyMessage = 'No results found. Try a different search.';
 
 	// The bookmarked filter needs the saved keys, which the drawer would otherwise only

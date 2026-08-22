@@ -175,9 +175,9 @@ function toResponse(body: unknown, query: string, offset: number): SearchRespons
 
 export async function search(
 	query: string,
-	options: { offset?: number; origin?: Origin; rank?: Rank; signal?: AbortSignal } = {}
+	options: { offset?: number; rank?: Rank; signal?: AbortSignal } = {}
 ): Promise<SearchResponse> {
-	const { signal, origin, rank = 'keyword' } = options;
+	const { signal, rank = 'keyword' } = options;
 	const term = clampQuery(query);
 	const offset = Math.min(
 		Math.max(Math.trunc(options.offset ?? 0), 0),
@@ -186,7 +186,6 @@ export async function search(
 
 	const params = new URLSearchParams({ q: term, limit: String(PAGE_SIZE) });
 	if (offset > 0) params.set('offset', String(offset));
-	if (origin) params.set('origin', origin);
 	// Keyword is the server's default, so only the departure from it travels.
 	if (rank === 'semantic') params.set('mode', rank);
 	const url = `${API_BASE}/api/search?${params}`;

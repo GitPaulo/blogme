@@ -1,6 +1,11 @@
 <script lang="ts">
 	import { Badge, Button, Input, Label, Modal, MultiSelect, Tooltip } from 'flowbite-svelte';
-	import { BookmarkSolid, CalendarMonthOutline, CloseOutline, EyeSolid } from 'flowbite-svelte-icons';
+	import {
+		BookmarkSolid,
+		CalendarMonthOutline,
+		CloseOutline,
+		EyeSolid
+	} from 'flowbite-svelte-icons';
 	import type { SearchResult } from '$lib/api';
 	import { formatDate } from '$lib/date';
 	import {
@@ -110,9 +115,7 @@ that made the select taller pulled it further out of line. -->
 		class="shrink-0 gap-1.5"
 		disabled={!active}
 		aria-label="Clear filters"
-		onclick={() => {
-			filters = emptyFilters();
-		}}
+		onclick={() => (filters = emptyFilters())}
 	>
 		<CloseOutline class="h-4 w-4" />
 		<span class="hidden sm:inline">Clear</span>

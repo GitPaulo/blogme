@@ -221,9 +221,9 @@ most have helped. The default scoring already normalises by field length, which 
 what those weights were reaching for. Wire it up only with a measurement that shows it
 doing something.
 
-A search lives in the address bar. The query, the ranking mode and the `origin` filter —
-everything the server was asked for — are written back as `?q=`, `?mode=` and `?origin=`,
-so a search can be shared, reloaded or returned to. The remaining filters narrow the rows
+A search lives in the address bar. The query and the ranking mode — everything the server
+was asked for — are written back as `?q=` and `?mode=`, so a search can be shared,
+reloaded or returned to. The remaining filters narrow the rows
 already fetched rather than the query behind them, and a fresh search clears them, so they
 stay out. The URL is written once per search rather than once per keystroke: partly
 because it should describe results that exist, and partly because browsers throttle
