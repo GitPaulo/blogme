@@ -156,10 +156,13 @@
 							class="flex h-22 items-center gap-2 border-b border-gray-200 pe-3 dark:border-gray-700"
 						>
 							<div class="min-w-0 flex-1">
+								<!-- Opened from here or from a result, it is the same article and the same
+								visit; the drawer just has nowhere to show the mark. -->
 								<a
 									href={safeHttpUrl(item.url) ?? '#'}
 									target="_blank"
 									rel="noopener noreferrer"
+									data-visit
 									class="line-clamp-2 rounded-sm text-sm font-medium break-words text-gray-900 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 dark:text-white"
 								>
 									{item.title}

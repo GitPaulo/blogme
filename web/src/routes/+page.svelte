@@ -26,6 +26,7 @@
 	import { bookmarks } from '$lib/bookmarks/store.svelte';
 	import { formatDate } from '$lib/date';
 	import { applyFilters, emptyFilters, isFiltered } from '$lib/filters';
+	import { visited } from '$lib/visited/store.svelte';
 
 	const DEBOUNCE_MS = 300;
 	// How many pages one "load more" may fetch while filters hide everything that arrives.
@@ -94,7 +95,12 @@
 	const hasMore = $derived(
 		status === 'done' && nextOffset < total && nextOffset <= maxOffsetFor(rank)
 	);
-	const filtered = $derived(applyFilters(results, filters, (url) => bookmarks.has(url)));
+	const filtered = $derived(
+		applyFilters(results, filters, {
+			isBookmarked: (url) => bookmarks.has(url),
+			isVisited: (url) => visited.has(url)
+		})
+	);
 	// The counts and the formatted total are their own deriveds so the summary string
 	// is rebuilt only when a number it actually shows changes. Re-running the filter
 	// pass — which a bookmark toggle or a half-typed date bound does — usually leaves

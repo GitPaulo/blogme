@@ -45,7 +45,9 @@ function lookup() {
 			// Storage is unavailable, so nothing is on record. The misses are still cached
 			// below, which is what keeps this from being asked again on the next render.
 		}
-		for (const key of keys) answers.set(key, hits.has(key));
+		// Only what is still unknown: an open recorded while this lookup was in flight is
+		// the newer answer, and the store it was written to may not have committed yet.
+		for (const key of keys) if (!answers.has(key)) answers.set(key, hits.has(key));
 
 		// Insertion order is ask order, and what is on screen was asked about last, so
 		// what goes here is what scrolled away.

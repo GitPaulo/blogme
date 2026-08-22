@@ -4,6 +4,7 @@
 		BookmarkSolid,
 		CalendarMonthOutline,
 		CloseOutline,
+		EyeSolid,
 		GlobeOutline
 	} from 'flowbite-svelte-icons';
 	import type { SearchResult } from '$lib/api';
@@ -98,6 +99,21 @@ that made the select taller pulled it further out of line. -->
 		<BookmarkSolid class="h-4 w-4" />
 		<span class="hidden sm:inline">Bookmarked</span>
 	</Button>
+
+	<Button
+		size="sm"
+		color={filters.visitedOnly ? 'primary' : 'alternative'}
+		class="shrink-0 gap-2"
+		aria-pressed={filters.visitedOnly}
+		aria-label="Visited"
+		onclick={() => (filters.visitedOnly = !filters.visitedOnly)}
+	>
+		<EyeSolid class="h-4 w-4" />
+		<span class="hidden sm:inline">Visited</span>
+	</Button>
+	<!-- Bookmarked needs no explanation because the reader pressed a button to make one.
+	Nothing is pressed to make a visit, so this one says where they come from. -->
+	<Tooltip class="max-w-64 text-center">Show only posts you have already opened from here.</Tooltip>
 
 	<Button
 		size="sm"

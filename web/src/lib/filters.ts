@@ -9,6 +9,16 @@ export type Filters = {
 	from: string;
 	to: string;
 	bookmarkedOnly: boolean;
+	visitedOnly: boolean;
+};
+
+/**
+ * The membership questions the filters ask of the local stores, passed in rather than
+ * imported so this module stays a pure function of its arguments.
+ */
+export type Lookups = {
+	isBookmarked: (url: string) => boolean;
+	isVisited: (url: string) => boolean;
 };
 
 export const PERIODS = [
@@ -23,14 +33,18 @@ export const emptyFilters = (): Filters => ({
 	days: 0,
 	from: '',
 	to: '',
-	bookmarkedOnly: false
+	bookmarkedOnly: false,
+	visitedOnly: false
 });
 
 export const hasDateFilter = (filters: Filters) =>
 	filters.days > 0 || filters.from !== '' || filters.to !== '';
 
 export const isFiltered = (filters: Filters) =>
-	filters.tags.length > 0 || hasDateFilter(filters) || filters.bookmarkedOnly;
+	filters.tags.length > 0 ||
+	hasDateFilter(filters) ||
+	filters.bookmarkedOnly ||
+	filters.visitedOnly;
 
 /** Tags present in the loaded results, most common first. */
 export function filterTags(results: SearchResult[]): string[] {
@@ -53,8 +67,10 @@ const dayEnd = (day: string) => (day ? Date.parse(`${day}T23:59:59.999Z`) : NaN)
 export function applyFilters(
 	results: SearchResult[],
 	filters: Filters,
-	isBookmarked: (url: string) => boolean
+	lookups: Lookups
 ): SearchResult[] {
+	// Nothing is asked of the stores while the filters that need them are off, so an
+	// unfiltered page never looks a single url up.
 	if (!isFiltered(filters)) return results;
 
 	const tags = new Set(filters.tags);
@@ -64,7 +80,8 @@ export function applyFilters(
 	const dated = !Number.isNaN(from) || !Number.isNaN(to);
 
 	return results.filter((result) => {
-		if (filters.bookmarkedOnly && !isBookmarked(result.url)) return false;
+		if (filters.bookmarkedOnly && !lookups.isBookmarked(result.url)) return false;
+		if (filters.visitedOnly && !lookups.isVisited(result.url)) return false;
 		if (tags.size > 0 && !result.topics?.some((tag) => tags.has(tag))) return false;
 		if (dated) {
 			// An undated post cannot be shown to fall inside the window.

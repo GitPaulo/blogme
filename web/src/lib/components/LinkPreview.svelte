@@ -213,7 +213,9 @@
 				destination. Grey, because it reports what the reader already did rather than
 				telling them something about the post. -->
 				{#if visited.has(target.url)}
-					<Badge color="gray" class="shrink-0">Visited</Badge>
+					<!-- Trimmed to the height of the line it sits on, so a header that learns it
+					has been here before does not grow by four pixels mid-fade. -->
+					<Badge color="gray" class="shrink-0 !py-0">Visited</Badge>
 				{/if}
 				<a
 					href={target.url}
