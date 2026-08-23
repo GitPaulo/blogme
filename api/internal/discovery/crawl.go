@@ -167,6 +167,13 @@ func (d *Discoverer) crawlFeed(ctx context.Context, s sources.Source) ([]article
 		if len(articles) >= d.maxPosts {
 			break
 		}
+		// Entries already in the store no longer count towards maxPosts, so a long
+		// feed is now walked rather than abandoned at its newest few. Past the source
+		// deadline every store lookup fails at once, which would turn the rest of that
+		// walk into a run of warnings about a source whose time is already up.
+		if ctx.Err() != nil {
+			break
+		}
 		a, ok := d.toArticle(ctx, s, it, feedURL)
 		if !ok {
 			continue
@@ -187,6 +194,12 @@ func (d *Discoverer) toArticle(ctx context.Context, s sources.Source, it feedIte
 		return article.Article{}, false
 	}
 
+	// Ahead of the content parse and of any page fetch, both of which are spent for
+	// nothing on a post the store already holds.
+	if d.skipStored(ctx, s.ID, link.String()) {
+		return article.Article{}, false
+	}
+
 	// Keep the parsed tree around: summaries read far better when taken from paragraphs
 	// than from the flattened text.
 	doc := parseHTML(it.Content)
@@ -194,8 +207,15 @@ func (d *Discoverer) toArticle(ctx context.Context, s sources.Source, it feedIte
 
 	// Fall back to fetching the page only when the feed gave a stub, which keeps the
 	// common case to one request per blog rather than one per post.
+	//
+	// Nil unless that fetch happens: how a page is served is only knowable from a
+	// response, and a feed that carries its posts in full never produces one. See
+	// article.Article.FramingDenied for what nil means downstream.
+	var framing *bool
 	if wordCount(content) < feedContentWords && d.robots.allowed(ctx, link) {
-		if body, err := d.fetcher.get(ctx, link.String(), maxPageBytes); err == nil {
+		if body, header, err := d.fetcher.fetch(ctx, link.String(), maxPageBytes); err == nil {
+			denied := framingDenied(header)
+			framing = &denied
 			page := parseHTML(string(body))
 			// A page can be fetchable and still ask not to be indexed, and the ask is
 			// only readable now that the page is in hand. Dropping the article rather
@@ -225,19 +245,50 @@ func (d *Discoverer) toArticle(ctx context.Context, s sources.Source, it feedIte
 	}
 
 	return article.Article{
-		ID:          articleID(s.ID, link.String()),
-		URL:         link.String(),
-		Title:       truncateWords(it.Title, maxTitleWords),
-		Author:      truncateWords(firstNonEmpty(it.Author, s.Name), maxAuthorWords),
-		SourceID:    s.ID,
-		Origin:      article.OriginFeed,
-		Summary:     truncateWords(summary, summaryWords),
-		Content:     truncateWords(content, d.contentWords),
-		Topics:      articleTopics(s.Tags, it.Categories),
-		Kind:        s.Kind,
-		PublishedAt: it.Published,
-		FetchedAt:   time.Now().UTC(),
+		ID:            articleID(s.ID, link.String()),
+		URL:           link.String(),
+		Title:         truncateWords(it.Title, maxTitleWords),
+		Author:        truncateWords(firstNonEmpty(it.Author, s.Name), maxAuthorWords),
+		SourceID:      s.ID,
+		Origin:        article.OriginFeed,
+		Summary:       truncateWords(summary, summaryWords),
+		Content:       truncateWords(content, d.contentWords),
+		Topics:        articleTopics(s.Tags, it.Categories),
+		Kind:          s.Kind,
+		PublishedAt:   it.Published,
+		FetchedAt:     time.Now().UTC(),
+		FramingDenied: framing,
 	}, true
+}
+
+// skipStored reports whether the article for link has already been captured, and so
+// need not be built, fetched or written again.
+//
+// The store is the crawler's memory, and only the sitemap path used to consult it.
+// The feed path rebuilt and rewrote its newest entries every pass — refetching the
+// page too, wherever the feed carried stubs — so a corpus that had not changed still
+// cost a blob write and an index upsert per post per pass. Feeds are most of the
+// corpus, which made that the largest recurring cost in the system.
+//
+// A lookup that fails counts as stored. The post is skipped either way, which is the
+// conservative reading: taking a storage blip for "not stored" would turn every
+// source in the pass into a storm of refetches, where a post missed this time is
+// picked up on the next pass.
+func (d *Discoverer) skipStored(ctx context.Context, sourceID, link string) bool {
+	// A Discoverer built without a store keeps nothing, so it has nothing to skip.
+	if d.store == nil {
+		return false
+	}
+
+	stored, err := d.store.Has(ctx, articleID(sourceID, link))
+	if err != nil {
+		// Said out loud, because from the outside a broken store and a blog with
+		// nothing new to say look exactly alike.
+		slog.WarnContext(ctx, "store lookup failed",
+			"source", sourceID, "url", link, "error", err)
+		return true
+	}
+	return stored
 }
 
 // articleID is stable for a URL so re-crawling updates rather than duplicates.

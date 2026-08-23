@@ -87,6 +87,14 @@
       "facetable": true
     },
     {
+      "name": "framingDenied",
+      "type": "Edm.Boolean",
+      "searchable": false,
+      "filterable": false,
+      "sortable": false,
+      "facetable": false
+    },
+    {
       "name": "publishedAt",
       "type": "Edm.DateTimeOffset",
       "searchable": false,

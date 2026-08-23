@@ -17,6 +17,12 @@
 	const CLOSE_MS = 200;
 	const WIDTH = 420;
 	const HEIGHT = 460;
+	// A refusal is one line, so its panel is sized to one rather than left as a tall
+	// empty box. Both of these are also what the placement below reserves room for.
+	const DENIED_HEIGHT = 96;
+	// The strip under a preview whose framing nobody has checked. Taken out of HEIGHT
+	// rather than added to it, so a panel is the same size either way.
+	const NOTE_HEIGHT = 28;
 	const GAP = 10;
 	// Wider than GAP because a cursor is not a point: the arrow glyph is roughly 20px
 	// tall, and a panel edge tucked under it swallows the hover that opened the preview
@@ -27,7 +33,14 @@
 	// page renders, scrolls and follows its own links, and can do nothing else.
 	const SANDBOX = 'allow-scripts allow-same-origin';
 
-	type Target = { url: string; host: string; left: number; top: number };
+	/**
+	 * What the crawler found out about this page's framing headers, as the results list
+	 * passed it on. `unknown` is not permission — it is a page nobody has checked —
+	 * and it is tried, which is what every link did before any of this existed.
+	 */
+	type Framing = 'allowed' | 'denied' | 'unknown';
+
+	type Target = { url: string; host: string; left: number; top: number; framing: Framing };
 
 	let target = $state.raw<Target | undefined>();
 	let loading = $state(false);
@@ -50,38 +63,48 @@
 
 	// Anchored to the pointer, offset clear of the cursor and flipped to whichever side
 	// has room, the way native tooltips and floating-ui popovers avoid clipping.
-	function placeAtPoint(x: number, y: number) {
+	function placeAtPoint(x: number, y: number, height: number) {
 		const left =
 			x + CURSOR_GAP + WIDTH + MARGIN <= window.innerWidth
 				? x + CURSOR_GAP
 				: x - CURSOR_GAP - WIDTH;
 		const top =
-			y + CURSOR_GAP + HEIGHT + MARGIN <= window.innerHeight
+			y + CURSOR_GAP + height + MARGIN <= window.innerHeight
 				? y + CURSOR_GAP
-				: y - CURSOR_GAP - HEIGHT;
+				: y - CURSOR_GAP - height;
 		return {
 			left: clamp(left, window.innerWidth - WIDTH),
-			top: clamp(top, window.innerHeight - HEIGHT)
+			top: clamp(top, window.innerHeight - height)
 		};
 	}
 
 	// Keyboard focus has no pointer position to anchor to, so it falls back to the link's
 	// own rect, beside it where the viewport has room and below or above otherwise.
-	function placeAtRect(rect: DOMRect) {
+	function placeAtRect(rect: DOMRect, height: number) {
 		const beside =
 			rect.right + GAP + WIDTH + MARGIN <= window.innerWidth
 				? rect.right + GAP
 				: rect.left - GAP - WIDTH;
 		if (beside >= MARGIN) {
-			return { left: beside, top: clamp(rect.top, window.innerHeight - HEIGHT) };
+			return { left: beside, top: clamp(rect.top, window.innerHeight - height) };
 		}
 
 		const below = rect.bottom + GAP;
-		const top = below + HEIGHT + MARGIN <= window.innerHeight ? below : rect.top - GAP - HEIGHT;
+		const top = below + height + MARGIN <= window.innerHeight ? below : rect.top - GAP - height;
 		return {
 			left: clamp(rect.left, window.innerWidth - WIDTH),
-			top: clamp(top, window.innerHeight - HEIGHT)
+			top: clamp(top, window.innerHeight - height)
 		};
+	}
+
+	/**
+	 * What is known about this link's framing. Read from the value of the attribute
+	 * that opted it into previews, so a link carrying no answer — indexed before the
+	 * crawler read headers, or not a search result at all — reads as unknown.
+	 */
+	function framingOf(anchor: HTMLAnchorElement): Framing {
+		const value = anchor.dataset.preview;
+		return value === 'denied' || value === 'allowed' ? value : 'unknown';
 	}
 
 	// DNS and TLS on the way in, so the dwell timer is not also paying for the handshake.
@@ -104,11 +127,14 @@
 		openTimer = setTimeout(() => {
 			const url = safeHttpUrl(anchor.href);
 			if (!url) return;
+			const framing = framingOf(anchor);
+			const height = framing === 'denied' ? DENIED_HEIGHT : HEIGHT;
 			const { left, top } = point
-				? placeAtPoint(point.x, point.y)
-				: placeAtRect(anchor.getBoundingClientRect());
-			loading = true;
-			target = { url, host: new URL(url).hostname.replace(/^www\./, ''), left, top };
+				? placeAtPoint(point.x, point.y, height)
+				: placeAtRect(anchor.getBoundingClientRect(), height);
+			// Nothing is being waited for when there is no frame to load.
+			loading = framing !== 'denied';
+			target = { url, host: new URL(url).hostname.replace(/^www\./, ''), left, top, framing };
 		}, DWELL_MS);
 	}
 
@@ -229,21 +255,47 @@
 				</a>
 			</div>
 
-			<div class="relative bg-white" style:height="{HEIGHT}px">
-				{#if loading}
-					<div class="absolute inset-0 z-10 animate-pulse bg-gray-100 dark:bg-gray-700"></div>
+			{#if target.framing === 'denied'}
+				<!-- The site's own headers refuse to be framed anywhere, so this says so rather
+				than opening a box the browser would leave blank and complain about. The way in
+				is the link above, which is where this was always going to send them. -->
+				<p
+					class="flex items-center justify-center px-6 text-center text-sm text-gray-500 dark:text-gray-400"
+					style:height="{DENIED_HEIGHT}px"
+				>
+					{target.host} does not allow previews. Open it to read the post.
+				</p>
+			{:else}
+				{@const frameHeight = target.framing === 'unknown' ? HEIGHT - NOTE_HEIGHT : HEIGHT}
+				<div class="relative bg-white" style:height="{frameHeight}px">
+					{#if loading}
+						<div class="absolute inset-0 z-10 animate-pulse bg-gray-100 dark:bg-gray-700"></div>
+					{/if}
+					<!-- A site that refuses framing leaves this blank, and from here there is no
+					way to tell that apart from a page that rendered nothing: the frame loads
+					either way and its document is cross-origin either way. Which is why the
+					answer comes from the crawler rather than from anything measured here. -->
+					<iframe
+						title="Preview of {target.host}"
+						src={target.url}
+						sandbox={SANDBOX}
+						referrerpolicy="no-referrer"
+						class="h-full w-full border-0"
+						onload={() => (loading = false)}
+					></iframe>
+				</div>
+				{#if target.framing === 'unknown'}
+					<!-- Nobody has read this one's headers yet, so a blank frame has two possible
+					meanings and the reader gets told which they might be looking at. Goes away on
+					its own as the crawler comes back round to the post. -->
+					<p
+						class="flex items-center justify-center border-t border-gray-200 px-3 text-center text-xs text-gray-400 dark:border-gray-700 dark:text-gray-500"
+						style:height="{NOTE_HEIGHT}px"
+					>
+						If nothing appears, this site does not allow previews.
+					</p>
 				{/if}
-				<!-- Sites that refuse framing leave this blank and there is no way to tell from
-				here, so the header carries the host either way. -->
-				<iframe
-					title="Preview of {target.host}"
-					src={target.url}
-					sandbox={SANDBOX}
-					referrerpolicy="no-referrer"
-					class="h-full w-full border-0"
-					onload={() => (loading = false)}
-				></iframe>
-			</div>
+			{/if}
 		{/key}
 	</div>
 {/if}

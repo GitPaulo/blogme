@@ -52,7 +52,13 @@ type Limits struct {
 func DefaultLimits() Limits {
 	return Limits{
 		PerMinute: 60,
-		Burst:     30,
+		// Sized against the client's own fan-out rather than against someone typing.
+		// One "load more" chases page after page while a filter hides what arrives, so
+		// two clicks in quick succession can spend tens of requests in a few seconds
+		// and be refused by a limit meant to catch scripts. What actually bounds a
+		// flood is AllPerMinute below; this one only has to stop a single caller
+		// looping, which at a steady sixty a minute it still does.
+		Burst: 60,
 		// Set from what the service can actually serve rather than from what it
 		// receives: the search tier folds well below this, so a limit here can only
 		// ever refuse traffic that was going to fail anyway. Busiest real minute

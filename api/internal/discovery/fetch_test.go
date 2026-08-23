@@ -2,12 +2,36 @@ package discovery
 
 import (
 	"context"
+	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 )
+
+// Whether a page can be framed is answered by how it is served rather than by what
+// it says, so the headers have to survive the fetch that reads the body.
+func TestFetcherReturnsResponseHeaders(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
+		_, _ = io.WriteString(w, "<html><body>a post</body></html>")
+	}))
+	defer server.Close()
+
+	body, header, err := newFetcher(server.Client()).fetch(t.Context(), server.URL, 1024)
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if !strings.Contains(string(body), "a post") {
+		t.Errorf("body = %q, want the page", body)
+	}
+	if !framingDenied(header) {
+		t.Error("framingDenied(header) = false, want true for frame-ancestors 'none'")
+	}
+}
 
 // Shared platforms put thousands of blogs on distinct subdomains of one server, so
 // the limiter must key on the registrable domain rather than the hostname.

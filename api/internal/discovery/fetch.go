@@ -100,23 +100,30 @@ func newFetcher(client *http.Client) *fetcher {
 
 // get retrieves rawURL, reading at most limit bytes.
 func (f *fetcher) get(ctx context.Context, rawURL string, limit int64) ([]byte, error) {
+	body, _, err := f.fetch(ctx, rawURL, limit)
+	return body, err
+}
+
+// fetch is get with the response headers kept, for the callers that care how a page
+// is served as well as what it says.
+func (f *fetcher) fetch(ctx context.Context, rawURL string, limit int64) ([]byte, http.Header, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if !isHTTP(u) {
-		return nil, fmt.Errorf("unsupported scheme %q", u.Scheme)
+		return nil, nil, fmt.Errorf("unsupported scheme %q", u.Scheme)
 	}
 
 	release, err := f.acquire(ctx, u.Hostname())
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer release()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	req.Header.Set("User-Agent", userAgent)
 	// Deliberately no Accept-Encoding: setting it manually disables the transport's
@@ -124,15 +131,16 @@ func (f *fetcher) get(ctx context.Context, rawURL string, limit int64) ([]byte, 
 
 	resp, err := f.client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("status %s", resp.Status)
+		return nil, nil, fmt.Errorf("status %s", resp.Status)
 	}
 
-	return io.ReadAll(io.LimitReader(resp.Body, limit))
+	read, err := io.ReadAll(io.LimitReader(resp.Body, limit))
+	return read, resp.Header, err
 }
 
 func (f *fetcher) acquire(ctx context.Context, host string) (func(), error) {

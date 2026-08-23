@@ -91,6 +91,9 @@ type document struct {
 	Topics      []string `json:"topics,omitempty"`
 	Kind        []string `json:"kind,omitempty"`
 	PublishedAt *string  `json:"publishedAt,omitempty"`
+	// A pointer because false and unknown are different answers, and only the first
+	// is worth writing. See article.Article.FramingDenied.
+	FramingDenied *bool `json:"framingDenied,omitempty"`
 }
 
 // Upsert adds or replaces articles in the index.
@@ -112,6 +115,8 @@ func (i *Index) Upsert(ctx context.Context, articles []article.Article) error {
 				Content:  a.Content,
 				Topics:   a.Topics,
 				Kind:     a.Kind,
+
+				FramingDenied: a.FramingDenied,
 			}
 			if !a.PublishedAt.IsZero() {
 				ts := a.PublishedAt.UTC().Format(time.RFC3339)
@@ -140,6 +145,8 @@ type searchResponse struct {
 		Topics      []string `json:"topics"`
 		PublishedAt string   `json:"publishedAt"`
 		SourceID    string   `json:"sourceId"`
+		// Null on everything indexed before the crawler looked, which reads as nil.
+		FramingDenied *bool `json:"framingDenied"`
 	} `json:"value"`
 }
 
@@ -243,7 +250,7 @@ func (i *Index) Query(ctx context.Context, q string, opts QueryOptions) (Page, e
 		"count":      true,
 		"queryType":  "simple",
 		"searchMode": "all",
-		"select":     "url,title,author,origin,summary,topics,publishedAt,sourceId",
+		"select":     "url,title,author,origin,summary,topics,publishedAt,sourceId,framingDenied",
 	}
 
 	// Built from a fixed set rather than from the caller's string, so a filter can
@@ -340,13 +347,14 @@ func selectPage(resp searchResponse, offset, limit, fetch int) Page {
 		}
 
 		r := article.Result{
-			URL:     v.URL,
-			Title:   v.Title,
-			Author:  v.Author,
-			Origin:  v.Origin,
-			Summary: v.Summary,
-			Topics:  v.Topics,
-			Score:   v.Score,
+			URL:           v.URL,
+			Title:         v.Title,
+			Author:        v.Author,
+			Origin:        v.Origin,
+			Summary:       v.Summary,
+			Topics:        v.Topics,
+			Score:         v.Score,
+			FramingDenied: v.FramingDenied,
 		}
 		if v.PublishedAt != "" {
 			if t, err := time.Parse(time.RFC3339, v.PublishedAt); err == nil {

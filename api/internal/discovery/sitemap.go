@@ -113,16 +113,7 @@ func (d *Discoverer) crawlSitemap(ctx context.Context, s sources.Source) ([]arti
 		}
 		// A sitemap lists a whole archive but one run takes only a few pages, so
 		// skipping what is already stored is what lets later runs reach further in.
-		stored, err := d.store.Has(ctx, articleID(s.ID, link.url.String()))
-		if err != nil {
-			// Still skipped, so a storage blip cannot turn into a storm of re-fetches
-			// — but said out loud, because from the outside a broken store and a blog
-			// with nothing new to say look exactly alike.
-			slog.WarnContext(ctx, "store lookup failed",
-				"source", s.ID, "url", link.url.String(), "error", err)
-			continue
-		}
-		if stored {
+		if d.skipStored(ctx, s.ID, link.url.String()) {
 			continue
 		}
 		if a, ok := d.sitemapArticle(ctx, s, link); ok {
@@ -292,10 +283,12 @@ func isArticleURL(u *url.URL, site *url.URL) bool {
 
 // sitemapArticle fetches a candidate page and keeps it only if it reads like a post.
 func (d *Discoverer) sitemapArticle(ctx context.Context, s sources.Source, link sitemapLink) (article.Article, bool) {
-	body, err := d.fetcher.get(ctx, link.url.String(), maxPageBytes)
+	body, header, err := d.fetcher.fetch(ctx, link.url.String(), maxPageBytes)
 	if err != nil {
 		return article.Article{}, false
 	}
+	// Every page on this path is fetched, so this one is always known.
+	denied := framingDenied(header)
 
 	doc := parseHTML(string(body))
 	if noIndex(doc) {
@@ -338,8 +331,9 @@ func (d *Discoverer) sitemapArticle(ctx context.Context, s sources.Source, link 
 		// Deliberately not the sitemap's lastmod: that is when the file changed, which
 		// for most publishing systems is a bulk regeneration and would date every page
 		// today. An unknown date stays unknown.
-		PublishedAt: published,
-		FetchedAt:   time.Now().UTC(),
+		PublishedAt:   published,
+		FetchedAt:     time.Now().UTC(),
+		FramingDenied: &denied,
 	}, true
 }
 

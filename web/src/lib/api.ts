@@ -11,6 +11,12 @@ export type SearchResult = {
 	topics?: string[];
 	publishedAt?: string;
 	score: number;
+	/**
+	 * Whether the page's own headers refuse to let it be framed, as the crawler saw
+	 * them. Undefined where it never looked, which is not the same as permission:
+	 * see LinkPreview for what each answer does.
+	 */
+	framingDenied?: boolean;
 };
 
 export type SearchResponse = {
@@ -131,7 +137,10 @@ function toResult(value: unknown): SearchResult | undefined {
 		summary: text(raw.summary),
 		topics: topics?.length ? topics : undefined,
 		publishedAt: text(raw.publishedAt, 40),
-		score: typeof raw.score === 'number' && Number.isFinite(raw.score) ? raw.score : 0
+		score: typeof raw.score === 'number' && Number.isFinite(raw.score) ? raw.score : 0,
+		// Only an actual boolean is an answer. Null, missing, or anything else is the
+		// API saying it does not know.
+		framingDenied: typeof raw.framingDenied === 'boolean' ? raw.framingDenied : undefined
 	};
 }
 

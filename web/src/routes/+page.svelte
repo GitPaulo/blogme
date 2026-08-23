@@ -486,8 +486,9 @@
 						<div class="flex items-start gap-3">
 							<div class="min-w-0 flex-1">
 								<Heading tag="h2" class="text-lg font-semibold">
-									<!-- data-preview opens the shared hover panel; data-visit tells the shared
-									tracker that following this link counts as reading the article.
+									<!-- data-preview opens the shared hover panel, and carries what the crawler
+									found out about framing so the panel knows whether to try; data-visit tells the
+									shared tracker that following this link counts as reading the article.
 
 									An opened post takes the theme's blue, a step darker than the accent the
 									buttons wear: at eighteen pixels of semibold that accent shouts, and this
@@ -496,7 +497,11 @@
 										href={result.url}
 										target="_blank"
 										rel="noopener noreferrer"
-										data-preview
+										data-preview={result.framingDenied === undefined
+											? ''
+											: result.framingDenied
+												? 'denied'
+												: 'allowed'}
 										data-visit
 										class="line-clamp-2 rounded-sm break-words hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 {opened
 											? 'text-primary-700 dark:text-primary-400'

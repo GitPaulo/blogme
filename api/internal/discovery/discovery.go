@@ -14,7 +14,6 @@ import (
 	"github.com/GitPaulo/blogme/api/internal/blob"
 	"github.com/GitPaulo/blogme/api/internal/index"
 	"github.com/GitPaulo/blogme/api/internal/sources"
-	"github.com/GitPaulo/blogme/api/internal/store"
 )
 
 // Azure AI Search accepts at most 1000 documents per indexing request.
@@ -56,6 +55,17 @@ func failureKind(err error) string {
 	}
 }
 
+// articleStore is what a crawl needs of the article store: whether a post has
+// already been captured, and somewhere to put it when it has not.
+//
+// An interface rather than *store.Store so a crawl can be exercised without an
+// Azure account behind it. A nil store knows nothing and keeps nothing, which is
+// what the crawl tests use when storage is not what they are testing.
+type articleStore interface {
+	Save(ctx context.Context, a article.Article) error
+	Has(ctx context.Context, id string) (bool, error)
+}
+
 // Discoverer walks the approved source list, turns new posts into canonical
 // articles, persists them, and projects them into the search index.
 //
@@ -65,7 +75,7 @@ func failureKind(err error) string {
 // without any single run approaching the function timeout.
 type Discoverer struct {
 	sources   sources.Provider
-	store     *store.Store
+	store     articleStore
 	index     *index.Index
 	cursor    *Cursor
 	batchSize int
@@ -86,7 +96,7 @@ type Options struct {
 	Concurrency  int
 }
 
-func New(provider sources.Provider, st *store.Store, idx *index.Index, cur *Cursor, opts Options) *Discoverer {
+func New(provider sources.Provider, st articleStore, idx *index.Index, cur *Cursor, opts Options) *Discoverer {
 	client := newCrawlClient(20 * time.Second)
 	f := newFetcher(client)
 

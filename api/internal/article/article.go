@@ -24,6 +24,14 @@ type Article struct {
 	Kind        []string  `json:"kind,omitempty"`
 	PublishedAt time.Time `json:"publishedAt,omitzero"`
 	FetchedAt   time.Time `json:"fetchedAt,omitzero"`
+
+	// FramingDenied records whether the page's own headers refuse to let it be shown
+	// inside a frame, which is what the web app's hover preview puts it in. Recorded
+	// from the response the crawler already had, so it is nil wherever the page was
+	// never fetched — a feed carrying its posts in full is never read from source —
+	// and on everything indexed before this was looked at. Nil means unknown, and the
+	// preview treats unknown the way it treated every link before this existed.
+	FramingDenied *bool `json:"framingDenied,omitempty"`
 }
 
 // Result is the trimmed projection returned by search, matching the fields the
@@ -37,4 +45,8 @@ type Result struct {
 	Topics      []string  `json:"topics,omitempty"`
 	PublishedAt time.Time `json:"publishedAt,omitzero"`
 	Score       float64   `json:"score"`
+
+	// FramingDenied is Article.FramingDenied, carried through so the preview knows
+	// whether to try. Nil is unknown rather than allowed.
+	FramingDenied *bool `json:"framingDenied,omitempty"`
 }
