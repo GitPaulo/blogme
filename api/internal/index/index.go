@@ -136,15 +136,18 @@ func (i *Index) Upsert(ctx context.Context, articles []article.Article) error {
 type searchResponse struct {
 	Total int `json:"@odata.count"`
 	Value []struct {
-		Score       float64  `json:"@search.score"`
-		URL         string   `json:"url"`
-		Title       string   `json:"title"`
-		Author      string   `json:"author"`
-		Origin      string   `json:"origin"`
-		Summary     string   `json:"summary"`
-		Topics      []string `json:"topics"`
-		PublishedAt string   `json:"publishedAt"`
-		SourceID    string   `json:"sourceId"`
+		Score float64 `json:"@search.score"`
+		// Present only on a semantic query, and then it is the score the order
+		// actually follows. See selectPage.
+		RerankerScore *float64 `json:"@search.rerankerScore"`
+		URL           string   `json:"url"`
+		Title         string   `json:"title"`
+		Author        string   `json:"author"`
+		Origin        string   `json:"origin"`
+		Summary       string   `json:"summary"`
+		Topics        []string `json:"topics"`
+		PublishedAt   string   `json:"publishedAt"`
+		SourceID      string   `json:"sourceId"`
 		// Null on everything indexed before the crawler looked, which reads as nil.
 		FramingDenied *bool `json:"framingDenied"`
 	} `json:"value"`
@@ -236,13 +239,16 @@ func (i *Index) Query(ctx context.Context, q string, opts QueryOptions) (Page, e
 	// can be stopped from filling the page. See maxPerSource.
 	//
 	// searchMode "all" requires every word of the query, where "any" needs only one.
-	// "any" was chosen to hand the reranker a wide field to sort out, and against the
-	// queries people actually type it was the wrong trade: "ai text watermarks"
-	// reported 185,796 matches, of which 265 contained all three words, and the rest
-	// were pages that merely said "text". Requiring all of them put "How AI text
-	// watermarking works" first, moved a search for "sean goedecke" from rank 39 to
-	// 14 among his own posts, and left the top of "github actions" — the single most
-	// searched query here — exactly as it was. No query on record returns nothing.
+	// "any" was chosen first, to hand the reranker a wide field to sort out, and for
+	// keyword ranking it was the wrong trade: "ai text watermarks" reported 185,796
+	// matches, of which 265 contained all three words, and the rest were pages that
+	// merely said "text". Requiring all of them put "How AI text watermarking works"
+	// first, moved a search for "sean goedecke" from rank 39 to 14 among his own
+	// posts, and left the top of "github actions" — the single most searched query
+	// here — exactly as it was.
+	//
+	// Set on the shared body but true only of keyword ranking: the semantic branch
+	// below overrides it, and says why.
 	body := map[string]any{
 		"search":     q,
 		"top":        fetch,
@@ -265,12 +271,21 @@ func (i *Index) Query(ctx context.Context, q string, opts QueryOptions) (Page, e
 
 	if i.semantic != "" && opts.Rank != RankKeyword {
 		semantic := maps.Clone(body)
-		// Keyword scoring picks the candidates, the reranker decides their order. It
-		// reorders the top fifty of them either way, so the narrower field "all" hands
-		// it is fifty better candidates rather than fifty of a much larger and looser
-		// set — which is the reverse of the reasoning that first chose "any".
 		semantic["queryType"] = "semantic"
 		semantic["semanticConfiguration"] = i.semantic
+		// Back to "any", because requiring every word settles the query before the
+		// reranker ever sees it. Here keyword matching only picks the candidates, and
+		// a question phrased as a sentence is the whole reason this mode exists: on
+		// the live index "why is my postgres query slow", "the trouble with
+		// microservices" and "essays about burnout and leaving big tech" each matched
+		// nothing whatsoever under "all", where "any" answers all three well.
+		//
+		// It costs nothing on the queries that chose "all" above. For each of "ai text
+		// watermarks", "github actions" and "sean goedecke" the reranked top ten came
+		// back identical, row for row and in the same order, under either setting: the
+		// reranker was already doing the work "all" was approximating, and only "all"
+		// could throw the answer away first.
+		semantic["searchMode"] = "any"
 
 		var resp searchResponse
 		err := i.search(ctx, semantic, &resp)
@@ -346,6 +361,18 @@ func selectPage(resp searchResponse, offset, limit, fetch int) Page {
 			}
 		}
 
+		// The reranker's score whenever there is one, because that is the order these
+		// rows arrived in. On a semantic query @search.score is still the keyword
+		// score, and it runs 146.7, 59.7, 79.5, 68.9 down a list the reranker had
+		// already sorted — a number that contradicts the position it is attached to.
+		// The two are on different scales, keyword unbounded against the reranker's 0
+		// to 4, so this is how this row placed in this ranking and not a figure to
+		// compare across modes.
+		score := v.Score
+		if v.RerankerScore != nil {
+			score = *v.RerankerScore
+		}
+
 		r := article.Result{
 			URL:           v.URL,
 			Title:         v.Title,
@@ -353,7 +380,7 @@ func selectPage(resp searchResponse, offset, limit, fetch int) Page {
 			Origin:        v.Origin,
 			Summary:       v.Summary,
 			Topics:        v.Topics,
-			Score:         v.Score,
+			Score:         score,
 			FramingDenied: v.FramingDenied,
 		}
 		if v.PublishedAt != "" {

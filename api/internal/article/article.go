@@ -44,7 +44,10 @@ type Result struct {
 	Summary     string    `json:"summary,omitempty"`
 	Topics      []string  `json:"topics,omitempty"`
 	PublishedAt time.Time `json:"publishedAt,omitzero"`
-	Score       float64   `json:"score"`
+	// Score is how this row placed in the ranking that produced it, so its scale
+	// follows the mode: unbounded for keyword ranking, 0 to 4 for semantic. Rows are
+	// comparable within one response and not across two.
+	Score float64 `json:"score"`
 
 	// FramingDenied is Article.FramingDenied, carried through so the preview knows
 	// whether to try. Nil is unknown rather than allowed.

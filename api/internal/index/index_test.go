@@ -139,7 +139,7 @@ func TestQueryLeavesMissingDateZero(t *testing.T) {
 }
 
 // Reranking is requested by naming the index's semantic configuration. searchMode
-// stays "any" on purpose: wide keyword recall is what feeds the reranker.
+// goes back to "any" on purpose: wide keyword recall is what feeds the reranker.
 func TestQueryRequestsSemanticRanking(t *testing.T) {
 	var sent map[string]any
 
@@ -160,11 +160,53 @@ func TestQueryRequestsSemanticRanking(t *testing.T) {
 	if sent["semanticConfiguration"] != "blogme-semantic" {
 		t.Errorf("semanticConfiguration = %v", sent["semanticConfiguration"])
 	}
-	// The reranker orders the top fifty candidates whichever mode picked them, so it
-	// is better served by fifty that contain the whole query than by fifty drawn from
-	// everything containing any word of it.
-	if sent["searchMode"] != "all" {
-		t.Errorf("searchMode = %v, want all", sent["searchMode"])
+	// Requiring every word would settle the query before the reranker saw it, which
+	// is how a sentence — the thing this mode is for — came to match nothing at all:
+	// "why is my postgres query slow" had 0 candidates under "all" and 266,204 under
+	// "any". The keyword body sets "all" for its own good reasons; inheriting it here
+	// was the bug.
+	if sent["searchMode"] != "any" {
+		t.Errorf("searchMode = %v, want any", sent["searchMode"])
+	}
+}
+
+// A reranked row is scored by the reranker. Azure keeps sending @search.score on a
+// semantic query, but it is the keyword score of a list the reranker has already
+// reordered, so reporting it hands back a number that disagrees with the position it
+// sits in — live, the top of one page read 146.7, 59.7, 79.5, 68.9 downwards.
+func TestQueryReportsTheScoreThatOrderedTheRows(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"@odata.count":2,"value":[
+			{"url":"https://example.com/a","title":"A","@search.score":59.7,"@search.rerankerScore":2.98},
+			{"url":"https://example.com/b","title":"B","@search.score":146.7,"@search.rerankerScore":2.82}
+		]}`)
+	}))
+	defer srv.Close()
+
+	page := query(t, New(srv.URL, "articles", "test-key", "blogme-semantic"), "q",
+		QueryOptions{Limit: 20})
+
+	got := []float64{page.Results[0].Score, page.Results[1].Score}
+	if want := []float64{2.98, 2.82}; !slices.Equal(got, want) {
+		t.Errorf("scores = %v, want %v — the keyword score was reported for a reranked row", got, want)
+	}
+	if got[0] < got[1] {
+		t.Error("the first row scores below the second, so the score contradicts the order")
+	}
+}
+
+// Without a reranker there is no second score, and the keyword one is the order.
+func TestQueryReportsTheKeywordScoreWhenNothingReranked(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w,
+			`{"@odata.count":1,"value":[{"url":"https://example.com/a","title":"A","@search.score":12.5}]}`)
+	}))
+	defer srv.Close()
+
+	page := query(t, New(srv.URL, "articles", "test-key", ""), "q", QueryOptions{Limit: 20})
+
+	if page.Results[0].Score != 12.5 {
+		t.Errorf("score = %v, want 12.5", page.Results[0].Score)
 	}
 }
 
@@ -189,6 +231,12 @@ func TestQueryKeywordRankSkipsSemantic(t *testing.T) {
 	}
 	if _, ok := sent["semanticConfiguration"]; ok {
 		t.Error("semanticConfiguration was sent for a keyword-ranked query")
+	}
+	// The mode the semantic branch overrides has to survive being opted out of: this
+	// is the one case where a configured index sends a keyword query, so it is the
+	// one that catches the override leaking onto the wrong body.
+	if sent["searchMode"] != "all" {
+		t.Errorf("searchMode = %v, want all", sent["searchMode"])
 	}
 }
 
@@ -570,11 +618,12 @@ func TestQueryRepeatsDoNotSpendTheSourcesShare(t *testing.T) {
 	}
 }
 
-// Every word of the query has to appear. Asking for any of them made the corpus look
-// far larger than it was — "ai text watermarks" reported 185,796 matches where 265
-// documents held all three words — and filled the tail of every result set with pages
-// that happened to say "text".
-func TestQueryRequiresEveryWordOfTheQuery(t *testing.T) {
+// Under keyword ranking every word of the query has to appear. Asking for any of them
+// made the corpus look far larger than it was — "ai text watermarks" reported 185,796
+// matches where 265 documents held all three words — and filled the tail of every
+// result set with pages that happened to say "text". Semantic ranking wants the
+// opposite; see TestQueryRequestsSemanticRanking.
+func TestQueryKeywordRequiresEveryWordOfTheQuery(t *testing.T) {
 	var sent map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
