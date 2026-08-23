@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'api/**'
+      - 'infra/search-index.json'
       - '.github/workflows/deploy-api.yml'
   workflow_dispatch:
 
@@ -22,8 +23,37 @@ jobs:
   ci:
     uses: ./.github/workflows/ci.yml
 
-  deploy:
+  # The index schema must be current before the code that queries it ships:
+  # selecting a field the index does not have 400s every search. Applied on
+  # every deploy rather than only when the file changes, because the PUT is an
+  # upsert, so "always current" is correct without any diffing to get wrong.
+  index:
     needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # Azure rejects edits that would need a rebuild, so an incompatible schema
+      # fails here and blocks the deploy instead of breaking search.
+      - name: Apply the search index schema
+        env:
+          RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+        run: |
+          SEARCH_SERVICE="$(az search service list -g "$RESOURCE_GROUP" --query '[0].name' -o tsv)"
+          export SEARCH_SERVICE
+          ./infra/create-search-index.sh
+
+  deploy:
+    needs: [ci, index]
     runs-on: ubuntu-latest
     permissions:
       contents: read
