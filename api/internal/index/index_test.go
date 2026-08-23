@@ -74,6 +74,51 @@ func TestQueryRequestsPageAndTotal(t *testing.T) {
 	}
 }
 
+// The preview asks three questions of one field, so the projection has to keep null
+// apart from false: null is a page whose headers nobody has read, false is one that
+// was read and framed fine. Collapsing them would have the app stop previewing every
+// document indexed before the crawler started looking.
+func TestQueryCarriesTheFramingVerdict(t *testing.T) {
+	var sent map[string]any
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		_, _ = io.WriteString(w, `{
+			"@odata.count": 3,
+			"value": [
+				{"url": "https://a.example/1", "title": "Refused", "framingDenied": true},
+				{"url": "https://b.example/2", "title": "Allowed", "framingDenied": false},
+				{"url": "https://c.example/3", "title": "Unknown", "framingDenied": null}
+			]
+		}`)
+	}))
+	defer srv.Close()
+
+	results := query(t, New(srv.URL, "articles", "test-key", ""), "go", QueryOptions{Limit: 20}).Results
+
+	if selected, _ := sent["select"].(string); !strings.Contains(selected, "framingDenied") {
+		t.Errorf("select = %q, want it to ask for framingDenied", selected)
+	}
+	if len(results) != 3 {
+		t.Fatalf("got %d results, want 3", len(results))
+	}
+
+	yes, no := true, false
+	for i, want := range []*bool{&yes, &no, nil} {
+		got := results[i].FramingDenied
+		switch {
+		case want == nil && got != nil:
+			t.Errorf("result %d: got %v, want unknown", i, *got)
+		case want != nil && got == nil:
+			t.Errorf("result %d: got unknown, want %v", i, *want)
+		case want != nil && got != nil && *got != *want:
+			t.Errorf("result %d: got %v, want %v", i, *got, *want)
+		}
+	}
+}
+
 // A feed without a usable date leaves the field empty, which must stay a zero time
 // rather than becoming an epoch date on the result card.
 func TestQueryLeavesMissingDateZero(t *testing.T) {

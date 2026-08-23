@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/GitPaulo/blogme/api/internal/article"
 	"github.com/GitPaulo/blogme/api/internal/sources"
 )
 
@@ -527,5 +529,157 @@ func TestCrawlWithABrokenFeedAndNoSitemapReportsTheFeed(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "feed") {
 		t.Errorf("error = %v, want it to name the feed as the cause", err)
+	}
+}
+
+// memStore is an articleStore held in memory, so the crawler's dedup can be tested
+// without an Azure account behind it. One crawl walks its feed in a single
+// goroutine, so nothing here needs locking.
+type memStore struct {
+	have map[string]bool
+	err  error
+}
+
+func (m *memStore) Save(_ context.Context, a article.Article) error {
+	m.have[a.ID] = true
+	return nil
+}
+
+func (m *memStore) Has(_ context.Context, id string) (bool, error) {
+	if m.err != nil {
+		return false, m.err
+	}
+	return m.have[id], nil
+}
+
+// dedupFeed serves two posts as stubs rather than in full, so every post the crawler
+// decides to keep costs a page fetch. That is what makes the saving countable: the
+// fetches that do not happen are the ones the store already answered for.
+func dedupFeed(t *testing.T, pageHits *atomic.Int64) *httptest.Server {
+	t.Helper()
+
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	mux.HandleFunc("/feed.xml", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `<?xml version="1.0"?>
+<rss version="2.0"><channel><title>Dedup Blog</title>
+  <item><title>First post</title><link>`+srv.URL+`/posts/one</link>
+    <description>A stub.</description></item>
+  <item><title>Second post</title><link>`+srv.URL+`/posts/two</link>
+    <description>A stub.</description></item>
+</channel></rss>`)
+	})
+	mux.HandleFunc("/posts/", func(w http.ResponseWriter, _ *http.Request) {
+		pageHits.Add(1)
+		_, _ = io.WriteString(w,
+			`<html><body><article><p>The body of the post.</p></article></body></html>`)
+	})
+
+	return srv
+}
+
+func dedupSource(srv *httptest.Server) sources.Source {
+	return sources.Source{ID: "dedup", Site: srv.URL + "/", Feed: srv.URL + "/feed.xml"}
+}
+
+// The feed path used to rebuild and rewrite its newest entries every pass, refetching
+// each page to do it, which made an unchanged corpus the largest recurring cost in the
+// system. What the store already holds now costs nothing at all.
+func TestCrawlFeedSkipsPostsTheStoreAlreadyHolds(t *testing.T) {
+	var pageHits atomic.Int64
+	srv := dedupFeed(t, &pageHits)
+
+	d := newLocalDiscoverer(5)
+	d.store = &memStore{have: map[string]bool{
+		articleID("dedup", srv.URL+"/posts/one"): true,
+		articleID("dedup", srv.URL+"/posts/two"): true,
+	}}
+
+	articles, err := d.crawl(context.Background(), dedupSource(srv))
+	if err != nil {
+		t.Fatalf("crawl() error = %v", err)
+	}
+	if len(articles) != 0 {
+		t.Errorf("got %d articles, want 0: both posts were already stored", len(articles))
+	}
+	if got := pageHits.Load(); got != 0 {
+		t.Errorf("fetched %d pages, want 0: a stored post should cost no request", got)
+	}
+}
+
+// The other half of the same behaviour: skipping must not cost the crawler a post it
+// has never seen, and the entry it skips must not stand between it and the one it has.
+func TestCrawlFeedKeepsPostsTheStoreDoesNotHold(t *testing.T) {
+	var pageHits atomic.Int64
+	srv := dedupFeed(t, &pageHits)
+
+	d := newLocalDiscoverer(5)
+	d.store = &memStore{have: map[string]bool{
+		articleID("dedup", srv.URL+"/posts/one"): true,
+	}}
+
+	articles, err := d.crawl(context.Background(), dedupSource(srv))
+	if err != nil {
+		t.Fatalf("crawl() error = %v", err)
+	}
+	if len(articles) != 1 {
+		t.Fatalf("got %d articles, want 1: the second post was not stored", len(articles))
+	}
+	if got := articles[0].URL; got != srv.URL+"/posts/two" {
+		t.Errorf("URL = %q, want the post the store did not hold", got)
+	}
+	if got := pageHits.Load(); got != 1 {
+		t.Errorf("fetched %d pages, want 1: only the unstored post needs one", got)
+	}
+}
+
+// A store that cannot answer is treated as holding the post. Reading a storage blip as
+// "not stored" would turn every source in the pass into a storm of refetches, where a
+// post missed this time is picked up on the next pass.
+func TestCrawlFeedSkipsWhenTheStoreCannotAnswer(t *testing.T) {
+	var pageHits atomic.Int64
+	srv := dedupFeed(t, &pageHits)
+
+	d := newLocalDiscoverer(5)
+	d.store = &memStore{have: map[string]bool{}, err: errors.New("storage unavailable")}
+
+	articles, err := d.crawl(context.Background(), dedupSource(srv))
+	if err != nil {
+		t.Fatalf("crawl() error = %v", err)
+	}
+	if len(articles) != 0 {
+		t.Errorf("got %d articles, want 0 while the store is unreadable", len(articles))
+	}
+	if got := pageHits.Load(); got != 0 {
+		t.Errorf("fetched %d pages, want 0: an unreadable store must not cause refetches", got)
+	}
+}
+
+// Skipped entries no longer count towards maxPosts, so the walk reaches further down a
+// feed than it used to. What must not move with it is how much one pass writes.
+func TestCrawlFeedStillCapsPostsPerPass(t *testing.T) {
+	var pageHits atomic.Int64
+	srv := dedupFeed(t, &pageHits)
+
+	d := newLocalDiscoverer(1)
+	d.store = &memStore{have: map[string]bool{}}
+
+	articles, err := d.crawl(context.Background(), dedupSource(srv))
+	if err != nil {
+		t.Fatalf("crawl() error = %v", err)
+	}
+	if len(articles) != 1 {
+		t.Errorf("got %d articles, want 1: maxPosts still caps a pass", len(articles))
+	}
+}
+
+// A Discoverer built without a store keeps nothing, so it has nothing to skip. The
+// crawl tests that are not about storage rely on this.
+func TestSkipStoredWithoutAStoreSkipsNothing(t *testing.T) {
+	d := newLocalDiscoverer(5)
+	if d.skipStored(context.Background(), "none", "https://example.com/post") {
+		t.Error("skipStored() = true with no store, want false")
 	}
 }

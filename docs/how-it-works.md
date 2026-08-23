@@ -162,16 +162,23 @@ from capacity that renews by the minute.
 | Setting                           | Default | Applies to             |
 | --------------------------------- | ------- | ---------------------- |
 | `BLOGME_SEARCH_RATE_PER_MINUTE`   | 60      | One caller, any search |
-| `BLOGME_SEARCH_RATE_BURST`        | 30      | One caller, any search |
+| `BLOGME_SEARCH_RATE_BURST`        | 60      | One caller, any search |
+| `BLOGME_SEARCH_RATE_ALL_PER_MINUTE` | 600   | Everyone, any search   |
+| `BLOGME_SEARCH_RATE_ALL_BURST`    | 300     | Everyone, any search   |
 | `BLOGME_SEMANTIC_RATE_PER_MINUTE` | 10      | One caller, semantic   |
 | `BLOGME_SEMANTIC_RATE_BURST`      | 5       | One caller, semantic   |
 | `BLOGME_SEMANTIC_RATE_PER_HOUR`   | 60      | Everyone, semantic     |
 | `BLOGME_SEMANTIC_RATE_HOUR_BURST` | 15      | Everyone, semantic     |
 
+The burst is sized against the client's own fan-out rather than against someone typing:
+one "load more" chases page after page while a filter hides what arrives, so a reader
+who clicks twice in quick succession spends tens of requests in a few seconds.
+
 These are per instance, and Flex Consumption scales out, so they bound the blast radius
 rather than enforce a budget: they turn "burn the month's reranking in a minute" into
-"burn it over many hours", which is long enough to notice. A global cap is what a
-budget would need, and only a paid semantic plan makes one worth setting.
+"burn it over many hours", which is long enough to notice. The service-wide limits are
+what bound a flood, because traffic spread over many addresses is polite at every one
+of them; the instance ceiling on the plan is what turns that bound into a number.
 
 A page carries at most three results from any one blog. Three posts from one site is
 rarely what a reader wanted, and it means a source that stuffs its posts with popular
