@@ -19,7 +19,7 @@ PYTHON ?= $(if $(filter Windows_NT,$(OS)),python,python3)
 RESOURCE_GROUP ?= rg-blogme
 FUNCTION_APP ?= func-blogme-b3d38b
 
-.PHONY: help setup dev check build clean \
+.PHONY: help setup dev check build clean kill revive \
         check-api check-web build-api build-web fmt sources sources-status sources-upload
 
 help: ## List available targets
@@ -82,6 +82,12 @@ sources-status: ## Show progress of the background source rebuild
 
 sources-upload: ## Publish sources/blogs.yml to blob storage (no redeploy needed)
 	@RESOURCE_GROUP=$(RESOURCE_GROUP) FUNCTION_APP=$(FUNCTION_APP) ./infra/upload-sources.sh
+
+kill: ## Stop the app: search, health and discovery all refuse
+	@RESOURCE_GROUP=$(RESOURCE_GROUP) FUNCTION_APP=$(FUNCTION_APP) ./infra/kill-switch.sh stop
+
+revive: ## Start the app again after a kill
+	@RESOURCE_GROUP=$(RESOURCE_GROUP) FUNCTION_APP=$(FUNCTION_APP) ./infra/kill-switch.sh start
 
 clean: ## Remove build output and local emulator state
 	rm -rf api/bin api/*.zip web/build web/.svelte-kit .azurite
