@@ -17,8 +17,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Deploying is the one place where shipping a failing build actually costs
-  # something, so the tests gate it rather than merely running alongside it.
+  # Shipping a failing build is the one failure that costs something, so the
+  # tests gate the deploy rather than merely running alongside it.
   ci:
     uses: ./.github/workflows/ci.yml
 
@@ -50,6 +50,8 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Rebuilt rather than reused from CI: only this build carries the base
+      # path and API URL the deployed site needs.
       - name: Build
         env:
           # Project site is served from https://<owner>.github.io/<repo>.
