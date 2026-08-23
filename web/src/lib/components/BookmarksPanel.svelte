@@ -15,10 +15,12 @@
 		BookmarkSolid,
 		DownloadOutline,
 		SearchOutline,
-		TrashBinOutline
+		TrashBinOutline,
+		UploadOutline
 	} from 'flowbite-svelte-icons';
-	import { bookmarks } from '$lib/bookmarks/store.svelte';
+	import { bookmarks, type ImportMode } from '$lib/bookmarks/store.svelte';
 	import { download } from '$lib/bookmarks/export';
+	import { readFile } from '$lib/bookmarks/import';
 	import { safeHttpUrl } from '$lib/api';
 	import { formatDate } from '$lib/date';
 	import type { Bookmark } from '$lib/bookmarks/db';
@@ -33,6 +35,12 @@
 	let listHeight = $state(0);
 	let reads = 0;
 
+	/** A file that has been read and understood, waiting on how to apply it. */
+	let pending = $state.raw<{ name: string; records: Bookmark[] } | undefined>();
+	/** Only ever a failure: everything that works shows in the list behind it. */
+	let notice = $state('');
+	let picker = $state<HTMLInputElement>();
+
 	$effect(() => {
 		bookmarks.load();
 	});
@@ -41,6 +49,7 @@
 	$effect(() => {
 		if (!open) return;
 		filter = ''; // A filter left over from last time would hide the list on arrival.
+		notice = ''; // As would a complaint about a file picked two visits ago.
 		const read = ++reads; // A reopen while a read is in flight must win.
 		loading = true;
 		bookmarks
@@ -69,6 +78,48 @@
 		await bookmarks.clear();
 		if (bookmarks.count === 0) items = [];
 	}
+
+	async function exportAll() {
+		try {
+			// Read back rather than handed the loaded list: another tab may have saved
+			// something since this drawer opened, and an export that quietly leaves it out
+			// is worse than one that takes a moment.
+			download(await bookmarks.list());
+		} catch {
+			notice = 'Could not export your bookmarks.';
+		}
+	}
+
+	async function pickFile(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		// Cleared straight away, so picking the same file twice still counts as a change.
+		input.value = '';
+		if (!file) return;
+
+		notice = '';
+		try {
+			// Capped because the name is the reader's, and a long one would push the dialog wide.
+			pending = { name: file.name.slice(0, 80), records: await readFile(file) };
+		} catch (e) {
+			notice = e instanceof Error ? e.message : 'Could not read that file.';
+		}
+	}
+
+	async function runImport(mode: ImportMode) {
+		const file = pending;
+		pending = undefined;
+		if (!file) return;
+
+		// A refusal is reported through bookmarks.error, which the drawer already shows.
+		// Anything else shows in the list below, which is the only report worth making.
+		if (!(await bookmarks.importAll(file.records, mode))) return;
+
+		items = await bookmarks.list().catch(() => items);
+		filter = '';
+	}
+
+	const plural = (n: number) => `${n} bookmark${n === 1 ? '' : 's'}`;
 
 	function host(url: string) {
 		try {
@@ -116,24 +167,30 @@
 	</Drawerhead>
 
 	{#if bookmarks.error}
-		<Alert color="red" class="mt-2 shrink-0">{bookmarks.error}</Alert>
+		<Alert color="red" class="mt-3 shrink-0">{bookmarks.error}</Alert>
 	{/if}
 
+	{#if notice}
+		<Alert color="red" class="mt-3 shrink-0">{notice}</Alert>
+	{/if}
+
+	<!-- flex-1 on the two states that have no list to grow: it is what holds the action
+	bar below on the bottom edge of the drawer rather than up under the message. -->
 	{#if loading}
-		<P class="mt-4 text-sm text-gray-500 dark:text-gray-400">Loading your bookmarks.</P>
+		<P class="mt-3 flex-1 text-sm text-gray-500 dark:text-gray-400">Loading your bookmarks.</P>
 	{:else if items.length === 0}
-		<P class="mt-4 text-sm text-gray-500 dark:text-gray-400">
-			No bookmarks yet. Save a result to find it here later.
+		<P class="mt-3 flex-1 text-sm text-gray-500 dark:text-gray-400">
+			No bookmarks yet. Save a result to find it here later, or import an export.
 		</P>
 	{:else}
 		<!-- Nothing to narrow until something is saved, so the field only exists alongside a list. -->
-		<div class="mt-2 shrink-0">
+		<div class="mt-3 shrink-0">
 			<Input
 				type="search"
 				bind:value={filter}
-				size="sm"
+				size="md"
 				placeholder="Filter saved posts..."
-				class="ps-9 placeholder-gray-400"
+				class="ps-10 placeholder-gray-400"
 				aria-label="Filter bookmarks"
 			>
 				{#snippet left()}
@@ -143,10 +200,10 @@
 		</div>
 
 		{#if visible.length === 0}
-			<P class="mt-4 text-sm text-gray-500 dark:text-gray-400">No saved posts match that filter.</P>
+			<P class="mt-3 text-sm text-gray-500 dark:text-gray-400">No saved posts match that filter.</P>
 		{:else}
 			<!-- The list takes the leftover space so the action bar can sit on the bottom edge. -->
-			<div class="mt-2 min-h-0 flex-1" bind:clientHeight={listHeight}>
+			<div class="mt-3 min-h-0 flex-1" bind:clientHeight={listHeight}>
 				<VirtualList items={visible} height={listHeight} minItemHeight={ROW_HEIGHT} contained>
 					{#snippet children(item: Bookmark)}
 						{@const published = formatDate(item.publishedAt)}
@@ -191,29 +248,78 @@
 				</VirtualList>
 			</div>
 		{/if}
+	{/if}
 
-		<div
-			class="mt-3 flex shrink-0 items-center gap-2 border-t border-gray-200 pt-3 dark:border-gray-700"
+	<!-- Outside the branch above, because importing is how a browser with none of its own
+	gets any: the bar is the one part of the drawer that has to be there when the list is
+	not. What it acts on is disabled instead. -->
+	<div
+		class="mt-3 flex shrink-0 items-center gap-2 border-t border-gray-200 pt-3 dark:border-gray-700"
+	>
+		<span class="text-xs text-gray-500 tabular-nums dark:text-gray-400" aria-live="polite">
+			{savedLabel}
+		</span>
+		<Button
+			color="alternative"
+			size="xs"
+			class="ms-auto gap-2"
+			disabled={items.length === 0}
+			onclick={exportAll}
 		>
-			<span class="text-xs text-gray-500 tabular-nums dark:text-gray-400">{savedLabel}</span>
-			<Button
-				color="red"
-				outline
-				size="xs"
-				class="ms-auto gap-2"
-				onclick={() => (confirming = true)}
-			>
-				<TrashBinOutline class="h-4 w-4" />
-				Remove all
-			</Button>
-			<Button color="alternative" size="xs" class="gap-2" onclick={() => download(items)}>
-				<DownloadOutline class="h-4 w-4" />
-				Export
-			</Button>
-			<Tooltip>Download your bookmarks as JSON</Tooltip>
+			<DownloadOutline class="h-4 w-4" />
+			Export
+		</Button>
+		<Tooltip>Download your bookmarks as JSON</Tooltip>
+		<Button color="alternative" size="xs" class="gap-2" onclick={() => picker?.click()}>
+			<UploadOutline class="h-4 w-4" />
+			Import
+		</Button>
+		<Tooltip>Read bookmarks back from a file you exported</Tooltip>
+		<!-- Last, and the one control here with no word beside it: three labels do not fit
+		the drawer, and a bin that opens a confirmation is the one that reads without one. -->
+		<Button
+			color="red"
+			outline
+			size="xs"
+			class="!px-2"
+			disabled={items.length === 0}
+			aria-label="Remove all bookmarks"
+			onclick={() => (confirming = true)}
+		>
+			<TrashBinOutline class="h-4 w-4" />
+		</Button>
+		<Tooltip>Remove all bookmarks</Tooltip>
+	</div>
+
+	<!-- The button above stands in for this, which no styling makes presentable. -->
+	<input
+		type="file"
+		accept="application/json,.json"
+		class="hidden"
+		bind:this={picker}
+		onchange={pickFile}
+	/>
+</Drawer>
+
+<!-- sm rather than xs, because three choices crowd the narrower foot. The file is read
+and understood before this opens, so the counts below are the ones that would apply. -->
+<Modal
+	title="Import bookmarks"
+	size="sm"
+	bind:open={() => pending !== undefined, (shown) => (pending = shown ? pending : undefined)}
+>
+	{#if pending}
+		<P class="text-sm text-gray-500 dark:text-gray-400">
+			<span class="font-medium break-all text-gray-900 dark:text-white">{pending.name}</span>
+			holds {plural(pending.records.length)}. You have {items.length} saved.
+		</P>
+		<div class="flex flex-wrap justify-end gap-2 pt-2">
+			<Button color="alternative" size="sm" onclick={() => (pending = undefined)}>Cancel</Button>
+			<Button color="red" size="sm" onclick={() => runImport('replace')}>Replace all</Button>
+			<Button size="sm" onclick={() => runImport('merge')}>Add to mine</Button>
 		</div>
 	{/if}
-</Drawer>
+</Modal>
 
 <!-- Emptying the store is the one action here that cannot be undone from the panel. -->
 <Modal title="Remove all bookmarks?" bind:open={confirming} size="xs">

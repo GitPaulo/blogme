@@ -29,6 +29,22 @@ export const remove = (url: string) => db.request(STORE, 'readwrite', (store) =>
 
 export const clear = () => db.request(STORE, 'readwrite', (store) => store.clear());
 
+/** One transaction for the batch, so an import either lands whole or not at all. */
+export const putAll = (items: Bookmark[]) =>
+	db.transact(STORE, 'readwrite', (store) => {
+		for (const item of items) store.put(item);
+	});
+
+/**
+ * Swaps the collection for another one. The empty and the fill share a transaction,
+ * because a failure between them would leave the reader with neither.
+ */
+export const replaceAll = (items: Bookmark[]) =>
+	db.transact(STORE, 'readwrite', (store) => {
+		store.clear();
+		for (const item of items) store.put(item);
+	});
+
 /** Keys only, so the common case never deserialises full records. */
 export const keys = () =>
 	db.request(STORE, 'readonly', (store) => store.getAllKeys()) as Promise<string[]>;

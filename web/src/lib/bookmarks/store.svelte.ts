@@ -12,6 +12,9 @@ const saved = new SvelteSet<string>();
 /** Keeps a runaway script or an accidental loop from filling the user's disk. */
 const MAX_BOOKMARKS = 5_000;
 
+/** What an import does with the bookmarks already saved. */
+export type ImportMode = 'merge' | 'replace';
+
 let ready = $state(false);
 let error = $state('');
 
@@ -87,6 +90,39 @@ export const bookmarks = {
 			saved.add(url);
 			error = 'Could not save your change.';
 		}
+	},
+
+	/**
+	 * Takes in a parsed export. `merge` keeps what is already saved and adds the rest;
+	 * `replace` swaps the collection for the file. Resolves true once it has landed, and
+	 * false when nothing was written — the reason is on `error`.
+	 *
+	 * Written before the in-memory keys are touched, unlike a single toggle: an import is
+	 * too large to unpick, so it is the store that has to agree it landed.
+	 */
+	async importAll(records: db.Bookmark[], mode: ImportMode) {
+		// Deduplicated against the collection rather than overwriting it: a post saved
+		// here already is the same post, and its own savedAt is the honest one.
+		const incoming =
+			mode === 'merge' ? records.filter((record) => !saved.has(record.url)) : records;
+		const total = mode === 'merge' ? saved.size + incoming.length : incoming.length;
+		if (total > MAX_BOOKMARKS) {
+			error = `That would take you past ${MAX_BOOKMARKS} bookmarks. Remove some, or import a smaller file.`;
+			return false;
+		}
+
+		try {
+			error = '';
+			if (mode === 'replace') await db.replaceAll(records);
+			else await db.putAll(incoming);
+		} catch {
+			error = 'Could not save your change.';
+			return false;
+		}
+
+		if (mode === 'replace') saved.clear();
+		for (const record of records) saved.add(record.url);
+		return true;
 	},
 
 	async clear() {
