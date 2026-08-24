@@ -30,3 +30,6 @@ sources/tools/build.log
 /.vscode/
 .DS_Store
 Thumbs.db
+
+# Written by infra/repair-authors.sh before it patches the index.
+author-repair-rollback.json
