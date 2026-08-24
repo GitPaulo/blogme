@@ -379,7 +379,7 @@
 <main class="mx-auto max-w-3xl px-6 py-16">
 	<Heading tag="h1" class="mb-2">blogme</Heading>
 	<P class="mb-8 text-gray-500 dark:text-gray-400">
-		Find human-written, long-form blog posts worth reading.
+		A search engine for tech blogs.
 	</P>
 
 	<form {onsubmit} role="search" bind:this={searchForm}>
