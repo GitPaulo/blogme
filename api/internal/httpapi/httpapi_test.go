@@ -75,6 +75,16 @@ func get(t *testing.T, h *Handlers, target string) *httptest.ResponseRecorder {
 	return rec
 }
 
+// window builds n distinct documents, each from its own source so the cap never fires.
+func window(n int) string {
+	docs := make([]string, n)
+	for i := range n {
+		docs[i] = fmt.Sprintf(
+			`{"url":"https://example.com/%03d","title":"Post %03d","sourceId":"s%d"}`, i, i, i)
+	}
+	return strings.Join(docs, ",")
+}
+
 func TestSearchReportsPageAndTotal(t *testing.T) {
 	h := newTestHandlers(t, `{"@odata.count":137,"value":[{"url":"https://example.com/post","title":"A post"}]}`)
 
@@ -90,6 +100,38 @@ func TestSearchReportsPageAndTotal(t *testing.T) {
 
 	if body.Count != 1 || body.Total != 137 || body.Offset != 20 {
 		t.Errorf("got count=%d total=%d offset=%d, want 1, 137 and 20", body.Count, body.Total, body.Offset)
+	}
+}
+
+// Total counts documents and the per-source cap drops rows, so a client that has
+// paged to the end still holds fewer rows than Total. It cannot infer that from the
+// numbers alone — which is what left "load more" dead beside "26 of 27" — so the
+// answer has to carry the flag, under the name the browser reads.
+func TestSearchReportsExhaustion(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		want bool
+	}{
+		{"short window", `{"@odata.count":137,"value":[{"url":"https://example.com/a","title":"A"}]}`, true},
+		{"full window", fmt.Sprintf(`{"@odata.count":137,"value":[%s]}`, window(60)), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := get(t, newTestHandlers(t, tc.body), "/api/search?q=go")
+			if rec.Code != http.StatusOK {
+				t.Fatalf("got status %d, want 200", rec.Code)
+			}
+
+			var body struct {
+				Exhausted bool `json:"exhausted"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if body.Exhausted != tc.want {
+				t.Errorf("exhausted = %v, want %v", body.Exhausted, tc.want)
+			}
+		})
 	}
 }
 

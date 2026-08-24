@@ -175,8 +175,13 @@ type searchResponse struct {
 	// NextOffset is the offset to ask for to continue from here. A client must use
 	// it rather than adding its own page size: the per-source cap drops rows after
 	// ranking, so a page is wider than the rows it returns. See index.Page.
-	NextOffset int              `json:"nextOffset"`
-	Results    []article.Result `json:"results"`
+	NextOffset int `json:"nextOffset"`
+	// Exhausted says this page reached the end of the index. A client that has paged
+	// to here holds every row there is, and holds fewer than Total, which counts the
+	// documents the per-source cap dropped along with the ones it kept. See
+	// index.Page.Exhausted.
+	Exhausted bool             `json:"exhausted"`
+	Results   []article.Result `json:"results"`
 }
 
 // searchParams is a search request that has already been checked over.
@@ -346,6 +351,7 @@ func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
 		Total:      page.Total,
 		Offset:     p.offset,
 		NextOffset: page.NextOffset,
+		Exhausted:  page.Exhausted,
 		Results:    page.Results,
 	})
 }

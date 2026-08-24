@@ -32,6 +32,14 @@ export type SearchResponse = {
 	 * whatever it dropped. Mirrors index.Page.NextOffset.
 	 */
 	nextOffset: number;
+	/**
+	 * Whether this page reached the end of the index. When it has, the rows gathered so
+	 * far are every row there is — and there are fewer of them than `total`, which counts
+	 * documents including the ones the API's per-source cap dropped after ranking. Left
+	 * to infer this from `nextOffset` against `total`, the UI showed "26 of 27" beside a
+	 * dead button. Mirrors index.Page.Exhausted.
+	 */
+	exhausted: boolean;
 	results: SearchResult[];
 };
 
@@ -178,6 +186,10 @@ function toResponse(body: unknown, query: string, offset: number): SearchRespons
 		total: Math.max(reported, offset + results.length),
 		offset,
 		nextOffset: Math.max(advanced, offset + PAGE_SIZE),
+		// Only an actual boolean is an answer, as with framingDenied above. An older API
+		// that does not send it says nothing, and nothing has to read as "there may be
+		// more": claiming the end early would strand every result past this page.
+		exhausted: raw.exhausted === true,
 		results
 	};
 }

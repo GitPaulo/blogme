@@ -210,6 +210,18 @@ type Page struct {
 	// the cap is working on a query, which is worth a log line: the absence of that
 	// number is why a page returning three rows of twenty went unnoticed.
 	Read int
+	// Exhausted reports that this page reached the end of the index: there is nothing
+	// further to fetch, whatever Total says.
+	//
+	// The two disagree because Total counts documents and a page holds rows, and the
+	// per-source cap throws rows away after the index has ranked them. Those documents
+	// are counted and unreachable both, so a caller that paged to the end still holds
+	// fewer rows than Total promised — live, "photolithography" ends at 26 rows of a
+	// claimed 27, and "sean goedecke" at 71 of 104. A caller can only tell that it has
+	// everything by being told; inferring it from NextOffset against Total means
+	// re-deriving this, and gets no answer at all in the cases where paging stops for
+	// some other reason.
+	Exhausted bool
 }
 
 // Ready reports whether this instance can actually read the index.
@@ -391,17 +403,20 @@ func selectPage(resp searchResponse, offset, limit, fetch int) Page {
 		out = append(out, r)
 	}
 
-	next := offset + read
 	// Reaching the end of a window that was already short of what was asked for means
-	// the index has nothing further, whatever the count says — so say so, or a caller
-	// paging by NextOffset keeps coming back for the same empty window until its own
-	// guard rail stops it. Both halves matter: a short window the page filled from
-	// before running out still has documents left in it.
-	if read == len(resp.Value) && len(resp.Value) < fetch {
+	// the index has nothing further, whatever the count says. Both halves matter: a
+	// short window the page filled from before running out still has documents left
+	// in it.
+	exhausted := read == len(resp.Value) && len(resp.Value) < fetch
+
+	next := offset + read
+	// Or a caller paging by NextOffset keeps coming back for the same empty window
+	// until its own guard rail stops it.
+	if exhausted {
 		next = max(next, resp.Total)
 	}
 
-	return Page{Results: out, Total: resp.Total, NextOffset: next, Read: read}
+	return Page{Results: out, Total: resp.Total, NextOffset: next, Read: read, Exhausted: exhausted}
 }
 
 func (i *Index) do(ctx context.Context, method, path string, body, out any) error {

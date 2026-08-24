@@ -59,6 +59,11 @@
 	let semanticRanking = $state(false);
 	let total = $state(0);
 	let nextOffset = $state(0);
+	// Whether the index has run out. Kept apart from the numbers because it is the only
+	// honest source for "that is all there is": the API drops rows that put one blog
+	// over its share, so the rows on screen stop short of the total by an amount nothing
+	// here can predict.
+	let exhausted = $state(false);
 	let status = $state<'idle' | 'loading' | 'done' | 'error'>('idle');
 	let loadingMore = $state(false);
 	let error = $state('');
@@ -85,10 +90,12 @@
 	const searchable = $derived(term.length >= MIN_QUERY_LENGTH);
 	const tooShort = $derived(term.length > 0 && !searchable);
 	const rank = $derived<Rank>(semanticRanking ? 'semantic' : 'keyword');
-	// How deep "load more" may go depends on the mode, because only semantic ranking
-	// has a reranked window to run out of.
+	// Three separate ways to be out of results, and the reader meets all three. The index
+	// itself runs out, which only it can report; the count runs out; and the ranking mode
+	// runs out of ordering it can vouch for, which is a limit only semantic has, because
+	// only it has a reranked window to reach the end of.
 	const hasMore = $derived(
-		status === 'done' && nextOffset < total && nextOffset <= maxOffsetFor(rank)
+		status === 'done' && !exhausted && nextOffset < total && nextOffset <= maxOffsetFor(rank)
 	);
 	const filtered = $derived(
 		applyFilters(results, filters, {
@@ -104,10 +111,16 @@
 	const shown = $derived(filtered.length);
 	const totalLabel = $derived(decimal.format(total));
 	const partial = $derived(isFiltered(filters));
+	// "about", until the index says there is nothing left. The figure it reports counts
+	// documents, and rows are dropped from them after ranking, so it is an upper bound
+	// on what paging can reach rather than a number the reader will ever see reached —
+	// which as a flat "of 27" reads as a promise, and one the last page always breaks.
 	const summary = $derived(
 		partial
 			? `Showing ${shown} of ${loaded} loaded ${loaded === 1 ? 'result' : 'results'}`
-			: `Showing ${loaded} of ${totalLabel} ${total === 1 ? 'result' : 'results'}`
+			: exhausted
+				? `Showing all ${totalLabel} ${total === 1 ? 'result' : 'results'}`
+				: `Showing ${loaded} of about ${totalLabel} ${total === 1 ? 'result' : 'results'}`
 	);
 	// These filters narrow the rows already fetched rather than the query behind them,
 	// so the figure they are counted against climbs every time another page arrives.
@@ -238,8 +251,16 @@
 			});
 			// A newer search (or a cleared query) owns the UI now, so drop this answer.
 			if (controller !== current) return false;
-			results = offset === 0 ? response.results : merge(results, response.results);
-			total = response.total;
+			const merged = offset === 0 ? response.results : merge(results, response.results);
+			results = merged;
+			// Reaching the end settles the count. Until then it is the index's figure,
+			// which counts documents rather than rows and so overstates what paging can
+			// actually reach — the rows dropped for putting one blog over its share are
+			// counted there and unreachable both. Once there is nothing left to fetch,
+			// what is on screen is the whole answer and is the only figure that will not
+			// leave the reader waiting on a result that does not exist.
+			total = response.exhausted ? merged.length : response.total;
+			exhausted = response.exhausted;
 			// The API's figure rather than a stride of our own: it drops rows that put
 			// one blog over its share of a page, so a page is wider than the rows it
 			// returns, and counting by page size would step over whatever it dropped.
@@ -260,6 +281,7 @@
 				results = [];
 				total = 0;
 				nextOffset = 0;
+				exhausted = false;
 				status = 'error';
 			}
 			return false;
@@ -345,6 +367,7 @@
 			filters = emptyFilters();
 			total = 0;
 			nextOffset = 0;
+			exhausted = false;
 			error = '';
 			status = 'idle';
 			syncUrl(''); // No search to describe, so the address goes back to bare.

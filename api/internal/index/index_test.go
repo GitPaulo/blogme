@@ -567,6 +567,51 @@ func TestQueryNextOffsetStopsPagingWhenTheIndexRunsOut(t *testing.T) {
 		t.Errorf("NextOffset = %d with total %d, so paging would continue past the end",
 			page.NextOffset, page.Total)
 	}
+	if !page.Exhausted {
+		t.Error("Exhausted = false at the end of the index")
+	}
+}
+
+// A page that filled from a full window has not reached the end, and saying it had
+// would strand every result past it.
+func TestQueryIsNotExhaustedWhileTheIndexHasMore(t *testing.T) {
+	srv := windowServer(t, dominatedBy(0, 100))
+
+	page := query(t, New(srv.URL, "articles", "test-key", ""), "q",
+		QueryOptions{Limit: 20, Fetch: 60})
+
+	if page.Exhausted {
+		t.Errorf("Exhausted = true with %d of %d documents read", page.Read, page.Total)
+	}
+}
+
+// The count and the rows answer different questions, and the gap between them is the
+// per-source cap: Total counts documents, including the ones the cap will discard.
+// A caller told only "26 of 27" cannot tell a page it is missing from one that does
+// not exist, which is what left the live "load more" dead beside a count that still
+// promised another result. Exhausted is the difference, so it has to survive the case
+// that produced the complaint — a last page whose rows fall short of the total.
+func TestQueryReportsExhaustionEvenWhenRowsFallShortOfTheTotal(t *testing.T) {
+	const corpus = 27
+
+	// Five posts from one blog, as "photolithography" had: the cap keeps three.
+	srv := windowServer(t, dominatedBy(5, corpus))
+	idx := New(srv.URL, "articles", "test-key", "")
+
+	page := query(t, idx, "q", QueryOptions{Limit: 50, Fetch: 150})
+
+	if !page.Exhausted {
+		t.Fatalf("Exhausted = false having read all %d documents", corpus)
+	}
+	if len(page.Results) >= page.Total {
+		t.Fatalf("got %d rows of %d documents — the fixture is not capped, so it cannot show the gap",
+			len(page.Results), page.Total)
+	}
+	// The point of the flag: the shortfall is the cap doing its job, not a page left
+	// unread, and only the flag says which.
+	if want := corpus - (5 - maxPerSource); len(page.Results) != want {
+		t.Errorf("got %d rows, want %d", len(page.Results), want)
+	}
 }
 
 // A document's key is its source and its URL together, so one article listed under
