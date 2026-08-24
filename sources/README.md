@@ -141,6 +141,10 @@ flowchart LR
    the links dropped that way found roughly three quarters of them alive.
 6. **Describe.** Survivors get a name from their feed title, `og:site_name` or `<title>`,
    an RSS/Atom feed if one can be found, and subject tags scored against the vocabulary.
+   A title belonging to a bot check or a redirect stub rather than to the blog is
+   refused, so the site falls back to its domain instead of being called
+   "One moment, please..."; the site's name is unknown either way, but only one of
+   those is written into every article's author.
    A feed the last build recorded is re-checked and kept unless it is definitely gone;
    a feed lookup that merely timed out no longer erases one.
 7. **Override.** [`blogs-overrides.yml`](blogs-overrides.yml) is merged in, so a

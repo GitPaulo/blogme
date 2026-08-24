@@ -233,11 +233,22 @@ def site_key(site: str) -> str:
     return f"{host}{(parsed.path or '').rstrip('/')}"
 
 
+# Labels a registry puts between the name and the country code, e.g. the "co" of
+# example.co.uk. Without them the last-resort name of every British blog is "Co".
+REGISTRY_LABELS = {
+    "co", "com", "org", "net", "gov", "edu", "ac", "or", "ne", "go", "in", "web",
+    "info", "nom", "gouv", "mil", "sch", "gob", "gr", "lg", "me", "ltd", "plc",
+}
+
+
 def domain_name(site: str) -> str:
     """Last-resort display name, e.g. https://www.example.com/ -> Example."""
     host = urlparse(site).hostname or site
     host = host.removeprefix("www.")
     labels = host.split(".")
+    # example.co.uk names the blog in its third label from the right, not its second.
+    if len(labels) >= 3 and labels[-2] in REGISTRY_LABELS and len(labels[-1]) <= 3:
+        return labels[-3].replace("-", " ").title()
     if len(labels) >= 2:
         return labels[-2].replace("-", " ").title()
     return host.replace("-", " ").title()
