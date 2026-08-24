@@ -77,8 +77,12 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       # Core Tools compiles the Go worker and publishes it, reusing the Azure CLI login.
+      # Pinned rather than floating on @4: 4.14.0 ships an npm-shrinkwrap.json
+      # that resolves chalk from a private Azure DevOps feed, so installing it
+      # 401s for everyone outside Microsoft. 4.13.2 is the last good release.
+      # Unpin once upstream republishes.
       - name: Install Azure Functions Core Tools
-        run: npm install -g azure-functions-core-tools@4
+        run: npm install -g azure-functions-core-tools@4.13.2
 
       - name: Publish
         env:
