@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
-# Repairs the author of documents indexed under a bot-check page title.
+# Repairs article authors copied from a source name that was wrong.
 #
-# The extractor used to read a challenge page's <title> as the blog's name, and that
-# name is the author fallback in crawl.go and sitemap.go. Fixing the extractor stops
-# it recurring but does not reach documents already indexed: toArticle calls
-# skipStored before it builds an article, so a re-crawl never rewrites their author.
+# The source name is the author fallback in crawl.go and sitemap.go, so a source named
+# wrongly puts that name on every post it has. Fixing the extractor stops it recurring
+# but does not reach documents already indexed: toArticle calls skipStored before it
+# builds an article, so a re-crawl never rewrites their author.
 #
-# Dry run by default; pass --apply to write. Safe to re-run: a document whose author
-# is already correct no longer matches, so a second pass finds nothing.
+#   infra/repair-authors.sh --mode interstitial     names read off a bot-check page
+#   infra/repair-authors.sh --mode platform         *.github.io blogs named "Github"
+#
+# Dry run by default; add --apply to write. Safe to re-run: a document whose author is
+# already correct no longer matches, so a second pass finds nothing.
 
 set -euo pipefail
 
