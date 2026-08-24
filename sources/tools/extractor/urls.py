@@ -243,15 +243,30 @@ REGISTRY_LABELS = {
 
 def domain_name(site: str) -> str:
     """Last-resort display name, e.g. https://www.example.com/ -> Example."""
-    host = urlparse(site).hostname or site
-    host = host.removeprefix("www.")
+    parsed = urlparse(site)
+    host = (parsed.hostname or site).lower().removeprefix("www.")
     labels = host.split(".")
-    # example.co.uk names the blog in its third label from the right, not its second.
-    if len(labels) >= 3 and labels[-2] in REGISTRY_LABELS and len(labels[-1]) <= 3:
-        return labels[-3].replace("-", " ").title()
-    if len(labels) >= 2:
-        return labels[-2].replace("-", " ").title()
-    return host.replace("-", " ").title()
+    segments = [s for s in (parsed.path or "").split("/") if s]
+
+    if host.endswith(MULTI_TENANT_HOST_SUFFIXES) and len(labels) >= 3:
+        # On a platform the writer is the tenant, not the platform: every *.github.io
+        # belongs to a different person, so naming all of them "Github" throws away
+        # the one part of the host that says whose blog this is. Which half holds the
+        # tenant is the same split drop_platform_roots makes — the subdomain here,
+        # the first path segment below.
+        name = labels[-3]
+    elif host in MULTI_TENANT_HOSTS and segments:
+        name = segments[0].lstrip("@~")
+    elif len(labels) >= 3 and labels[-2] in REGISTRY_LABELS and len(labels[-1]) <= 3:
+        # example.co.uk names the blog in its third label from the right, not its
+        # second. Without this every British blog is called "Co".
+        name = labels[-3]
+    elif len(labels) >= 2:
+        name = labels[-2]
+    else:
+        name = host
+
+    return name.replace("-", " ").title()
 
 
 def registrable_domain(host: str) -> str:

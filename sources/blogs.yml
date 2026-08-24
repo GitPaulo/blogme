@@ -82630,240 +82630,240 @@ sources:
     site: https://about.gitea.com/
     tags: [software-engineering]
   - id: 0mwindybug
-    name: Github
+    name: 0Mwindybug
     site: https://0mwindybug.github.io/
     feed: https://0mwindybug.github.io/feed.xml
     kind: [personal-blogs, independent-web, small-web]
     tags: [tech]
   - id: aibaranov
-    name: Github
+    name: Aibaranov
     site: https://aibaranov.github.io/
     feed: https://aibaranov.github.io/feed.xml
     kind: [personal-blogs, independent-web, small-web]
     tags: [security, ai, books]
   - id: alexiajm
-    name: Github
+    name: Alexiajm
     site: https://alexiajm.github.io/
     feed: https://alexiajm.github.io/feed
     kind: [personal-blogs, independent-web, small-web]
     tags: [tech]
   - id: alonely0
-    name: Github
+    name: Alonely0
     site: https://alonely0.github.io/
     feed: https://alonely0.github.io/rss
     kind: [personal-blogs, independent-web, small-web]
     tags: [tech]
   - id: amjd
-    name: Github
+    name: Amjd
     site: https://amjd.github.io/
     tags: [software-engineering]
   - id: bodowd
-    name: Github
+    name: Bodowd
     site: https://bodowd.github.io/
     feed: https://bodowd.github.io/atom.xml
     kind: [personal-blogs, independent-web, small-web]
     tags: [databases]
   - id: c-daniele
-    name: Github
+    name: C Daniele
     site: https://c-daniele.github.io/
     kind: [personal-blogs, independent-web, small-web]
     tags: [tech]
   - id: concrete-mixer
-    name: Github
+    name: Concrete Mixer
     site: https://concrete-mixer.github.io/
     feed: https://concrete-mixer.github.io/feed.xml
     kind: [personal-blogs, independent-web, small-web]
     tags: [tech]
   - id: cousinthrockmorton
-    name: Github
+    name: Cousinthrockmorton
     site: https://cousinthrockmorton.github.io/
     feed: https://cousinthrockmorton.github.io/feed.xml
     kind: [personal-blogs, independent-web, small-web]
     tags: [ai, machine-learning, philosophy, education]
   - id: cyberroute
-    name: Github
+    name: Cyberroute
     site: https://cyberroute.github.io/
     feed: https://cyberroute.github.io/index.xml
     kind: [personal-blogs, independent-web, small-web]
     tags: [software-engineering, devops, cloud, security]
   - id: danluucination
-    name: Github
+    name: Danluucination
     site: https://danluucination.github.io/
     feed: https://danluucination.github.io/atom.xml
     kind: [personal-blogs, independent-web, small-web]
     tags: [ai]
   - id: danveloper
-    name: Github
+    name: Danveloper
     site: https://danveloper.github.io/
     tags: [tech]
   - id: dbonattoj
-    name: Github
+    name: Dbonattoj
     site: https://dbonattoj.github.io/
     feed: https://dbonattoj.github.io/feed
     kind: [personal-blogs, independent-web, small-web]
     tags: [software-engineering, rust, ai, machine-learning, writing, education]
   - id: denniskniep
-    name: Github
+    name: Denniskniep
     site: https://denniskniep.github.io/
     feed: https://denniskniep.github.io/index.xml
     kind: [personal-blogs, independent-web, small-web]
     tags: [security]
   - id: dubiousconst282
-    name: Github
+    name: Dubiousconst282
     site: https://dubiousconst282.github.io/
     feed: https://dubiousconst282.github.io/feed.xml
     kind: [personal-blogs, independent-web, small-web]
     tags: [tech]
   - id: edwloef-posts
-    name: Github
+    name: Edwloef
     site: https://edwloef.github.io/posts/
     feed: https://edwloef.github.io/posts/feed
     kind: [personal-blogs, independent-web, small-web]
     tags: [tech]
   - id: facebook
-    name: Github
+    name: Facebook
     site: https://facebook.github.io/
     tags: [software-engineering]
   - id: ferjm
-    name: Github
+    name: Ferjm
     site: https://ferjm.github.io/
     feed: https://ferjm.github.io/feed.xml
     tags: [rust]
   - id: ftyers-079-osnov-programm
-    name: Github
+    name: Ftyers
     site: https://ftyers.github.io/079-osnov-programm/
     tags: [tech]
   - id: fusion809
-    name: Github
+    name: Fusion809
     site: https://fusion809.github.io/
     tags: [software-engineering]
   - id: gabizon103
-    name: Github
+    name: Gabizon103
     site: https://gabizon103.github.io/
     feed: https://gabizon103.github.io/atom.xml
     kind: [personal-blogs, independent-web, small-web]
     tags: [tech]
   - id: gabrielfalcao
-    name: Github
+    name: Gabrielfalcao
     site: https://gabrielfalcao.github.io/
     feed: https://gabrielfalcao.github.io/atom.xml
     kind: [personal-blogs, independent-web, small-web]
     tags: [web-development]
   - id: guysrd
-    name: Github
+    name: Guysrd
     site: https://guysrd.github.io/
     feed: https://guysrd.github.io/feed.xml
     kind: [personal-blogs, independent-web, small-web]
     tags: [linux]
   - id: hellfish2
-    name: Github
+    name: Hellfish2
     site: https://hellfish2.github.io/
     feed: https://hellfish2.github.io/feed
     tags: [linux, design]
   - id: jbargu
-    name: Github
+    name: Jbargu
     site: https://jbargu.github.io/
     kind: [personal-blogs, independent-web, small-web]
     tags: [tech]
   - id: jonrimmer
-    name: Github
+    name: Jonrimmer
     site: https://jonrimmer.github.io/
     feed: https://jonrimmer.github.io/feed
     kind: [personal-blogs, independent-web, small-web]
     tags: [web-development]
   - id: josephtlucas-blog
-    name: Github
+    name: Josephtlucas
     site: https://josephtlucas.github.io/blog/
     tags: [ai, machine-learning]
   - id: kardesler-blog
-    name: Github
+    name: Kardesler
     site: https://kardesler.github.io/blog/
     tags: [software-engineering]
   - id: laurentlegrand
-    name: Github
+    name: Laurentlegrand
     site: https://laurentlegrand.github.io/
     feed: https://laurentlegrand.github.io/atom.xml
     tags: [software-engineering]
   - id: libero-project
-    name: Github
+    name: Libero Project
     site: https://libero-project.github.io/
     tags: [ai, machine-learning]
   - id: matthewdeeprose
-    name: Github
+    name: Matthewdeeprose
     site: https://matthewdeeprose.github.io/
     feed: https://matthewdeeprose.github.io/feed.rss
     kind: [personal-blogs, independent-web, small-web]
     tags: [web-development, design, education]
   - id: matthewkmayer-blag
-    name: Github
+    name: Matthewkmayer
     site: https://matthewkmayer.github.io/blag/
     kind: [personal-blogs, independent-web, small-web]
     tags: [tech]
   - id: melaniewalsh-intro-cultural-analytics
-    name: Github
+    name: Melaniewalsh
     site: https://melaniewalsh.github.io/Intro-Cultural-Analytics/
     tags: [tech]
   - id: nv1t-blog
-    name: Github
+    name: Nv1T
     site: https://nv1t.github.io/blog/
     feed: https://nv1t.github.io/blog/index.xml
     kind: [personal-blogs, independent-web, small-web]
     tags: [security, hardware]
   - id: omarghader
-    name: Github
+    name: Omarghader
     site: https://omarghader.github.io/
     feed: https://omarghader.github.io/index.xml
     kind: [personal-blogs, independent-web, small-web]
     tags: [devops]
   - id: php-webdriver-php-webdriver
-    name: Github
+    name: Php Webdriver
     site: https://php-webdriver.github.io/php-webdriver/
     tags: [tech]
   - id: qiangtou
-    name: Github
+    name: Qiangtou
     site: https://qiangtou.github.io/
     tags: [software-engineering]
   - id: ramsayleung
-    name: Github
+    name: Ramsayleung
     site: https://ramsayleung.github.io/
     kind: [personal-blogs, independent-web, small-web]
     tags: [tech]
   - id: raphaelouthier
-    name: Github
+    name: Raphaelouthier
     site: https://raphaelouthier.github.io/
     feed: https://raphaelouthier.github.io/index.xml
     kind: [personal-blogs, independent-web, small-web]
     tags: [linux]
   - id: ravensanstete
-    name: Github
+    name: Ravensanstete
     site: https://ravensanstete.github.io/
     kind: [personal-blogs, independent-web, small-web]
     tags: [tech]
   - id: rohan-kekatpure
-    name: Github
+    name: Rohan Kekatpure
     site: https://rohan-kekatpure.github.io/
     feed: https://rohan-kekatpure.github.io/feed.xml
     kind: [personal-blogs, independent-web, small-web]
     tags: [tech]
   - id: suzyahyah
-    name: Github
+    name: Suzyahyah
     site: https://suzyahyah.github.io/
     feed: https://suzyahyah.github.io/feed.xml
     kind: [personal-blogs, independent-web, small-web]
     tags: [machine-learning]
   - id: thecloudlet
-    name: Github
+    name: Thecloudlet
     site: https://thecloudlet.github.io/
     kind: [personal-blogs, independent-web, small-web]
     tags: [tech]
   - id: u1f383
-    name: Github
+    name: U1F383
     site: https://u1f383.github.io/
     feed: https://u1f383.github.io/feed.xml
     kind: [personal-blogs, independent-web, small-web]
     tags: [tech]
   - id: wh0
-    name: Github
+    name: Wh0
     site: https://wh0.github.io/
     kind: [personal-blogs, independent-web, small-web]
     tags: [tech]
@@ -92732,7 +92732,7 @@ sources:
     site: https://fssnip.net/
     tags: [tech]
   - id: williamhuey
-    name: Github
+    name: Williamhuey
     site: https://williamhuey.github.io/
     feed: https://williamhuey.github.io/atom.xml
     tags: [software-engineering, web-development, linux]
@@ -177298,23 +177298,23 @@ sources:
     feed: https://qfield.org/feed.xml
     tags: [tech]
   - id: qiita-hurukiyokimura
-    name: Qiita
+    name: Hurukiyokimura
     site: https://qiita.com/hurukiyokimura/
     tags: [software-engineering]
   - id: qiita-macer-fkm
-    name: Qiita
+    name: Macer_Fkm
     site: https://qiita.com/macer_fkm/
     tags: [software-engineering]
   - id: qiita-organizations
-    name: Qiita
+    name: Organizations
     site: https://qiita.com/organizations/
     tags: [tech]
   - id: qiita-ryuichi1208
-    name: Qiita
+    name: Ryuichi1208
     site: https://qiita.com/ryuichi1208/
     tags: [software-engineering]
   - id: qiita-yamato225
-    name: Qiita
+    name: Yamato225
     site: https://qiita.com/yamato225/
     tags: [software-engineering]
   - id: help-qiita
@@ -181753,7 +181753,7 @@ sources:
     kind: [personal-blogs, independent-web, small-web]
     tags: [tech]
   - id: heiswayi
-    name: Github
+    name: Heiswayi
     site: https://heiswayi.github.io/
     tags: [software-engineering]
   - id: hexagontk
@@ -181771,11 +181771,11 @@ sources:
     kind: [personal-blogs, independent-web, small-web]
     tags: [tech]
   - id: stedolan-jq
-    name: Github
+    name: Stedolan
     site: https://stedolan.github.io/jq/
     tags: [tech]
   - id: arviz-devs-arviz
-    name: Github
+    name: Arviz Devs
     site: https://arviz-devs.github.io/arviz/
     tags: [tech]
   - id: lists-ibiblio
@@ -181783,12 +181783,12 @@ sources:
     site: https://lists.ibiblio.org/
     tags: [tech]
   - id: lifeodyssey
-    name: Github
+    name: Lifeodyssey
     site: https://lifeodyssey.github.io/
     kind: [independent-web, small-web]
     tags: [tech]
   - id: bepbop
-    name: Github
+    name: Bepbop
     site: https://bepbop.github.io/
     kind: [personal-blogs, independent-web, small-web]
     tags: [tech]
@@ -181803,7 +181803,7 @@ sources:
     kind: [personal-blogs, independent-web, small-web]
     tags: [tech]
   - id: alexjoverm-series
-    name: Github
+    name: Alexjoverm
     site: https://alexjoverm.github.io/series/
     tags: [tech]
   - id: anycable-blog
@@ -181815,7 +181815,7 @@ sources:
     site: https://dst.faz.net/
     tags: [tech]
   - id: sschueller
-    name: Github
+    name: Sschueller
     site: https://sschueller.github.io/
     feed: https://sschueller.github.io/index.xml
     kind: [personal-blogs]
