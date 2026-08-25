@@ -23,12 +23,20 @@ field stuffed with the query term beats an article about it.**
 Once per article, from the text already in the index. Nothing here needs a re-crawl,
 an external service, or a language model.
 
-```text
-gates  =  is_article  ×  long_enough  ×  english
-merit  =  0.7 × richness  +  0.3 × provenance
+```mermaid
+flowchart LR
+    G1["is_article<br/>not a root, an archive,<br/>a site name or an intro"] --> GATES["gates<br/>multiplied together"]
+    G2["long_enough<br/>0 at 60 words, 1 at 400"] --> GATES
+    G3["english<br/>1, or 0.25 if not"] --> GATES
 
-qContent = gates × merit
-quality  = qContent + (1 - qContent) × 0.25 × qPopularity
+    M1["richness<br/>distinct words<br/>in the first 200"] -->|"× 0.7"| MERIT["merit<br/>added together"]
+    M2["provenance<br/>feed 1, sitemap 0.5"] -->|"× 0.3"| MERIT
+
+    GATES -->|"×"| QC["qContent"]
+    MERIT -->|"×"| QC
+    QC --> Q["quality"]
+
+    POP["qPopularity<br/>Hacker News, by site"] -->|"closes a quarter<br/>of the gap to 1"| Q
 ```
 
 **Gates multiply, merit adds.** The gates are conditions rather than opinions: a
@@ -61,10 +69,16 @@ anyway. Hacker News is free, unauthenticated, and where this corpus's readers ac
 circulate. It is asked **by site rather than by article**, which turns 600,000 lookups
 into 46,000 and makes a full sweep affordable.
 
-It can only ever add. Most good blogs have never appeared on Hacker News at all, and
-reading that absence as a verdict would rank by fame. Written as a share of the
-distance still to travel rather than as a weighted average, so an article nobody has
-heard of can still score a perfect 1.
+It can only ever add:
+
+```text
+quality = qContent + (1 - qContent) × 0.25 × qPopularity
+```
+
+Most good blogs have never appeared on Hacker News at all, and reading that absence as
+a verdict would rank by fame. Written as a share of the distance still to travel rather
+than as a weighted average, because an average would cap an article nobody has heard of
+below one that has been shared. Here a perfect article scores 1 either way.
 
 Answers are matched on exact host, because thousands of sources here are subdomains of
 a handful of blogging platforms and a loose match would hand every blog on
@@ -72,7 +86,20 @@ a handful of blogging platforms and a loose match would hand every blog on
 
 ## How it drains
 
-There is no queue and no cursor. An article leaves the unscored set by being scored:
+There is no queue and no cursor. An article leaves the unscored set by being scored, so
+the set is its own backlog:
+
+```mermaid
+flowchart TD
+    T["Timer fires"] --> R["Read the head of<br/>the unscored set"]
+    R --> J["Judge them from the<br/>text already indexed"]
+    J --> M["Merge the figures onto<br/>the same documents"]
+    M --> G["They leave the unscored set"]
+    G -.->|"budget left"| R
+    G -.->|"budget spent, or<br/>nothing left to judge"| E["Pass ends"]
+```
+
+The set is read with one query and no paging:
 
 ```text
 filter: qualityVersion eq null or qualityVersion lt <version>
@@ -80,10 +107,13 @@ orderby: publishedAt desc
 top: 1000            ← no skip, so no paging limit to run into
 ```
 
-Each pass takes the head of that set, judges it, and merges the figures back. The set
-shrinks by exactly what was done, so a corpus of any size drains in as many passes as
-it takes and then costs one query a pass forever after. Newest first, so a corpus still
-draining spends its effort where readers are looking.
+The set shrinks by exactly what was done, so a corpus of any size drains in as many
+passes as it takes and then costs one query a pass forever after. Newest first, so a
+corpus still draining spends its effort where readers are looking.
+
+A run also remembers what it has already handled. A score is accepted before it is
+searchable, so without that a pass re-reads the same head while indexing catches up —
+judging two articles took nineteen rounds and reported thirty-eight.
 
 Two consequences worth knowing:
 
@@ -101,10 +131,24 @@ document would be returned by searches as a row with no title and no link.
 ## How it reaches the results
 
 One `magnitude` function on the `quality` field, inside a scoring profile. Azure AI
-Search applies a profile twice: once during keyword ranking, and — because the semantic
-configuration's `rankingOrder` defaults to `boostedRerankerScore` — again after the
-semantic reranker, producing the `@search.rerankerBoostedScore` that results are then
-sorted by. So the boost survives reranking instead of being erased by it.
+Search applies a profile twice, which is what stops the reranker from erasing the boost:
+
+```mermaid
+flowchart TD
+    Q["A search"] --> L1["L1 · keyword ranking<br/>BM25 over title, author,<br/>summary, content, topics"]
+    P["Scoring profile<br/>freshness + quality"] -->|"applied"| L1
+    L1 --> D{"Semantic ranking<br/>asked for?"}
+    D -->|no| K["Ordered by<br/>@search.score"]
+    D -->|yes| L2["L2 · the reranker reorders<br/>the top 50 by meaning"]
+    L2 --> B["Profile applied a second time"]
+    P -.->|"the same profile"| B
+    B --> S["Ordered by<br/>@search.rerankerBoostedScore"]
+```
+
+The second pass happens because the semantic configuration's `rankingOrder` defaults to
+`boostedRerankerScore`. That behaviour is documented against a newer API version than
+the one this service pins, so treat the semantic branch as unconfirmed here. The keyword
+branch — the one the site asks for by default — is proven end to end.
 
 Nothing in the API sends a profile. The index's `defaultScoringProfile` is what applies,
 which means **turning this on is one line of schema and no code at all**.
