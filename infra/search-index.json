@@ -101,6 +101,46 @@
       "filterable": true,
       "sortable": true,
       "facetable": false
+    },
+    {
+      "name": "quality",
+      "type": "Edm.Double",
+      "searchable": false,
+      "filterable": true,
+      "sortable": false,
+      "facetable": false
+    },
+    {
+      "name": "qContent",
+      "type": "Edm.Double",
+      "searchable": false,
+      "filterable": true,
+      "sortable": false,
+      "facetable": false
+    },
+    {
+      "name": "qPopularity",
+      "type": "Edm.Double",
+      "searchable": false,
+      "filterable": true,
+      "sortable": false,
+      "facetable": false
+    },
+    {
+      "name": "wordCount",
+      "type": "Edm.Int32",
+      "searchable": false,
+      "filterable": true,
+      "sortable": false,
+      "facetable": false
+    },
+    {
+      "name": "qualityVersion",
+      "type": "Edm.Int32",
+      "searchable": false,
+      "filterable": true,
+      "sortable": false,
+      "facetable": false
     }
   ],
   "scoringProfiles": [
@@ -115,6 +155,100 @@
           "topics": 1
         }
       }
+    },
+    {
+      "name": "relevance-fresh",
+      "text": {
+        "weights": {
+          "title": 4,
+          "author": 3,
+          "summary": 2,
+          "content": 1,
+          "topics": 1
+        }
+      },
+      "functions": [
+        {
+          "type": "freshness",
+          "fieldName": "publishedAt",
+          "boost": 1.5,
+          "interpolation": "logarithmic",
+          "freshness": {
+            "boostingDuration": "P1825D"
+          }
+        }
+      ],
+      "functionAggregation": "sum"
+    },
+    {
+      "name": "relevance-quality",
+      "text": {
+        "weights": {
+          "title": 4,
+          "author": 3,
+          "summary": 2,
+          "content": 1,
+          "topics": 1
+        }
+      },
+      "functions": [
+        {
+          "type": "freshness",
+          "fieldName": "publishedAt",
+          "boost": 1.5,
+          "interpolation": "logarithmic",
+          "freshness": {
+            "boostingDuration": "P1825D"
+          }
+        },
+        {
+          "type": "magnitude",
+          "fieldName": "quality",
+          "boost": 2,
+          "interpolation": "linear",
+          "magnitude": {
+            "boostingRangeStart": 0,
+            "boostingRangeEnd": 1,
+            "constantBoostBeyondRange": false
+          }
+        }
+      ],
+      "functionAggregation": "sum"
+    },
+    {
+      "name": "relevance-authorlight",
+      "text": {
+        "weights": {
+          "title": 4,
+          "author": 1,
+          "summary": 2,
+          "content": 1,
+          "topics": 1
+        }
+      },
+      "functions": [
+        {
+          "type": "freshness",
+          "fieldName": "publishedAt",
+          "boost": 1.5,
+          "interpolation": "logarithmic",
+          "freshness": {
+            "boostingDuration": "P1825D"
+          }
+        },
+        {
+          "type": "magnitude",
+          "fieldName": "quality",
+          "boost": 2,
+          "interpolation": "linear",
+          "magnitude": {
+            "boostingRangeStart": 0,
+            "boostingRangeEnd": 1,
+            "constantBoostBeyondRange": false
+          }
+        }
+      ],
+      "functionAggregation": "sum"
     }
   ],
   "defaultScoringProfile": "relevance",

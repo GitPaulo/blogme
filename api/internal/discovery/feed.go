@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // feedItem is one post as described by a feed, before any page fetch.
@@ -175,6 +176,11 @@ const (
 	// Long enough for "distributed-systems", short enough to reject a sentence used
 	// as a category.
 	maxTopicLength = 40
+
+	// Words a topic may have. Real subjects are one or two words and occasionally
+	// three; anything longer is a phrase the author filed a post under, which nobody
+	// will ever pick out of a filter list.
+	maxTopicWords = 3
 )
 
 // articleTopics is what a post is about: the categories its author filed it under,
@@ -217,20 +223,35 @@ func articleTopics(sourceTags, categories []string) []string {
 func topicSlug(v string) string {
 	var sb strings.Builder
 	sb.Grow(len(v))
-	dash := false
+	dash, mangled := false, false
 	for _, r := range strings.ToLower(strings.TrimSpace(html.UnescapeString(v))) {
 		switch {
 		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
 			sb.WriteRune(r)
 			dash = false
-		case sb.Len() > 0 && !dash:
-			sb.WriteByte('-')
-			dash = true
+		default:
+			// A letter this loop cannot keep is a letter the slug ends up missing,
+			// and what survives is no longer the word the author wrote: "Grupo de
+			// Usuários" came through as "grupo-de-usu-rios" and is in the corpus
+			// today. A mangled word is not a subject anyone will filter by, and
+			// nothing removes it once it is in the vocabulary.
+			if unicode.IsLetter(r) {
+				mangled = true
+			}
+			if sb.Len() > 0 && !dash {
+				sb.WriteByte('-')
+				dash = true
+			}
 		}
 	}
 
 	slug := strings.Trim(sb.String(), "-")
-	if len(slug) < 2 || len(slug) > maxTopicLength || uninformativeCategories[slug] {
+	switch {
+	case len(slug) < 2, len(slug) > maxTopicLength:
+		return ""
+	case mangled, strings.Count(slug, "-") >= maxTopicWords:
+		return ""
+	case uninformativeCategories[slug]:
 		return ""
 	}
 	return slug

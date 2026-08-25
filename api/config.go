@@ -28,6 +28,12 @@ type config struct {
 	maxPostsPerSource int
 	contentWords      int
 	crawlConcurrency  int
+	// Quality scoring. It reads and writes the index and nothing else, so the only
+	// settings it needs are when to run and how much to do in one pass.
+	qualitySchedule   string
+	qualityScoreBatch int
+	qualitySweepBatch int
+	popularityBlob    string
 	// Search throttling. The endpoint is anonymous, so these bound what one caller
 	// can spend; see api/internal/httpapi/ratelimit.go.
 	searchLimits httpapi.Limits
@@ -50,6 +56,12 @@ func loadConfig() config {
 		maxPostsPerSource: envInt("BLOGME_MAX_POSTS_PER_SOURCE", 15),
 		contentWords:      envInt("BLOGME_CONTENT_WORDS", 1000),
 		crawlConcurrency:  envInt("BLOGME_CRAWL_CONCURRENCY", 16),
+		// Half past the hour, so a scoring pass and a discovery pass are not reading
+		// and writing the same index at the same moment.
+		qualitySchedule:   env("BLOGME_QUALITY_SCHEDULE", "0 30 * * * *"),
+		qualityScoreBatch: envInt("BLOGME_QUALITY_SCORE_BATCH", 5000),
+		qualitySweepBatch: envCount("BLOGME_QUALITY_SWEEP_BATCH", 2000),
+		popularityBlob:    env("BLOGME_POPULARITY_BLOB", "popularity.json"),
 		searchLimits:      searchLimits(),
 	}
 }
@@ -79,6 +91,16 @@ func env(key, fallback string) string {
 
 func envInt(key string, fallback int) int {
 	if v, err := strconv.Atoi(os.Getenv(key)); err == nil && v > 0 {
+		return v
+	}
+	return fallback
+}
+
+// envCount reads a setting whose zero is an answer rather than an omission. A batch
+// of none means "do not do this at all", which envInt would read as "unset" and
+// quietly replace with the default.
+func envCount(key string, fallback int) int {
+	if v, err := strconv.Atoi(os.Getenv(key)); err == nil && v >= 0 {
 		return v
 	}
 	return fallback

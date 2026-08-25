@@ -12,6 +12,7 @@ import (
 	"github.com/GitPaulo/blogme/api/internal/discovery"
 	"github.com/GitPaulo/blogme/api/internal/httpapi"
 	"github.com/GitPaulo/blogme/api/internal/index"
+	"github.com/GitPaulo/blogme/api/internal/quality"
 	"github.com/GitPaulo/blogme/api/internal/sources"
 	"github.com/GitPaulo/blogme/api/internal/store"
 )
@@ -36,20 +37,30 @@ func main() {
 		sdk.WithAuth("anonymous"),
 	)
 
-	// The write path must not be able to take the read path down with it: a discovery
-	// that cannot be configured leaves search serving whatever is already indexed, and
-	// simply registers no timer.
-	discoveryState := "enabled"
-	if discoverer, err := newDiscoverer(cfg, idx); err != nil {
-		slog.Error("discovery disabled", "error", err)
-		discoveryState = "disabled"
+	// The write path must not be able to take the read path down with it: timers that
+	// cannot be configured leave search serving whatever is already indexed, and
+	// simply do not register.
+	timerState := "enabled"
+	if jobs, err := newJobs(cfg, idx); err != nil {
+		slog.Error("timers disabled", "error", err)
+		timerState = "disabled"
 	} else {
 		app.Timer("discover", func(ctx context.Context, timer bindings.TimerInfo) error {
 			if timer.IsPastDue {
 				slog.WarnContext(ctx, "discovery run is past due")
 			}
-			return discoverer.Run(ctx)
+			return jobs.discoverer.Run(ctx)
 		}, sdk.WithSchedule(cfg.discoverySchedule))
+
+		// A separate registration rather than a step inside discovery, so that each
+		// can be turned off on its own — and so a scoring failure cannot cost a
+		// crawl, or the reverse.
+		app.Timer("score", func(ctx context.Context, timer bindings.TimerInfo) error {
+			if timer.IsPastDue {
+				slog.WarnContext(ctx, "quality run is past due")
+			}
+			return jobs.scorer.Run(ctx)
+		}, sdk.WithSchedule(cfg.qualitySchedule))
 	}
 
 	// One line at startup, so an instance can say what it actually is: which index it
@@ -64,10 +75,13 @@ func main() {
 		"search_auth", searchAuth(cfg),
 		"semantic", cfg.searchSemantic != "",
 		"sources", sourcesOrigin(cfg),
-		"discovery", discoveryState,
+		"timers", timerState,
 		"schedule", cfg.discoverySchedule,
 		"batch", cfg.discoveryBatch,
-		"crawl_concurrency", cfg.crawlConcurrency)
+		"crawl_concurrency", cfg.crawlConcurrency,
+		"quality_schedule", cfg.qualitySchedule,
+		"quality_batch", cfg.qualityScoreBatch,
+		"quality_version", quality.Version)
 
 	worker.Start(app)
 }
@@ -88,10 +102,21 @@ func sourcesOrigin(cfg config) string {
 	return "blob"
 }
 
-func newDiscoverer(cfg config, idx *index.Index) (*discovery.Discoverer, error) {
+// jobs are the timer-driven halves of the service: the crawler that fills the corpus
+// and the scorer that judges what is in it.
+//
+// Built together because they need the same two things — the storage account and the
+// approved source list — and building those separately would give one
+// misconfiguration two ways to be reported.
+type jobs struct {
+	discoverer *discovery.Discoverer
+	scorer     *quality.Scorer
+}
+
+func newJobs(cfg config, idx *index.Index) (jobs, error) {
 	client, err := blob.New(cfg.storageAccount)
 	if err != nil {
-		return nil, err
+		return jobs{}, err
 	}
 
 	// A local file keeps the dev loop free of any storage dependency.
@@ -100,7 +125,7 @@ func newDiscoverer(cfg config, idx *index.Index) (*discovery.Discoverer, error) 
 		provider = &sources.FileProvider{Path: cfg.sourcesPath}
 	}
 
-	return discovery.New(
+	discoverer := discovery.New(
 		provider,
 		store.New(client, cfg.articlesContainer),
 		idx,
@@ -111,5 +136,17 @@ func newDiscoverer(cfg config, idx *index.Index) (*discovery.Discoverer, error) 
 			ContentWords: cfg.contentWords,
 			Concurrency:  cfg.crawlConcurrency,
 		},
-	), nil
+	)
+
+	// Popularity lives beside the source list rather than beside the articles: it is
+	// keyed by site, changes on its own schedule, and is rebuildable from a public
+	// API — which describes everything already in the sources container.
+	popularity := quality.NewStore(client, cfg.sourcesContainer, cfg.popularityBlob)
+
+	scorer := quality.New(idx, provider, popularity, quality.Options{
+		ScoreBatch: cfg.qualityScoreBatch,
+		SweepBatch: cfg.qualitySweepBatch,
+	})
+
+	return jobs{discoverer: discoverer, scorer: scorer}, nil
 }

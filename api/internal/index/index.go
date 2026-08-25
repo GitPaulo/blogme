@@ -190,6 +190,15 @@ type QueryOptions struct {
 	Origin string
 	// Rank selects the ranking mode. Empty means semantic, which is the default.
 	Rank string
+	// Profile names a scoring profile to rank with. Empty uses the index's own
+	// default, which is what the service always sends.
+	//
+	// It exists for the ranking harness. The index carries several profiles that
+	// differ by one variable each, and the only way to tell whether a change to
+	// ranking is an improvement is to run the same queries through two of them and
+	// compare. Nothing in the request path sets this, so a caller cannot choose how
+	// their results are ranked.
+	Profile string
 }
 
 // Page is one response worth of results.
@@ -279,6 +288,12 @@ func (i *Index) Query(ctx context.Context, q string, opts QueryOptions) (Page, e
 	case article.OriginFeed:
 		// Documents indexed before origin existed came from feeds.
 		body["filter"] = "origin eq 'feed' or origin eq null"
+	}
+
+	// Set before the semantic clone below, so both rankings are measured under the
+	// same profile — a comparison where only one arm carried it would say nothing.
+	if opts.Profile != "" {
+		body["scoringProfile"] = opts.Profile
 	}
 
 	if i.semantic != "" && opts.Rank != RankKeyword {

@@ -220,13 +220,18 @@ ranking when the throttle says the budget is spent, and retried without it if th
 refuses anyway. Search degrades rather than failing, either way.
 
 The index also carries a scoring profile named `relevance`, weighting title above author
-above summary above content, and **no query sends it**. That is worth stating plainly
-because it looks like an oversight worth correcting and is not: applying it was measured
-against `claude`, `rust ownership`, `sean goedecke`, `github actions` and `python`, and
-returned byte-identical results every time — the same rank 39 for the one query it should
-most have helped. The default scoring already normalises by field length, which is most of
-what those weights were reaching for. Wire it up only with a measurement that shows it
-doing something.
+above summary above content, and no query names it. It applies all the same: an index's
+`defaultScoringProfile` is used by every query that does not choose one, which is why
+naming it explicitly was measured against `claude`, `rust ownership`, `sean goedecke`,
+`github actions` and `python` and returned byte-identical results every time. Both arms of
+that comparison were running the same profile.
+
+That matters now, because it is the hook the whole of
+[quality-scoring.md](quality-scoring.md) hangs on: a scoring **function** added to the
+default profile reaches every query without a line of code changing. The index carries
+three further profiles that each differ from `relevance` by one variable, so which of
+them should be the default is a question `make harness` can answer rather than one to
+argue about.
 
 A search lives in the address bar. The query and the ranking mode — everything the server
 was asked for — are written back as `?q=` and `?mode=`, so a search can be shared,

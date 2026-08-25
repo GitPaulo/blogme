@@ -110,6 +110,15 @@ func TestTopicSlug(t *testing.T) {
 		{"", ""},
 		{"!!!", ""},
 		{strings.Repeat("long", 20), ""},
+		// Letters this cannot keep leave a word that is not the one the author
+		// wrote. "Grupo de Usuários Python" reached the live corpus as the topic
+		// "grupo-de-usu-rios", and nothing removes a topic once it is in.
+		{"Grupo de Usuários", ""},
+		{"Café", ""},
+		// A phrase a post was filed under is not a subject anyone will filter by.
+		{"How I Built My Own Thing", ""},
+		// Three words is still a subject.
+		{"Site Reliability Engineering", "site-reliability-engineering"},
 	}
 	for _, tc := range cases {
 		if got := topicSlug(tc.in); got != tc.want {

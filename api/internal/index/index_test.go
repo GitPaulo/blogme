@@ -685,3 +685,60 @@ func TestQueryKeywordRequiresEveryWordOfTheQuery(t *testing.T) {
 		t.Errorf("searchMode = %v, want all", sent["searchMode"])
 	}
 }
+
+// The index carries several scoring profiles that differ by one variable each, so
+// that a change to ranking can be measured rather than argued about. A profile has to
+// reach both rankings, or a comparison would only be testing one of them.
+func TestQueryCarriesAScoringProfileIntoBothRankings(t *testing.T) {
+	var sent []map[string]any
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		sent = append(sent, body)
+
+		// Refusing the semantic attempt makes the run fall through to the keyword
+		// query, so one call exercises both.
+		if body["queryType"] == "semantic" {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		_, _ = io.WriteString(w, `{"@odata.count":1,"value":[]}`)
+	}))
+	defer srv.Close()
+
+	query(t, New(srv.URL, "articles", "test-key", "blogme-semantic"), "go",
+		QueryOptions{Limit: 20, Profile: "relevance-quality"})
+
+	if len(sent) != 2 {
+		t.Fatalf("sent %d queries, want the semantic attempt and its keyword fallback", len(sent))
+	}
+	for _, body := range sent {
+		if body["scoringProfile"] != "relevance-quality" {
+			t.Errorf("queryType %v carried scoringProfile %v, want the profile asked for",
+				body["queryType"], body["scoringProfile"])
+		}
+	}
+}
+
+// Nothing in the request path chooses a profile, so the index's own default applies
+// and a caller cannot pick how their results are ranked.
+func TestQuerySendsNoProfileByDefault(t *testing.T) {
+	var sent map[string]any
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		_, _ = io.WriteString(w, `{"@odata.count":0,"value":[]}`)
+	}))
+	defer srv.Close()
+
+	query(t, New(srv.URL, "articles", "test-key", ""), "go", QueryOptions{Limit: 20})
+
+	if _, present := sent["scoringProfile"]; present {
+		t.Errorf("scoringProfile = %v, want it absent", sent["scoringProfile"])
+	}
+}

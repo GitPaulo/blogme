@@ -18,8 +18,9 @@ PYTHON ?= $(if $(filter Windows_NT,$(OS)),python,python3)
 # Match the defaults in infra/provision.sh.
 RESOURCE_GROUP ?= rg-blogme
 FUNCTION_APP ?= func-blogme-b3d38b
+SEARCH_SERVICE ?= srch-blogme-basic-b3d38b
 
-.PHONY: help setup dev check build clean kill revive \
+.PHONY: help setup dev check build clean kill revive harness \
         check-api check-web build-api build-web fmt sources sources-status sources-upload
 
 help: ## List available targets
@@ -82,6 +83,14 @@ sources-status: ## Show progress of the background source rebuild
 
 sources-upload: ## Publish sources/blogs.yml to blob storage (no redeploy needed)
 	@RESOURCE_GROUP=$(RESOURCE_GROUP) FUNCTION_APP=$(FUNCTION_APP) ./infra/upload-sources.sh
+
+harness: ## Print how a fixed query set ranks (PROFILE=... MODE=semantic to compare)
+	@cd api && BLOGME_SEARCH_ENDPOINT="https://$(SEARCH_SERVICE).search.windows.net" \
+		BLOGME_SEARCH_API_KEY="$$(az search admin-key show --service-name $(SEARCH_SERVICE) \
+			--resource-group $(RESOURCE_GROUP) --query primaryKey -o tsv)" \
+		BLOGME_HARNESS_PROFILE="$(PROFILE)" BLOGME_HARNESS_MODE="$(MODE)" \
+		go test ./internal/index -run TestRankingHarness -v -count=1 2>&1 \
+		| sed -n '/^index /,/^--- /p'
 
 kill: ## Stop the app: search, health and discovery all refuse
 	@RESOURCE_GROUP=$(RESOURCE_GROUP) FUNCTION_APP=$(FUNCTION_APP) ./infra/kill-switch.sh stop

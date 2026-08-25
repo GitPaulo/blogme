@@ -22,10 +22,16 @@ RESOURCE_GROUP="${RESOURCE_GROUP:-rg-blogme}"
 FUNCTION_APP="${FUNCTION_APP:-func-blogme-b3d38b}"
 BUDGET="${BUDGET:-blogme-alert-budget}"
 
-# The timer's name as main.go registers it. Disabling a single function is an app
+# The timers' names as main.go registers them. Disabling a single function is an app
 # setting rather than a deployment, so it needs no redeploy and no code change.
 DISCOVERY_FUNCTION="${DISCOVERY_FUNCTION:-discover}"
 DISCOVERY_SETTING="AzureWebJobs.${DISCOVERY_FUNCTION}.Disabled"
+
+# Scoring is stopped separately from crawling, and is the cheaper of the two to lose:
+# it only rewrites figures on articles that are already indexed and already being
+# served. Turning it off leaves the last scores in place and search using them.
+SCORING_FUNCTION="${SCORING_FUNCTION:-score}"
+SCORING_SETTING="AzureWebJobs.${SCORING_FUNCTION}.Disabled"
 
 log() { printf '\n\033[36m==> %s\033[0m\n' "$1"; }
 die() { printf '\033[31merror: %s\033[0m\n' "$1" >&2; exit 1; }
@@ -37,12 +43,14 @@ usage() {
 Usage: infra/kill-switch.sh <command>
 
   status           What is running, and what it is costing
-  stop             Stop the app: search, health and discovery all refuse
+  stop             Stop the app: search, health and the timers all refuse
   start            Start it again
   discovery off    Stop the crawler, leave the site serving
   discovery on     Start the crawler again
+  scoring off      Stop quality scoring, leave the last scores in place
+  scoring on       Start quality scoring again
 
-Environment: RESOURCE_GROUP, FUNCTION_APP, BUDGET, DISCOVERY_FUNCTION
+Environment: RESOURCE_GROUP, FUNCTION_APP, BUDGET, DISCOVERY_FUNCTION, SCORING_FUNCTION
 EOF
 }
 
@@ -72,15 +80,24 @@ state() {
 	printf '%s' "${value:-unknown}"
 }
 
-# discovery_disabled reads the setting rather than the function list, because the
+# function_disabled reads the setting rather than the function list, because the
 # setting is the thing this script controls and so the thing it can speak for. Unset
 # is the default and the default is enabled.
-discovery_disabled() {
+function_disabled() {
 	local value
 	value="$(ask az functionapp config appsettings list \
 		--name "$FUNCTION_APP" --resource-group "$RESOURCE_GROUP" \
-		--query "[?name=='${DISCOVERY_SETTING}'].value | [0]")"
+		--query "[?name=='${1}'].value | [0]")"
 	[[ "${value,,}" == "true" ]]
+}
+
+# timer_state names what a timer is doing, for one line of status.
+timer_state() {
+	if function_disabled "$1"; then
+		echo "off (${1}=true)"
+	else
+		echo "running"
+	fi
 }
 
 cmd_status() {
@@ -100,11 +117,8 @@ cmd_status() {
 	case "$current" in
 	Running)
 		field "Search" "serving"
-		if discovery_disabled; then
-			field "Discovery" "off (${DISCOVERY_SETTING}=true)"
-		else
-			field "Discovery" "running"
-		fi
+		field "Discovery" "$(timer_state "$DISCOVERY_SETTING")"
+		field "Scoring" "$(timer_state "$SCORING_SETTING")"
 		;;
 	unknown)
 		# Three states, not two. Reporting a failed lookup as "refusing" would answer
@@ -112,10 +126,12 @@ cmd_status() {
 		# this script exists for is worse than admitting the question went unanswered.
 		field "Search" "unknown"
 		field "Discovery" "unknown"
+		field "Scoring" "unknown"
 		;;
 	*)
 		field "Search" "refusing"
 		field "Discovery" "stopped with the app"
+		field "Scoring" "stopped with the app"
 		;;
 	esac
 
@@ -157,15 +173,31 @@ cmd_start() {
 	note "hour, continuing from the cursor rather than restarting the source list."
 }
 
+# set_timer turns one timer on or off. Both timers are stopped the same way, so the
+# az call and its error handling live here once; what differs between them is only
+# what is worth saying afterwards, which each caller supplies.
+set_timer() {
+	local label="$1" setting="$2" action="$3" value
+
+	case "$action" in
+	off) value=true ;;
+	on) value=false ;;
+	*) die "expected '${label} off' or '${label} on'" ;;
+	esac
+
+	log "$([[ $value == true ]] && echo Disabling || echo Enabling) ${label}"
+	az functionapp config appsettings set \
+		--name "$FUNCTION_APP" --resource-group "$RESOURCE_GROUP" \
+		--settings "${setting}=${value}" --output none
+	echo "  ${setting}=${value}"
+	printf '\n'
+}
+
 cmd_discovery() {
+	set_timer discovery "$DISCOVERY_SETTING" "${1:-}"
+
 	case "${1:-}" in
 	off)
-		log "Disabling discovery"
-		az functionapp config appsettings set \
-			--name "$FUNCTION_APP" --resource-group "$RESOURCE_GROUP" \
-			--settings "${DISCOVERY_SETTING}=true" --output none
-		echo "  ${DISCOVERY_SETTING}=true"
-		printf '\n'
 		note "The site keeps serving; only the crawl stops, and with it the writes that"
 		note "are most of what storage costs. Changing a setting restarts the host, so"
 		note "the next search pays a cold start."
@@ -173,16 +205,25 @@ cmd_discovery() {
 		echo "  Undo with: infra/kill-switch.sh discovery on"
 		;;
 	on)
-		log "Enabling discovery"
-		az functionapp config appsettings set \
-			--name "$FUNCTION_APP" --resource-group "$RESOURCE_GROUP" \
-			--settings "${DISCOVERY_SETTING}=false" --output none
-		echo "  ${DISCOVERY_SETTING}=false"
-		printf '\n'
 		note "Resumes at the next scheduled hour, continuing from the cursor."
 		;;
-	*)
-		die "expected 'discovery off' or 'discovery on'"
+	esac
+}
+
+cmd_scoring() {
+	set_timer scoring "$SCORING_SETTING" "${1:-}"
+
+	case "${1:-}" in
+	off)
+		note "Search keeps using the scores already written; they simply stop being"
+		note "brought up to date, so newly crawled articles rank unboosted until this"
+		note "is turned back on."
+		printf '\n'
+		echo "  Undo with: infra/kill-switch.sh scoring on"
+		;;
+	on)
+		note "Resumes at the next scheduled half-hour. Articles left unscored are still"
+		note "unscored, so it continues where it stopped rather than starting over."
 		;;
 	esac
 }
@@ -206,6 +247,10 @@ start) cmd_start ;;
 discovery)
 	shift
 	cmd_discovery "${1:-}"
+	;;
+scoring)
+	shift
+	cmd_scoring "${1:-}"
 	;;
 *)
 	usage

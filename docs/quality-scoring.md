@@ -1,0 +1,195 @@
+# Quality Scoring
+
+> How an article is judged independently of any query, and how that judgement reaches
+> the top of a page of results. Companion to [how-it-works.md](how-it-works.md).
+
+## The problem it solves
+
+Search answers two questions at once: does this document match what was asked for, and
+is it worth reading at all. The index answers the first well and the second not at all.
+
+Measured on 24 August 2026, the live top ten for `python` held three documentation
+landing pages, three newsletter issue archives and a Portuguese meetup announcement
+from 2007. `security` was worse: six of its ten were undated section pages from two
+sites. Both queries are single common words, which is where it happens — `rust
+ownership` and `github actions` returned ten real articles each, because a query
+specific enough to have few matches does not need help.
+
+So the failure is narrow and worth naming precisely: **broad queries, where a short
+field stuffed with the query term beats an article about it.**
+
+## What is measured
+
+Once per article, from the text already in the index. Nothing here needs a re-crawl,
+an external service, or a language model.
+
+```text
+gates  =  is_article  ×  long_enough  ×  english
+merit  =  0.7 × richness  +  0.3 × provenance
+
+qContent = gates × merit
+quality  = qContent + (1 - qContent) × 0.25 × qPopularity
+```
+
+**Gates multiply, merit adds.** The gates are conditions rather than opinions: a
+documentation landing page written in flawless English is still a landing page, and no
+amount of vocabulary should argue it back up the page. None of them is ever zero,
+because each is a heuristic and a heuristic that fires wrongly on a good article should
+cost it rank rather than bury it.
+
+| Term | What it reads | Why |
+| --- | --- | --- |
+| `is_article` | URL is a site root or a bare version segment; title is the blog's own name; title is an issue, archive or page number; the text opens by introducing a site | Every landing page in the failing top tens is at least one of these |
+| `long_enough` | Under 60 words scores nothing, 400 scores full | Only the short end counts. The crawler truncates content at 1,000 words, so anything reading length at the top would be measuring the truncation |
+| `english` | Share of the commonest English words in the first 200 | The index is analysed with an English analyser and the interface is English. Kept at 0.25 rather than 0: this index holds no other copy of that post |
+| `richness` | Distinct words as a share of the first 200 | Stands in for prose quality. Keyword stuffing, generated filler and navigation boilerplate all say the same few words repeatedly |
+| `provenance` | Feed beats sitemap | A feed entry is described by its author. Sitemap walking is what pulled the landing pages in |
+| `qPopularity` | Hacker News points for the site | See below |
+
+Measured against the documents that actually failed: real articles score **0.85–1.00**,
+landing pages and archives **0.007–0.13**, a post too thin to rank **0.00**.
+
+**The scale is a floor, not a gradient.** Anything plainly an article reaches the top
+of it. That is deliberate — the failure being corrected is landing pages outranking
+writing, not one good post outranking another, and sorting the good ones among
+themselves is what the query is for.
+
+### Popularity
+
+There is no public source of per-article traffic, and the paid estimates are per-domain
+anyway. Hacker News is free, unauthenticated, and where this corpus's readers actually
+circulate. It is asked **by site rather than by article**, which turns 600,000 lookups
+into 46,000 and makes a full sweep affordable.
+
+It can only ever add. Most good blogs have never appeared on Hacker News at all, and
+reading that absence as a verdict would rank by fame. Written as a share of the
+distance still to travel rather than as a weighted average, so an article nobody has
+heard of can still score a perfect 1.
+
+Answers are matched on exact host, because thousands of sources here are subdomains of
+a handful of blogging platforms and a loose match would hand every blog on
+`bearblog.dev` the standing of the most popular one on it.
+
+## How it drains
+
+There is no queue and no cursor. An article leaves the unscored set by being scored:
+
+```text
+filter: qualityVersion eq null or qualityVersion lt <version>
+orderby: publishedAt desc
+top: 1000            ← no skip, so no paging limit to run into
+```
+
+Each pass takes the head of that set, judges it, and merges the figures back. The set
+shrinks by exactly what was done, so a corpus of any size drains in as many passes as
+it takes and then costs one query a pass forever after. Newest first, so a corpus still
+draining spends its effort where readers are looking.
+
+Two consequences worth knowing:
+
+- **Rebuilding the index from blob storage empties every score.** That is fine and is
+  why scores are not written back to blob: they are derived from indexed text, and the
+  same loop simply fills them in again over the following passes.
+- **Raising `quality.Version` re-scores everything.** It is the only mechanism for
+  that, so a change to the model that does not raise it applies to new articles alone.
+  A full popularity sweep finishing is the other reason to raise it.
+
+Scores are written with the `merge` action, never `mergeOrUpload`. An upload would
+create a document out of a score alone if the article had since been deleted, and that
+document would be returned by searches as a row with no title and no link.
+
+## How it reaches the results
+
+One `magnitude` function on the `quality` field, inside a scoring profile. Azure AI
+Search applies a profile twice: once during keyword ranking, and — because the semantic
+configuration's `rankingOrder` defaults to `boostedRerankerScore` — again after the
+semantic reranker, producing the `@search.rerankerBoostedScore` that results are then
+sorted by. So the boost survives reranking instead of being erased by it.
+
+Nothing in the API sends a profile. The index's `defaultScoringProfile` is what applies,
+which means **turning this on is one line of schema and no code at all**.
+
+### The profile ladder
+
+Each profile differs from the one above by a single variable, so a change can be
+measured rather than argued about:
+
+| Profile | Text weights | Functions |
+| --- | --- | --- |
+| `relevance` **(default)** | title 4, author 3, summary 2, content 1, topics 1 | none |
+| `relevance-fresh` | same | freshness |
+| `relevance-quality` | same | freshness + quality |
+| `relevance-authorlight` | author dropped to 1 | freshness + quality |
+
+`author` holds the *blog's* name, not a person's. It is weighted 3 on a two-word field,
+and BM25 normalises by field length — so a blog whose name contains the query term
+scores enormously on it. For `python`, `security` and `rust`, **ten of ten** live top
+results had the term in the author field; for `golang`, where no blog is named that,
+none did and the results were clean. `relevance-authorlight` exists to settle whether
+that weight is a cause or a coincidence.
+
+Switching profile is one edit to `defaultScoringProfile` in
+[search-index.json](../infra/search-index.json) and a re-run of
+[create-search-index.sh](../infra/create-search-index.sh). No redeploy, no reindex,
+and reverting is the same edit backwards.
+
+> **Order of operations.** A scoring function cannot read a null field, so an article
+> with no score gets no boost. While the corpus is still draining, scored articles are
+> boosted and unscored ones are not — which is a relative demotion of everything not
+> yet reached. Let the drain finish before making `relevance-quality` the default.
+
+## Measuring it
+
+```bash
+make harness
+```
+
+Runs a fixed set of queries against the real index and prints how they rank: the ones
+most searched, the ones used to tune ranking before, and the three that showed landing
+pages winning. `PROFILE=relevance-quality` runs the same queries through a different
+profile, and `MODE=semantic` through the reranker. Compare two runs by their output.
+
+It is a Go test because that is the one way to run code against the index package
+without adding a second `main` to the module, which the Functions host builds. Without
+an endpoint it skips, so CI never runs it.
+
+## Operating it
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `BLOGME_QUALITY_SCHEDULE` | `0 30 * * * *` | Timer cron. Half past the hour, so scoring and discovery are not writing the same index at once |
+| `BLOGME_QUALITY_SCORE_BATCH` | `5000` | Articles judged per pass |
+| `BLOGME_QUALITY_SWEEP_BATCH` | `2000` | Sites asked about per pass. `0` turns popularity off |
+| `BLOGME_POPULARITY_BLOB` | `popularity.json` | Where site standing is kept, in the sources container |
+
+```bash
+infra/kill-switch.sh scoring off
+```
+
+Stops the timer without touching anything else. Search keeps using the scores already
+written; they simply stop being brought up to date. The stronger revert is to move
+`defaultScoringProfile` back to `relevance`, which leaves the figures in place and stops
+them affecting order at all.
+
+## Cost
+
+Four new fields on ~600,000 documents is about 20 MB against a 3.24 GB index. One extra
+timer of a few minutes a night is roughly **$1–2 a month** of Flex Consumption, against
+discovery's ~$15. Hacker News and the storage the popularity map needs are free. There
+is no one-off spend and no new service.
+
+## What was deliberately left out
+
+- **A language model grading each article.** It would add what heuristics cannot reach —
+  machine-written filler, marketing intent, per-article topics — at roughly $300 to
+  judge the corpus once and $15–75 a month to keep up. Every failure actually observed
+  is caught by the free signals above, so this waits for evidence that they were not
+  enough.
+- **Near-duplicate detection.** Two documentation pages with the same title did land on
+  one live page, but the same landing-page penalties that demote them individually
+  already remove them, and suppressing rows by title would hide the many blogs that
+  honestly publish "Weekly update" every week.
+- **A source-level prior.** It exists to cover articles a budget would never reach.
+  Scoring everything nightly for nothing makes cold start one night at most.
+- **`kind` as a signal.** Company blogs skew promotional, but the engineering blogs in
+  that category are among the best writing in the corpus.
