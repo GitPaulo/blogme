@@ -57,24 +57,24 @@ func TestResumeIndex(t *testing.T) {
 	}
 }
 
-func TestSliceWrapsAround(t *testing.T) {
+func TestBatchFromWrapsAround(t *testing.T) {
 	l := list("a", "b", "c", "d")
 
-	batch, next := slice(l, 2, 3)
+	batch, next := batchFrom(l, 2, 3)
 	if want := []string{"c", "d", "a"}; !equal(ids(batch), want) {
-		t.Errorf("slice() = %v, want %v", ids(batch), want)
+		t.Errorf("batchFrom() = %v, want %v", ids(batch), want)
 	}
 	if next != "a" {
 		t.Errorf("next cursor = %q, want %q", next, "a")
 	}
 }
 
-func TestSliceCapsAtListLength(t *testing.T) {
+func TestBatchFromCapsAtListLength(t *testing.T) {
 	l := list("a", "b")
 
-	batch, next := slice(l, 0, 10)
+	batch, next := batchFrom(l, 0, 10)
 	if len(batch) != 2 {
-		t.Errorf("slice() returned %d sources, want 2", len(batch))
+		t.Errorf("batchFrom() returned %d sources, want 2", len(batch))
 	}
 	if next != "b" {
 		t.Errorf("next cursor = %q, want %q", next, "b")
@@ -82,13 +82,13 @@ func TestSliceCapsAtListLength(t *testing.T) {
 }
 
 // Successive batches must eventually cover every source.
-func TestSliceCoversAllSourcesOverMultipleRuns(t *testing.T) {
+func TestBatchFromCoversAllSourcesOverMultipleRuns(t *testing.T) {
 	l := list("a", "b", "c", "d", "e")
 	seen := map[string]bool{}
 
 	cursor := ""
 	for range 3 {
-		batch, next := slice(l, resumeIndex(l, cursor), 2)
+		batch, next := batchFrom(l, resumeIndex(l, cursor), 2)
 		for _, s := range batch {
 			seen[s.ID] = true
 		}

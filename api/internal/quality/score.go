@@ -14,13 +14,12 @@ import (
 const Version = 1
 
 const (
-	// Penalties for the ways a document can fail to be an article. They multiply, so
-	// a page that is several of these at once falls further than one that is only
-	// one of them — a site root whose title is the site's name is not a borderline
-	// case.
+	// Penalties for the ways a document can fail to be an article. They multiply, so a
+	// page that is several of these at once falls further than one that is only one of
+	// them: a site root whose title is the site's name is not a borderline case.
 	//
-	// None of them is zero. Every one is a heuristic, and a heuristic that fires
-	// wrongly on a good article should cost it rank rather than bury it.
+	// None of them is zero. Every one is a heuristic, and a heuristic that fires wrongly
+	// on a good article should cost it rank rather than bury it.
 	siteRootPenalty    = 0.10
 	titleIsSitePenalty = 0.30
 	archivePenalty     = 0.40
@@ -101,11 +100,10 @@ func Judge(c index.Candidate, popularity float64) index.Scores {
 
 // ContentScore is how good an article is on its own evidence, in [0, 1].
 //
-// The four terms multiply rather than add, and that is the whole shape of it: they
-// are conditions, not opinions. A documentation landing page written in flawless
-// English is still a landing page, and no amount of vocabulary should be able to
-// argue it back up the page. Merit is the only term that rewards; the others can
-// only take away.
+// The four terms multiply rather than add because they are conditions, not opinions: a
+// documentation landing page written in flawless English is still a landing page, and
+// no amount of vocabulary should argue it back up the page. Merit is the only term that
+// rewards; the others can only take away.
 func ContentScore(s Signals) float64 {
 	return articleness(s) * lengthFactor(s.Words) * languageFactor(s.English) * merit(s)
 }
@@ -152,11 +150,10 @@ func merit(s Signals) float64 {
 
 // blend adds popularity to an article's own score without ever subtracting from it.
 //
-// Written as a share of the distance still to travel rather than as a weighted
-// average, because an average would mean an article no one has heard of is capped
-// below one that has been shared — which would rank by fame rather than by fame
-// breaking a tie. Here, a perfect article scores the same whether or not anyone has
-// ever linked to it.
+// Written as a share of the distance still to travel rather than as a weighted average.
+// An average would cap an article no one has heard of below one that has been shared,
+// which ranks by fame instead of letting fame break a tie. Here a perfect article scores
+// the same whether or not anyone has ever linked to it.
 func blend(content, popularity float64) float64 {
 	content = clamp01(content)
 	return clamp01(content + (1-content)*popularityWeight*clamp01(popularity))

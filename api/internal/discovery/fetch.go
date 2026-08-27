@@ -14,21 +14,19 @@ import (
 	"golang.org/x/net/publicsuffix"
 )
 
-// maxRedirects bounds a redirect chain. Go's default of ten is more hops than
-// any blog needs, and every extra hop is another chance to be walked somewhere
-// unintended.
+// maxRedirects bounds a redirect chain. Go's default of ten is more hops than any blog
+// needs, and every extra hop is another chance to be walked somewhere unintended.
 const maxRedirects = 5
 
 // newCrawlClient builds the HTTP client every crawler fetch goes through.
 //
-// The crawler follows links handed to it by third parties — a feed decides where
-// its own entries point — so without a guard it can be aimed at whatever the
-// function app can reach on its own network, and up to a thousand words of
-// whatever answers would be indexed and become publicly searchable. The check
-// lives in the dialer's Control hook, which runs after DNS resolution against
-// the address actually being connected to, so a hostname that resolves to a
-// private address is caught however it was spelled, on the first request and on
-// every redirect alike.
+// The crawler follows links handed to it by third parties, since a feed decides where
+// its own entries point, so without a guard it can be aimed at whatever the function
+// app can reach on its own network and up to a thousand words of the answer would
+// become publicly searchable. The check lives in the dialer's Control hook, which runs
+// after DNS resolution against the address actually being connected to, so a hostname
+// resolving to a private address is caught however it was spelled, on the first request
+// and on every redirect alike. https://pkg.go.dev/net#Dialer
 func newCrawlClient(timeout time.Duration) *http.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.DialContext = (&net.Dialer{
@@ -62,8 +60,8 @@ func newCrawlClient(timeout time.Duration) *http.Client {
 	}
 }
 
-// isPublicIP reports whether ip is routable on the public internet, which is the
-// only place a blog can be.
+// isPublicIP reports whether ip is routable on the public internet, which is the only
+// place a blog can be.
 func isPublicIP(ip net.IP) bool {
 	if ip.IsLoopback() || ip.IsUnspecified() || ip.IsPrivate() ||
 		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
@@ -71,18 +69,18 @@ func isPublicIP(ip net.IP) bool {
 		return false
 	}
 
-	// Carrier-grade NAT is not private by Go's definition, but nothing inside it
-	// is reachable from outside its operator either.
+	// Carrier-grade NAT (RFC 6598, 100.64.0.0/10) is not private by Go's definition,
+	// but nothing inside it is reachable from outside its operator either.
 	if v4 := ip.To4(); v4 != nil && v4[0] == 100 && v4[1] >= 64 && v4[1] <= 127 {
 		return false
 	}
 	return true
 }
 
-// Shared blogging platforms host thousands of the sources: bearblog.dev alone
-// accounts for over a thousand, plus github.io and blogspot.com. Limiting by
-// hostname would not help, because each blog is its own subdomain of one server, so
-// concurrency is capped per registrable domain instead.
+// Shared blogging platforms host thousands of the sources: bearblog.dev alone accounts
+// for over a thousand, plus github.io and blogspot.com. Limiting by hostname would not
+// help, because each blog is its own subdomain of one server, so concurrency is capped
+// per registrable domain instead.
 const maxPerDomain = 2
 
 // fetcher performs bounded HTTP GETs while keeping concurrent load on any single
@@ -104,8 +102,8 @@ func (f *fetcher) get(ctx context.Context, rawURL string, limit int64) ([]byte, 
 	return body, err
 }
 
-// fetch is get with the response headers kept, for the callers that care how a page
-// is served as well as what it says.
+// fetch is get with the response headers kept, for the callers that care how a page is
+// served as well as what it says.
 func (f *fetcher) fetch(ctx context.Context, rawURL string, limit int64) ([]byte, http.Header, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
@@ -128,6 +126,7 @@ func (f *fetcher) fetch(ctx context.Context, rawURL string, limit int64) ([]byte
 	req.Header.Set("User-Agent", userAgent)
 	// Deliberately no Accept-Encoding: setting it manually disables the transport's
 	// transparent gzip decompression, handing back compressed bytes.
+	// https://pkg.go.dev/net/http#Transport
 
 	resp, err := f.client.Do(req)
 	if err != nil {
@@ -143,6 +142,7 @@ func (f *fetcher) fetch(ctx context.Context, rawURL string, limit int64) ([]byte
 	return read, resp.Header, err
 }
 
+// acquire takes one of the domain's slots, returning the function that gives it back.
 func (f *fetcher) acquire(ctx context.Context, host string) (func(), error) {
 	key, err := publicsuffix.EffectiveTLDPlusOne(host)
 	if err != nil || key == "" {

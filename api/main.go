@@ -17,8 +17,8 @@ import (
 	"github.com/GitPaulo/blogme/api/internal/store"
 )
 
-// Kept deliberately thin: configuration wiring and trigger registration only, so the
-// domain code under internal/ is not coupled to the Azure Functions worker.
+// main wires configuration to triggers and nothing else, so the domain code under
+// internal/ stays free of the Azure Functions worker.
 func main() {
 	cfg := loadConfig()
 
@@ -37,9 +37,9 @@ func main() {
 		sdk.WithAuth("anonymous"),
 	)
 
-	// The write path must not be able to take the read path down with it: timers that
-	// cannot be configured leave search serving whatever is already indexed, and
-	// simply do not register.
+	// Timers that cannot be configured simply do not register, leaving search to
+	// serve whatever is already indexed. Schedules are NCRONTAB expressions:
+	// https://learn.microsoft.com/azure/azure-functions/functions-bindings-timer
 	timerState := "enabled"
 	if jobs, err := newJobs(cfg, idx); err != nil {
 		slog.Error("timers disabled", "error", err)
@@ -52,9 +52,8 @@ func main() {
 			return jobs.discoverer.Run(ctx)
 		}, sdk.WithSchedule(cfg.discoverySchedule))
 
-		// A separate registration rather than a step inside discovery, so that each
-		// can be turned off on its own — and so a scoring failure cannot cost a
-		// crawl, or the reverse.
+		// Registered separately from discovery so each can be turned off on its own,
+		// and so a scoring failure cannot cost a crawl.
 		app.Timer("score", func(ctx context.Context, timer bindings.TimerInfo) error {
 			if timer.IsPastDue {
 				slog.WarnContext(ctx, "quality run is past due")
@@ -63,13 +62,9 @@ func main() {
 		}, sdk.WithSchedule(cfg.qualitySchedule))
 	}
 
-	// One line at startup, so an instance can say what it actually is: which index it
-	// talks to, whether reranking and discovery are on, and how hard it will crawl.
-	// Half of a confusing incident is finding out the deployed settings were not the
-	// ones you thought. No credential appears here, only whether one is in use.
-	//
-	// Not a *Context call: this runs before any invocation exists, so there is no
-	// invocation to correlate it with.
+	// What this instance actually is: which index it talks to, what is switched on,
+	// and how hard it will crawl. No credential appears here, only whether one is in
+	// use. Not a *Context call, as no invocation exists yet to correlate it with.
 	slog.Info("blogme starting",
 		"search_index", cfg.searchIndex,
 		"search_auth", searchAuth(cfg),
@@ -103,11 +98,8 @@ func sourcesOrigin(cfg config) string {
 }
 
 // jobs are the timer-driven halves of the service: the crawler that fills the corpus
-// and the scorer that judges what is in it.
-//
-// Built together because they need the same two things — the storage account and the
-// approved source list — and building those separately would give one
-// misconfiguration two ways to be reported.
+// and the scorer that judges what is in it. Built together because they share the
+// storage account and the source list, so one misconfiguration is reported once.
 type jobs struct {
 	discoverer *discovery.Discoverer
 	scorer     *quality.Scorer
@@ -139,8 +131,7 @@ func newJobs(cfg config, idx *index.Index) (jobs, error) {
 	)
 
 	// Popularity lives beside the source list rather than beside the articles: it is
-	// keyed by site, changes on its own schedule, and is rebuildable from a public
-	// API — which describes everything already in the sources container.
+	// keyed by site, changes on its own schedule, and is rebuildable from a public API.
 	popularity := quality.NewStore(client, cfg.sourcesContainer, cfg.popularityBlob)
 
 	scorer := quality.New(idx, provider, popularity, quality.Options{

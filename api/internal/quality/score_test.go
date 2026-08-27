@@ -10,7 +10,7 @@ import (
 // The fixtures below are the documents a live search for "python" actually returned
 // in its top ten, which is what this model was written to answer. Their text is
 // written out at a realistic length rather than quoted, so that nothing here is
-// separated by length alone — every one of them is comfortably past the point where
+// separated by length alone: every one of them is comfortably past the point where
 // length stops counting against a document.
 
 // prose is ordinary technical prose: a wide vocabulary saying one thing after
@@ -65,7 +65,7 @@ locais dispostas a ceder uma sala para os encontros, e qualquer ajuda nesse sent
 seria muito bem vinda pela comunidade inteira.`
 
 // repeat lengthens a passage past the point where length affects the score, without
-// touching the vocabulary of its opening — which is the only part measured.
+// touching the vocabulary of its opening, which is the only part measured.
 func repeat(s string, times int) string {
 	return strings.TrimSpace(strings.Repeat(s+" ", times))
 }
@@ -136,7 +136,7 @@ func TestASoundArticleReachesTheTopOfTheScale(t *testing.T) {
 		"A post about importing modules", "Someone", "feed", repeat(prose, 3))
 
 	if got := Judge(sound, 0).Quality; got != 1 {
-		t.Errorf("a sound article scored %.3f, want the full 1 — the scale is a floor", got)
+		t.Errorf("a sound article scored %.3f, want the full 1: the scale is a floor", got)
 	}
 }
 
@@ -144,7 +144,7 @@ func TestASoundArticleReachesTheTopOfTheScale(t *testing.T) {
 // nobody has heard of is capped beneath every blog that has.
 func TestPopularityCannotCapAPerfectArticle(t *testing.T) {
 	if got := blend(1, 0); got != 1 {
-		t.Errorf("blend(1, 0) = %.3f, want 1 — an unknown blog can still be perfect", got)
+		t.Errorf("blend(1, 0) = %.3f, want 1: an unknown blog can still be perfect", got)
 	}
 }
 

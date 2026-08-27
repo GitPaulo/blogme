@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -19,19 +20,17 @@ import (
 	"github.com/GitPaulo/blogme/api/internal/blob"
 )
 
-// Popularity is the one thing about an article its own text cannot say: whether
-// anyone found it worth passing on.
+// hnEndpoint is where site standing is read from.
 //
-// There is no public source of per-article traffic, and the paid estimates are
-// per-domain anyway, so this uses Hacker News — free, unauthenticated, and where this
-// corpus's readers actually circulate. It asks by site rather than by article, which
-// turns 600,000 lookups into 46,000 and makes a full sweep affordable.
+// Popularity is the one thing about an article its own text cannot say: whether anyone
+// found it worth passing on. There is no public source of per-article traffic and the
+// paid estimates are per-domain anyway, so this uses the Hacker News search API, which
+// is free, unauthenticated, and where this corpus's readers circulate. It asks by site
+// rather than by article, which turns 600,000 lookups into 46,000.
+// https://hn.algolia.com/api
 //
-// What it produces can only add. Most good blogs have never appeared on Hacker News
-// at all, and reading that absence as a verdict would rank by fame.
-
-// hnEndpoint is where site standing is read from. A variable only so the tests can
-// point it at a local server; nothing in the service reassigns it.
+// A variable only so the tests can point it at a local server; nothing in the service
+// reassigns it.
 var hnEndpoint = "https://hn.algolia.com/api/v1/search"
 
 const (
@@ -42,7 +41,7 @@ const (
 	hnStories = 50
 
 	// Sites asked about at once. Hacker News publishes no rate limit but does refuse
-	// bursts, and there is no hurry — nothing here is on a reader's path.
+	// bursts, and there is no hurry, since nothing here is on a reader's path.
 	sweepConcurrency = 8
 
 	// The points total at which a site counts as fully established. Logarithmic below
@@ -76,9 +75,12 @@ type blobStore interface {
 
 // Store holds what is known about every site, backed by a single blob.
 //
-// One blob rather than one per site: the whole thing is a few megabytes, read once
-// and written once per run, where a per-site layout would turn that into tens of
-// thousands of requests to save nothing.
+// One blob rather than one per site: the whole thing is a few megabytes, read once and
+// written once per run, where a per-site layout would turn that into tens of thousands
+// of requests to save nothing.
+//
+// What it produces can only add to a score. Most good blogs have never appeared on
+// Hacker News at all, and reading that absence as a verdict would rank by fame.
 type Store struct {
 	client    blobStore
 	container string
@@ -182,10 +184,10 @@ func (s *Store) Sweep(ctx context.Context, client *http.Client, sites []string) 
 	)
 
 	for _, site := range sites {
+		sem <- struct{}{}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			sem <- struct{}{}
 			defer func() { <-sem }()
 
 			entry := Entry{CheckedAt: time.Now().UTC()}
@@ -223,7 +225,7 @@ func hackerNews(ctx context.Context, client *http.Client, site string) (int, int
 		"query":                        {site},
 		"restrictSearchableAttributes": {"url"},
 		"tags":                         {"story"},
-		"hitsPerPage":                  {fmt.Sprint(hnStories)},
+		"hitsPerPage":                  {strconv.Itoa(hnStories)},
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, hnEndpoint+"?"+params.Encode(), nil)
@@ -263,10 +265,9 @@ func hackerNews(ctx context.Context, client *http.Client, site string) (int, int
 
 // siteOf reduces a URL to the host its writing lives under.
 //
-// The full host rather than the registrable domain, because thousands of sources in
-// this corpus are subdomains of a handful of blogging platforms. Folding them
-// together would hand every blog on bearblog.dev the standing of the most popular one
-// on it.
+// The full host rather than the registrable domain, because thousands of sources in this
+// corpus are subdomains of a handful of blogging platforms. Folding them together would
+// hand every blog on bearblog.dev the standing of the most popular one on it.
 func siteOf(rawURL string) string {
 	u, err := url.Parse(rawURL)
 	if err != nil {

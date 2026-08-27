@@ -2,14 +2,13 @@ package discovery
 
 import (
 	"context"
-	"encoding/xml"
+	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/url"
 	"path"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -34,10 +33,15 @@ const (
 	// Sitemaps list every page, so a fetched page has to prove it is long-form prose
 	// rather than a landing, tag or index page.
 	minSitemapWords = 250
+
+	// How much of a document is examined for a sitemap root element. Plenty of sites
+	// answer any unknown path with their homepage, whose markup starts long before
+	// this.
+	sitemapSniffBytes = 2000
 )
 
-// A sitemap is XML, and plenty of sites answer any unknown path with their homepage,
-// so the document has to look like a sitemap before it is parsed.
+// A sitemap is XML, so the document has to look like one before it is parsed.
+// https://www.sitemaps.org/protocol.html
 var sitemapRootRe = regexp.MustCompile(`(?i)<(urlset|sitemapindex)[\s>]`)
 
 // Blogs very often date a post in its URL, as /2024/11/02/title or /2024-11-02-title.
@@ -79,9 +83,9 @@ type sitemapLink struct {
 	lastMod time.Time
 }
 
-// crawlSitemap covers the third of the corpus that publishes no feed. It is the
-// slower path by design: a feed describes its posts, whereas here every candidate
-// page must be fetched before it can be judged.
+// crawlSitemap covers the third of the corpus that publishes no feed. It is the slower
+// path by design: a feed describes its posts, whereas here every candidate page must be
+// fetched before it can be judged.
 func (d *Discoverer) crawlSitemap(ctx context.Context, s sources.Source) ([]article.Article, error) {
 	site, err := url.Parse(s.Site)
 	if err != nil || !isHTTP(site) {
@@ -98,10 +102,10 @@ func (d *Discoverer) crawlSitemap(ctx context.Context, s sources.Source) ([]arti
 		if len(articles) >= d.maxPosts {
 			break
 		}
-		// Past the source deadline every request and store lookup fails immediately,
-		// so without this the rest of a large archive is walked at full speed to no
-		// effect — tens of thousands of failures for one source. What was gathered
-		// before the deadline is still returned, so the run keeps the useful part.
+		// Past the source deadline every request and store lookup fails immediately, so
+		// without this the rest of a large archive is walked at full speed to no effect:
+		// tens of thousands of failures for one source. What was gathered before the
+		// deadline is still returned.
 		if ctx.Err() != nil {
 			slog.WarnContext(ctx, "sitemap walk cut short",
 				"source", s.ID, "examined", i, "remaining", len(links)-i,
@@ -133,12 +137,12 @@ func (d *Discoverer) sitemapLinks(ctx context.Context, site *url.URL) ([]sitemap
 
 	entries := doc.URLs
 
-	// A sitemap index points at further documents; take the ones changed most
-	// recently, since older ones hold older posts.
+	// A sitemap index points at further documents; take the ones changed most recently,
+	// since older ones hold older posts.
 	if len(entries) == 0 && len(doc.Maps) > 0 {
 		children := doc.Maps
-		sort.SliceStable(children, func(i, j int) bool {
-			return parseTime(children[i].LastMod).After(parseTime(children[j].LastMod))
+		slices.SortStableFunc(children, func(a, b sitemapEntry) int {
+			return parseTime(b.LastMod).Compare(parseTime(a.LastMod))
 		})
 
 		fetched := 0
@@ -170,17 +174,17 @@ func (d *Discoverer) sitemapLinks(ctx context.Context, site *url.URL) ([]sitemap
 		links = append(links, sitemapLink{url: link, lastMod: parseTime(entry.LastMod)})
 	}
 
-	// Undated entries sort last: with nothing to say how recent they are, they are
-	// the weakest candidates for a bounded run.
-	sort.SliceStable(links, func(i, j int) bool {
-		return links[i].lastMod.After(links[j].lastMod)
+	// Undated entries sort last: with nothing to say how recent they are, they are the
+	// weakest candidates for a bounded run.
+	slices.SortStableFunc(links, func(a, b sitemapLink) int {
+		return b.lastMod.Compare(a.lastMod)
 	})
 
 	return links, nil
 }
 
-// findSitemap returns the first document that really is a sitemap, preferring the
-// ones robots.txt advertises over guessed paths.
+// findSitemap returns the first document that really is a sitemap, preferring the ones
+// robots.txt advertises over guessed paths.
 func (d *Discoverer) findSitemap(ctx context.Context, site *url.URL) (sitemapDoc, *url.URL, error) {
 	var lastErr error
 
@@ -205,7 +209,7 @@ func (d *Discoverer) findSitemap(ctx context.Context, site *url.URL) (sitemapDoc
 	if lastErr != nil {
 		return sitemapDoc{}, nil, fmt.Errorf("no usable sitemap: %w", lastErr)
 	}
-	return sitemapDoc{}, nil, fmt.Errorf("no usable sitemap")
+	return sitemapDoc{}, nil, errors.New("no usable sitemap")
 }
 
 func (d *Discoverer) fetchSitemap(ctx context.Context, rawURL string) (sitemapDoc, error) {
@@ -219,35 +223,30 @@ func (d *Discoverer) fetchSitemap(ctx context.Context, rawURL string) (sitemapDo
 // sitemapCandidates lists sitemap URLs to try, robots.txt first.
 func sitemapCandidates(ctx context.Context, r *robots, site *url.URL) []string {
 	root := site.Scheme + "://" + site.Host
+	guesses := []string{"/sitemap.xml", "/sitemap_index.xml", "/sitemap-index.xml", "/wp-sitemap.xml"}
 
 	candidates := r.sitemapsFor(ctx, site)
-	seen := make(map[string]bool, len(candidates)+4)
+	seen := make(map[string]bool, len(candidates)+len(guesses))
 	for _, c := range candidates {
 		seen[c] = true
 	}
 
-	for _, guess := range []string{"/sitemap.xml", "/sitemap_index.xml", "/sitemap-index.xml", "/wp-sitemap.xml"} {
-		if url := root + guess; !seen[url] {
-			seen[url] = true
-			candidates = append(candidates, url)
+	for _, guess := range guesses {
+		if candidate := root + guess; !seen[candidate] {
+			seen[candidate] = true
+			candidates = append(candidates, candidate)
 		}
 	}
 	return candidates
 }
 
 func parseSitemap(raw []byte) (sitemapDoc, error) {
-	if !sitemapRootRe.Match(raw[:min(len(raw), 2000)]) {
-		return sitemapDoc{}, fmt.Errorf("not a sitemap")
+	if !sitemapRootRe.Match(raw[:min(len(raw), sitemapSniffBytes)]) {
+		return sitemapDoc{}, errors.New("not a sitemap")
 	}
 
 	var doc sitemapDoc
-	decoder := xml.NewDecoder(strings.NewReader(string(raw)))
-	// Sitemaps in the wild are as loosely encoded as feeds.
-	decoder.Strict = false
-	decoder.CharsetReader = func(_ string, input io.Reader) (io.Reader, error) {
-		return input, nil
-	}
-	if err := decoder.Decode(&doc); err != nil {
+	if err := newXMLDecoder(raw).Decode(&doc); err != nil {
 		return sitemapDoc{}, err
 	}
 
@@ -257,8 +256,8 @@ func parseSitemap(raw []byte) (sitemapDoc, error) {
 	return doc, nil
 }
 
-// isArticleURL keeps a sitemap entry that could plausibly be a post: on the site
-// itself, not the homepage, and not an obvious listing page or asset.
+// isArticleURL keeps a sitemap entry that could plausibly be a post: on the site itself,
+// not the homepage, and not an obvious listing page or asset.
 func isArticleURL(u *url.URL, site *url.URL) bool {
 	if u == nil || !isHTTP(u) || u.Hostname() != site.Hostname() {
 		return false
@@ -287,7 +286,7 @@ func (d *Discoverer) sitemapArticle(ctx context.Context, s sources.Source, link 
 	if err != nil {
 		return article.Article{}, false
 	}
-	// Every page on this path is fetched, so this one is always known.
+	// Every page on this path is fetched, so framing is always known here.
 	denied := framingDenied(header)
 
 	doc := parseHTML(string(body))
@@ -324,8 +323,8 @@ func (d *Discoverer) sitemapArticle(ctx context.Context, s sources.Source, link 
 		Origin:   article.OriginSitemap,
 		Summary:  truncateWords(summary, summaryWords),
 		Content:  truncateWords(content, d.contentWords),
-		// A page carries no categories of its own, so the blog's subjects are all
-		// there is until an article is read for its own topics.
+		// A page carries no categories of its own, so the blog's subjects are all there
+		// is until an article is read for its own topics.
 		Topics: s.Tags,
 		Kind:   s.Kind,
 		// Deliberately not the sitemap's lastmod: that is when the file changed, which

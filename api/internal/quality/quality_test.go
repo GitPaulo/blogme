@@ -11,7 +11,7 @@ import (
 )
 
 // fakeIndex stands in for the search index, holding a corpus that shrinks as it is
-// scored — which is the property the whole design rests on.
+// scored, which is the property the whole design rests on.
 type fakeIndex struct {
 	unscored []index.Candidate
 	saved    []index.Scores
@@ -63,7 +63,7 @@ func TestRunScoresTheWholeCorpusAcrossSeveralReads(t *testing.T) {
 		t.Errorf("scored %d articles, want the whole corpus of 2500", len(idx.saved))
 	}
 	if idx.reads < 3 {
-		t.Errorf("read the index %d times, want at least three — a query returns at most %d",
+		t.Errorf("read the index %d times, want at least three: a query returns at most %d",
 			idx.reads, maxSearchTop)
 	}
 	for _, s := range idx.saved {
@@ -172,7 +172,7 @@ func TestRunDoesNotOverwritePopularityItCouldNotRead(t *testing.T) {
 	}
 	// Popularity is a bonus, so losing it must not cost the corpus its scoring.
 	if len(idx.saved) != 5 {
-		t.Errorf("scored %d articles, want 5 — popularity failing is not a reason to stop", len(idx.saved))
+		t.Errorf("scored %d articles, want 5: popularity failing is not a reason to stop", len(idx.saved))
 	}
 }
 
@@ -196,7 +196,7 @@ func TestRunSweepsEachSiteOnce(t *testing.T) {
 	}
 
 	if len(store.entries) != 2 {
-		t.Errorf("asked about %d sites, want 2 — www is not a different blog", len(store.entries))
+		t.Errorf("asked about %d sites, want 2: www is not a different blog", len(store.entries))
 	}
 	if storage.uploads != 1 {
 		t.Errorf("saved the map %d times, want once", storage.uploads)
@@ -235,6 +235,6 @@ func TestRunDoesNotRescoreWhatItJustScored(t *testing.T) {
 		t.Errorf("wrote %d scores for 3 articles, want 3", idx.saved)
 	}
 	if idx.reads != 2 {
-		t.Errorf("read the index %d times, want two — one that found work and one that found only repeats", idx.reads)
+		t.Errorf("read the index %d times, want two: one that found work and one that found only repeats", idx.reads)
 	}
 }

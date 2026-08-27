@@ -66,8 +66,8 @@ func loadConfig() config {
 	}
 }
 
-// searchLimits reads the throttling settings, falling back to the defaults one
-// at a time so raising a single limit does not mean restating all six.
+// searchLimits reads the throttling settings, falling back per field so that
+// raising one limit does not mean restating the rest.
 func searchLimits() httpapi.Limits {
 	d := httpapi.DefaultLimits()
 	return httpapi.Limits{
@@ -97,8 +97,8 @@ func envInt(key string, fallback int) int {
 }
 
 // envCount reads a setting whose zero is an answer rather than an omission. A batch
-// of none means "do not do this at all", which envInt would read as "unset" and
-// quietly replace with the default.
+// of none means "do not do this at all", which envInt would read as unset and
+// replace with the default.
 func envCount(key string, fallback int) int {
 	if v, err := strconv.Atoi(os.Getenv(key)); err == nil && v >= 0 {
 		return v

@@ -1,6 +1,7 @@
 package discovery
 
 import (
+	"bytes"
 	"encoding/xml"
 	"html"
 	"io"
@@ -20,8 +21,16 @@ type feedItem struct {
 	Published  time.Time
 }
 
-// feedDoc covers RSS 2.0 and Atom in one shape. The two formats overlap enough that
-// separate parsers would be redundant.
+// atomLink is one <link> of an Atom entry.
+type atomLink struct {
+	Href string `xml:"href,attr"`
+	Rel  string `xml:"rel,attr"`
+	Type string `xml:"type,attr"`
+}
+
+// feedDoc covers RSS 2.0 (https://www.rssboard.org/rss-specification) and Atom
+// (RFC 4287) in one shape. The two formats overlap enough that separate parsers would
+// be redundant.
 type feedDoc struct {
 	// RSS
 	Channel struct {
@@ -40,16 +49,12 @@ type feedDoc struct {
 
 	// Atom
 	Entries []struct {
-		Title string `xml:"title"`
-		Links []struct {
-			Href string `xml:"href,attr"`
-			Rel  string `xml:"rel,attr"`
-			Type string `xml:"type,attr"`
-		} `xml:"link"`
-		Summary    string `xml:"summary"`
-		Content    string `xml:"content"`
-		Published  string `xml:"published"`
-		Updated    string `xml:"updated"`
+		Title      string     `xml:"title"`
+		Links      []atomLink `xml:"link"`
+		Summary    string     `xml:"summary"`
+		Content    string     `xml:"content"`
+		Published  string     `xml:"published"`
+		Updated    string     `xml:"updated"`
 		Categories []struct {
 			Term  string `xml:"term,attr"`
 			Label string `xml:"label,attr"`
@@ -60,16 +65,23 @@ type feedDoc struct {
 	} `xml:"entry"`
 }
 
-// parseFeed reads RSS or Atom into a common item list.
-func parseFeed(raw []byte) ([]feedItem, error) {
-	var doc feedDoc
-	decoder := xml.NewDecoder(strings.NewReader(string(raw)))
-	// Feeds in the wild are frequently not well-formed or are latin-1 encoded.
+// newXMLDecoder reads XML the way it is published rather than the way it is specified.
+// Feeds and sitemaps in the wild are frequently not well-formed, and many declare an
+// encoding they do not use, so the declared charset is ignored and the bytes are taken
+// as they come.
+func newXMLDecoder(raw []byte) *xml.Decoder {
+	decoder := xml.NewDecoder(bytes.NewReader(raw))
 	decoder.Strict = false
 	decoder.CharsetReader = func(_ string, input io.Reader) (io.Reader, error) {
 		return input, nil
 	}
-	if err := decoder.Decode(&doc); err != nil {
+	return decoder
+}
+
+// parseFeed reads RSS or Atom into a common item list.
+func parseFeed(raw []byte) ([]feedItem, error) {
+	var doc feedDoc
+	if err := newXMLDecoder(raw).Decode(&doc); err != nil {
 		return nil, err
 	}
 
@@ -94,7 +106,7 @@ func parseFeed(raw []byte) ([]feedItem, error) {
 		}
 		items = append(items, feedItem{
 			Title:      cleanText(e.Title),
-			Link:       atomLink(e.Links),
+			Link:       entryLink(e.Links),
 			Author:     cleanText(e.Author.Name),
 			Summary:    cleanText(e.Summary),
 			Content:    firstNonEmpty(e.Content, e.Summary),
@@ -106,12 +118,8 @@ func parseFeed(raw []byte) ([]feedItem, error) {
 	return items, nil
 }
 
-// atomLink prefers the alternate HTML link, which is the human-readable post.
-func atomLink(links []struct {
-	Href string `xml:"href,attr"`
-	Rel  string `xml:"rel,attr"`
-	Type string `xml:"type,attr"`
-}) string {
+// entryLink prefers the alternate HTML link, which is the human-readable post.
+func entryLink(links []atomLink) string {
 	for _, l := range links {
 		if l.Rel == "alternate" || l.Rel == "" {
 			return strings.TrimSpace(l.Href)
@@ -168,23 +176,23 @@ var uninformativeCategories = map[string]bool{
 }
 
 const (
-	// Feed categories are an uncontrolled vocabulary, so a post that carries a dozen
-	// of them would otherwise dominate the topic list on its own.
+	// Feed categories are an uncontrolled vocabulary, so a post carrying a dozen of
+	// them would otherwise dominate the topic list on its own.
 	maxFeedCategories = 3
 	maxArticleTopics  = 8
 
-	// Long enough for "distributed-systems", short enough to reject a sentence used
-	// as a category.
+	// Long enough for "distributed-systems", short enough to reject a sentence used as
+	// a category.
 	maxTopicLength = 40
 
 	// Words a topic may have. Real subjects are one or two words and occasionally
 	// three; anything longer is a phrase the author filed a post under, which nobody
-	// will ever pick out of a filter list.
+	// will pick out of a filter list.
 	maxTopicWords = 3
 )
 
-// articleTopics is what a post is about: the categories its author filed it under,
-// on top of what the blog as a whole writes about.
+// articleTopics is what a post is about: the categories its author filed it under, on
+// top of what the blog as a whole writes about.
 //
 // The source's tags are the same for every post it publishes, so on their own they
 // cannot tell two posts apart. A feed category is the only per-post subject signal
@@ -217,9 +225,9 @@ func articleTopics(sourceTags, categories []string) []string {
 	return topics
 }
 
-// topicSlug puts a category into the same lowercase kebab-case the source list uses,
-// so "Software Engineering" and "software-engineering" are one topic. Returns empty
-// for anything that would not be worth filtering by.
+// topicSlug puts a category into the same lowercase kebab-case the source list uses, so
+// "Software Engineering" and "software-engineering" are one topic. Returns empty for
+// anything that would not be worth filtering by.
 func topicSlug(v string) string {
 	var sb strings.Builder
 	sb.Grow(len(v))
@@ -230,11 +238,11 @@ func topicSlug(v string) string {
 			sb.WriteRune(r)
 			dash = false
 		default:
-			// A letter this loop cannot keep is a letter the slug ends up missing,
-			// and what survives is no longer the word the author wrote: "Grupo de
-			// Usuários" came through as "grupo-de-usu-rios" and is in the corpus
-			// today. A mangled word is not a subject anyone will filter by, and
-			// nothing removes it once it is in the vocabulary.
+			// A letter this loop cannot keep is a letter the slug ends up missing, and
+			// what survives is no longer the word the author wrote: "Grupo de Usuários"
+			// came through as "grupo-de-usu-rios". A mangled word is not a subject
+			// anyone will filter by, and nothing removes it once it is in the
+			// vocabulary.
 			if unicode.IsLetter(r) {
 				mangled = true
 			}

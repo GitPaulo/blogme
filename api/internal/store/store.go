@@ -1,3 +1,4 @@
+// Package store persists canonical article JSON in Azure Blob Storage.
 package store
 
 import (

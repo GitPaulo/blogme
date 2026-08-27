@@ -161,7 +161,7 @@ func TestQueryRequestsSemanticRanking(t *testing.T) {
 		t.Errorf("semanticConfiguration = %v", sent["semanticConfiguration"])
 	}
 	// Requiring every word would settle the query before the reranker saw it, which
-	// is how a sentence — the thing this mode is for — came to match nothing at all:
+	// is how a sentence, the thing this mode is for, came to match nothing at all:
 	// "why is my postgres query slow" had 0 candidates under "all" and 266,204 under
 	// "any". The keyword body sets "all" for its own good reasons; inheriting it here
 	// was the bug.
@@ -173,7 +173,7 @@ func TestQueryRequestsSemanticRanking(t *testing.T) {
 // A reranked row is scored by the reranker. Azure keeps sending @search.score on a
 // semantic query, but it is the keyword score of a list the reranker has already
 // reordered, so reporting it hands back a number that disagrees with the position it
-// sits in — live, the top of one page read 146.7, 59.7, 79.5, 68.9 downwards.
+// sits in: live, the top of one page read 146.7, 59.7, 79.5, 68.9 downwards.
 func TestQueryReportsTheScoreThatOrderedTheRows(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `{"@odata.count":2,"value":[
@@ -188,7 +188,7 @@ func TestQueryReportsTheScoreThatOrderedTheRows(t *testing.T) {
 
 	got := []float64{page.Results[0].Score, page.Results[1].Score}
 	if want := []float64{2.98, 2.82}; !slices.Equal(got, want) {
-		t.Errorf("scores = %v, want %v — the keyword score was reported for a reranked row", got, want)
+		t.Errorf("scores = %v, want %v: the keyword score was reported for a reranked row", got, want)
 	}
 	if got[0] < got[1] {
 		t.Error("the first row scores below the second, so the score contradicts the order")
@@ -305,7 +305,7 @@ func TestQueryFiltersByOrigin(t *testing.T) {
 }
 
 // Health is the deploy workflow's gate, so a Ready that asks the wrong question
-// would fail every deploy — or, worse, pass one it should not. Asserted against the
+// would fail every deploy, or worse pass one it should not. Asserted against the
 // request that leaves rather than the error that comes back, because a stand-in
 // server answers any path and would hide a wrong one.
 func TestReadyAsksTheIndexForACount(t *testing.T) {
@@ -455,8 +455,8 @@ func windowServer(t *testing.T, docs []string) *httptest.Server {
 }
 
 // Reading exactly one page's worth is what made "claude" return three rows out of
-// twenty. The rows were never missing — they sat just past where a page-sized read
-// looks — so reading further is what fills the page without giving up the cap.
+// twenty. The rows were never missing: they sat just past where a page-sized read
+// looks, so reading further is what fills the page without giving up the cap.
 func TestQueryOverFetchesToFillAPageOneSourceDominates(t *testing.T) {
 	const run = 29
 
@@ -465,7 +465,7 @@ func TestQueryOverFetchesToFillAPageOneSourceDominates(t *testing.T) {
 
 	short := query(t, idx, "q", QueryOptions{Limit: 20})
 	if len(short.Results) != maxPerSource {
-		t.Fatalf("reading one page's worth gave %d rows, want %d — the fixture is not dominated",
+		t.Fatalf("reading one page's worth gave %d rows, want %d: the fixture is not dominated",
 			len(short.Results), maxPerSource)
 	}
 
@@ -497,7 +497,7 @@ func TestQueryNextOffsetCountsDocumentsReadNotRowsReturned(t *testing.T) {
 		QueryOptions{Limit: 20, Fetch: 60})
 
 	if page.NextOffset == len(page.Results) {
-		t.Fatalf("NextOffset = %d, which is just the row count — the cap read further than that",
+		t.Fatalf("NextOffset = %d, which is just the row count, but the cap read further",
 			page.NextOffset)
 	}
 	// Three of the first 29 survive, so 17 more are needed from the tail: 29+17 = 46.
@@ -590,7 +590,7 @@ func TestQueryIsNotExhaustedWhileTheIndexHasMore(t *testing.T) {
 // A caller told only "26 of 27" cannot tell a page it is missing from one that does
 // not exist, which is what left the live "load more" dead beside a count that still
 // promised another result. Exhausted is the difference, so it has to survive the case
-// that produced the complaint — a last page whose rows fall short of the total.
+// that produced the complaint: a last page whose rows fall short of the total.
 func TestQueryReportsExhaustionEvenWhenRowsFallShortOfTheTotal(t *testing.T) {
 	const corpus = 27
 
@@ -604,7 +604,7 @@ func TestQueryReportsExhaustionEvenWhenRowsFallShortOfTheTotal(t *testing.T) {
 		t.Fatalf("Exhausted = false having read all %d documents", corpus)
 	}
 	if len(page.Results) >= page.Total {
-		t.Fatalf("got %d rows of %d documents — the fixture is not capped, so it cannot show the gap",
+		t.Fatalf("got %d rows of %d documents: the fixture is not capped, so it cannot show the gap",
 			len(page.Results), page.Total)
 	}
 	// The point of the flag: the shortfall is the cap doing its job, not a page left
@@ -658,14 +658,14 @@ func TestQueryRepeatsDoNotSpendTheSourcesShare(t *testing.T) {
 		QueryOptions{Limit: 20, Fetch: 60})
 
 	if len(page.Results) != maxPerSource {
-		t.Errorf("got %d rows, want %d — the repeat ate part of the source's share",
+		t.Errorf("got %d rows, want %d: the repeat ate part of the source's share",
 			len(page.Results), maxPerSource)
 	}
 }
 
 // Under keyword ranking every word of the query has to appear. Asking for any of them
-// made the corpus look far larger than it was — "ai text watermarks" reported 185,796
-// matches where 265 documents held all three words — and filled the tail of every
+// made the corpus look far larger than it was ("ai text watermarks" reported 185,796
+// matches where 265 documents held all three words) and filled the tail of every
 // result set with pages that happened to say "text". Semantic ranking wants the
 // opposite; see TestQueryRequestsSemanticRanking.
 func TestQueryKeywordRequiresEveryWordOfTheQuery(t *testing.T) {

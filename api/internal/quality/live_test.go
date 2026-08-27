@@ -181,7 +181,7 @@ func TestLiveQualityPipelineReordersResults(t *testing.T) {
 	// The failure this exists to correct, reproduced against the real ranker: under
 	// the profile in use today the landing page beats the article.
 	if before := titles(t, idx, "python", "relevance"); len(before) == 0 || before[0] != "Python 3.12 documentation" {
-		t.Fatalf("before scoring, ranking was %v — the fixture no longer reproduces the problem", before)
+		t.Fatalf("before scoring, ranking was %v: the fixture no longer reproduces the problem", before)
 	}
 
 	// Everything is unscored, which is what a freshly built index looks like.
@@ -200,7 +200,7 @@ func TestLiveQualityPipelineReordersResults(t *testing.T) {
 
 	// The set drains: what has been judged leaves it, which is the whole mechanism
 	// standing in for a queue. Awaited rather than asserted outright, because a score
-	// is accepted before it is searchable — which is the same lag the scorer itself
+	// is accepted before it is searchable, which is the same lag the scorer itself
 	// has to tolerate.
 	awaitUnscored(t, idx, 0)
 

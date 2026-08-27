@@ -1,3 +1,5 @@
+// Package discovery walks the approved source list, turns new blog posts into
+// canonical articles, stores them, and projects them into the search index.
 package discovery
 
 import (
@@ -5,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -21,58 +22,28 @@ const indexBatchSize = 1000
 
 // How long one source may take before the run moves on without it.
 //
-// A single source can string together a robots fetch, several sitemap probes and
-// a page fetch per post, each with its own client timeout, so without a deadline
-// its worst case is the sum of all of them and a run's length is a hope rather
-// than a calculation. Generous enough that no healthy blog reaches it; the
-// articles gathered before the deadline are still kept.
+// A single source can string together a robots fetch, several sitemap probes and a
+// page fetch per post, each with its own client timeout, so without a deadline its
+// worst case is the sum of all of them. Generous enough that no healthy blog reaches
+// it; the articles gathered before the deadline are still kept.
 const sourceTimeout = 90 * time.Second
 
-// sourceResult carries one source's crawl outcome back from a worker.
-type sourceResult struct {
-	source   sources.Source
-	articles []article.Article
-	err      error
-	// How long the crawl took. Kept per source because the slow ones are what
-	// decide whether a pass fits in the invocation, and an average hides them.
-	duration time.Duration
-}
-
-// failureKind buckets a source failure so a pass can be summarised by cause
-// rather than by a count that says only "some blogs did not work".
+// articleStore is what a crawl needs of the article store: whether a post has already
+// been captured, and somewhere to put it when it has not.
 //
-// Timeouts are called out because they mean a source is costing more than its
-// share of the run: a rising count is how the sitemap path's growing scan cost
-// becomes visible before it starts eating whole passes.
-func failureKind(err error) string {
-	switch {
-	case errors.Is(err, context.DeadlineExceeded):
-		return "timeout"
-	case errors.Is(err, context.Canceled):
-		return "canceled"
-	default:
-		return "error"
-	}
-}
-
-// articleStore is what a crawl needs of the article store: whether a post has
-// already been captured, and somewhere to put it when it has not.
-//
-// An interface rather than *store.Store so a crawl can be exercised without an
-// Azure account behind it. A nil store knows nothing and keeps nothing, which is
-// what the crawl tests use when storage is not what they are testing.
+// An interface rather than *store.Store so a crawl can be exercised without an Azure
+// account behind it. A nil store knows nothing and keeps nothing.
 type articleStore interface {
 	Save(ctx context.Context, a article.Article) error
 	Has(ctx context.Context, id string) (bool, error)
 }
 
-// Discoverer walks the approved source list, turns new posts into canonical
-// articles, persists them, and projects them into the search index.
+// Discoverer fills the corpus one bounded pass at a time.
 //
-// The corpus is far larger than one invocation can process, so each run handles a
-// fixed slice of the source list and records where it stopped. Successive runs
-// continue from there and wrap around, giving every source regular coverage
-// without any single run approaching the function timeout.
+// The source list is far larger than one invocation can process, so each run handles a
+// fixed slice of it and records where it stopped. Successive runs continue from there
+// and wrap around, giving every source regular coverage without any single run
+// approaching the function timeout.
 type Discoverer struct {
 	sources   sources.Provider
 	store     articleStore
@@ -80,7 +51,6 @@ type Discoverer struct {
 	cursor    *Cursor
 	batchSize int
 
-	client       *http.Client
 	fetcher      *fetcher
 	robots       *robots
 	maxPosts     int
@@ -97,8 +67,7 @@ type Options struct {
 }
 
 func New(provider sources.Provider, st articleStore, idx *index.Index, cur *Cursor, opts Options) *Discoverer {
-	client := newCrawlClient(20 * time.Second)
-	f := newFetcher(client)
+	f := newFetcher(newCrawlClient(20 * time.Second))
 
 	return &Discoverer{
 		sources:      provider,
@@ -106,13 +75,22 @@ func New(provider sources.Provider, st articleStore, idx *index.Index, cur *Curs
 		index:        idx,
 		cursor:       cur,
 		batchSize:    opts.BatchSize,
-		client:       client,
 		fetcher:      f,
 		robots:       newRobots(f),
 		maxPosts:     opts.MaxPosts,
 		contentWords: opts.ContentWords,
 		concurrency:  opts.Concurrency,
 	}
+}
+
+// sourceResult carries one source's crawl outcome back from a worker.
+type sourceResult struct {
+	source   sources.Source
+	articles []article.Article
+	err      error
+	// How long the crawl took. Kept per source because the slow ones decide whether a
+	// pass fits in the invocation, and an average hides them.
+	duration time.Duration
 }
 
 // Run performs one bounded discovery pass.
@@ -134,7 +112,7 @@ func (d *Discoverer) Run(ctx context.Context) error {
 	}
 
 	start := resumeIndex(list, last)
-	batch, next := slice(list, start, d.batchSize)
+	batch, next := batchFrom(list, start, d.batchSize)
 
 	slog.InfoContext(ctx, "discovery pass starting",
 		"sources_total", len(list), "batch", len(batch), "start", start)
@@ -170,25 +148,27 @@ func (d *Discoverer) Run(ctx context.Context) error {
 	}
 
 	// Crawling is almost entirely network wait, so run sources in parallel. Each
-	// source is a different host, so this stays polite to any individual site.
+	// source is a different host, so this stays polite to any individual site. The
+	// slot is taken before the goroutine starts, so only concurrency of them exist at
+	// once; results is buffered for the whole batch, so no worker blocks on the send.
 	results := make(chan sourceResult, len(batch))
 	sem := make(chan struct{}, max(d.concurrency, 1))
 	var wg sync.WaitGroup
 
 	for _, s := range batch {
+		sem <- struct{}{}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			sem <- struct{}{}
 			defer func() { <-sem }()
 
 			sourceCtx, cancel := context.WithTimeout(ctx, sourceTimeout)
 			defer cancel()
 
-			start := time.Now()
+			started := time.Now()
 			found, err := d.crawl(sourceCtx, s)
 			results <- sourceResult{
-				source: s, articles: found, err: err, duration: time.Since(start),
+				source: s, articles: found, err: err, duration: time.Since(started),
 			}
 		}()
 	}
@@ -241,8 +221,8 @@ func (d *Discoverer) Run(ctx context.Context) error {
 		return err
 	}
 
-	// Nothing succeeding is a systemic failure rather than a batch of bad blogs, so
-	// the cursor stays put and the same slice is retried instead of being skipped.
+	// Nothing succeeding is a systemic failure rather than a batch of bad blogs, so the
+	// cursor stays put and the same slice is retried instead of being skipped.
 	if failed > 0 && failed == len(batch) {
 		return fmt.Errorf("all %d sources in the batch failed", failed)
 	}
@@ -261,6 +241,23 @@ func (d *Discoverer) Run(ctx context.Context) error {
 	return nil
 }
 
+// failureKind buckets a source failure so a pass can be summarised by cause rather
+// than by a count that says only "some blogs did not work".
+//
+// Timeouts are called out because they mean a source is costing more than its share of
+// the run: a rising count is how the sitemap path's growing scan cost becomes visible
+// before it starts eating whole passes.
+func failureKind(err error) string {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timeout"
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	default:
+		return "error"
+	}
+}
+
 // resumeIndex finds where to continue from. Resuming by source ID rather than by
 // offset keeps the position stable when the list is regenerated.
 func resumeIndex(list []sources.Source, lastID string) int {
@@ -275,9 +272,9 @@ func resumeIndex(list []sources.Source, lastID string) int {
 	return 0
 }
 
-// slice returns up to n sources from start, wrapping around, plus the ID to resume
+// batchFrom returns up to n sources from start, wrapping around, plus the ID to resume
 // after on the next run.
-func slice(list []sources.Source, start, n int) ([]sources.Source, string) {
+func batchFrom(list []sources.Source, start, n int) ([]sources.Source, string) {
 	if n <= 0 || n > len(list) {
 		n = len(list)
 	}

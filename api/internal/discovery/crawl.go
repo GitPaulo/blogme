@@ -22,8 +22,8 @@ const (
 	maxFeedBytes   = 4 << 20  // 4 MB
 	maxPageBytes   = 2 << 20  // 2 MB
 
-	// A feed entry carrying at least this many words is treated as the full post,
-	// so no page fetch is needed. Most truncated feeds fall well below it.
+	// A feed entry carrying at least this many words is treated as the full post, so
+	// no page fetch is needed. Most truncated feeds fall well below it.
 	feedContentWords = 200
 
 	// Length of the description shown on a result card.
@@ -33,30 +33,25 @@ const (
 	minSummaryWords = 12
 
 	// Caps on the fields taken straight from a feed. The body has always been
-	// truncated and these were not, so a feed could put its whole payload in a
-	// title and have all of it indexed.
+	// truncated and these were not, so a feed could put its whole payload in a title
+	// and have all of it indexed.
 	maxTitleWords  = 40
 	maxAuthorWords = 15
 
-	// How many advertised feeds to try when falling back to feed discovery. A page
-	// can list one per format and one per category; the site-wide feeds come first.
+	// How many advertised feeds to try when falling back to feed discovery. A page can
+	// list one per format and one per category; the site-wide feeds come first.
 	maxDeclaredFeeds = 3
 )
 
 // crawl turns one approved blog into articles.
 //
-// A feed describes its own posts, so it is both cheaper and more accurate; the
-// sitemap path exists for the third of the corpus that publishes no feed. A blog
-// with neither is served by the last resort below, which asks its homepage where
-// its feed is.
+// A feed describes its own posts, so it is both cheaper and more accurate; the sitemap
+// path exists for the third of the corpus that publishes no feed. A blog with neither
+// is served by the last resort below, which asks its homepage where its feed is.
 func (d *Discoverer) crawl(ctx context.Context, s sources.Source) ([]article.Article, error) {
-	// A recorded feed is the fast path, not the only one. When it stops working the
-	// source used to end here, which put it in exactly the position described below —
-	// in the list, costing a request a pass, contributing nothing — but harder to
-	// notice, because the list says the blog has a feed and the failure looks like a
-	// blog that went quiet. A feed that 404s or no longer parses is not evidence the
-	// blog stopped publishing, so clear it and take the routes a source without one
-	// already gets.
+	// A recorded feed is the fast path, not the only one. A feed that 404s or no longer
+	// parses is not evidence the blog stopped publishing, so clear it and take the
+	// routes a source without one already gets.
 	var feedErr error
 	if s.Feed != "" {
 		articles, err := d.crawlFeed(ctx, s)
@@ -67,43 +62,41 @@ func (d *Discoverer) crawl(ctx context.Context, s sources.Source) ([]article.Art
 		s.Feed = ""
 	}
 
-	articles, err := d.crawlSitemap(ctx, s)
-	if err == nil {
+	articles, sitemapErr := d.crawlSitemap(ctx, s)
+	if sitemapErr == nil {
 		return articles, nil
 	}
 
-	// No feed recorded and no sitemap to walk means the blog is never read at all.
-	// That is a hole rather than a slow path: the source stays in the list, costs a
-	// request every pass, and contributes nothing, which from the outside is
-	// indistinguishable from a blog that has not posted. Most sites in that position
-	// do publish a feed and simply never had it recorded, so the homepage is worth
-	// one look before giving up on the source.
+	// With no feed recorded and no sitemap to walk, the blog is never read at all: the
+	// source stays in the list, costs a request every pass, and contributes nothing,
+	// which from the outside looks like a blog that has not posted. Most sites in that
+	// position do publish a feed and simply never had it recorded.
 	for _, feed := range d.siteFeeds(ctx, s) {
 		s.Feed = feed
-		found, feedErr := d.crawlFeed(ctx, s)
-		if feedErr != nil {
+		found, err := d.crawlFeed(ctx, s)
+		if err != nil {
 			continue
 		}
-		// Said out loud because the source list is what should be carrying this feed:
-		// a run of these is the extractor needing another pass, not a healthy state.
+		// Said out loud because the source list is what should be carrying this feed: a
+		// run of these means the extractor needs another pass.
 		slog.InfoContext(ctx, "recovered feed from site html",
 			"source", s.ID, "feed", feed, "articles", len(found))
 		return found, nil
 	}
 
-	// When a recorded feed was what failed, that is the more useful thing to report:
-	// it names a correction the source list can carry, where "no usable sitemap" only
-	// says the fallback was not available either.
+	// When a recorded feed was what failed, that is the more useful thing to report: it
+	// names a correction the source list can carry, where "no usable sitemap" only says
+	// the fallback was not available either.
 	if feedErr != nil {
 		return nil, feedErr
 	}
 
-	return nil, err
+	return nil, sitemapErr
 }
 
 // siteFeeds returns the feeds a site advertises in its homepage HTML, resolved to
-// absolute URLs. Only reached when a source has neither a recorded feed nor a
-// usable sitemap, so it costs a request only where the alternative is nothing.
+// absolute URLs. Only reached when a source has neither a recorded feed nor a usable
+// sitemap, so it costs a request only where the alternative is nothing.
 func (d *Discoverer) siteFeeds(ctx context.Context, s sources.Source) []string {
 	site, err := url.Parse(s.Site)
 	if err != nil || !isHTTP(site) {
@@ -127,8 +120,8 @@ func (d *Discoverer) siteFeeds(ctx context.Context, s sources.Source) []string {
 			continue
 		}
 		// Resolved against the site, so a relative href like /rss.xml is usable and an
-		// absolute one on another host is kept as written — plenty of blogs syndicate
-		// through a third party.
+		// absolute one on another host is kept as written, since plenty of blogs
+		// syndicate through a third party.
 		resolved := site.ResolveReference(ref)
 		if !isHTTP(resolved) {
 			continue
@@ -167,10 +160,10 @@ func (d *Discoverer) crawlFeed(ctx context.Context, s sources.Source) ([]article
 		if len(articles) >= d.maxPosts {
 			break
 		}
-		// Entries already in the store no longer count towards maxPosts, so a long
-		// feed is now walked rather than abandoned at its newest few. Past the source
-		// deadline every store lookup fails at once, which would turn the rest of that
-		// walk into a run of warnings about a source whose time is already up.
+		// Entries already in the store do not count towards maxPosts, so a long feed is
+		// walked rather than abandoned at its newest few. Past the source deadline every
+		// store lookup fails at once, which would turn the rest of that walk into a run
+		// of warnings about a source whose time is already up.
 		if ctx.Err() != nil {
 			break
 		}
@@ -208,9 +201,8 @@ func (d *Discoverer) toArticle(ctx context.Context, s sources.Source, it feedIte
 	// Fall back to fetching the page only when the feed gave a stub, which keeps the
 	// common case to one request per blog rather than one per post.
 	//
-	// Nil unless that fetch happens: how a page is served is only knowable from a
-	// response, and a feed that carries its posts in full never produces one. See
-	// article.Article.FramingDenied for what nil means downstream.
+	// framing stays nil unless that fetch happens: how a page is served is only knowable
+	// from a response. See article.Article.FramingDenied.
 	var framing *bool
 	if wordCount(content) < feedContentWords && d.robots.allowed(ctx, link) {
 		if body, header, err := d.fetcher.fetch(ctx, link.String(), maxPageBytes); err == nil {
@@ -218,7 +210,7 @@ func (d *Discoverer) toArticle(ctx context.Context, s sources.Source, it feedIte
 			framing = &denied
 			page := parseHTML(string(body))
 			// A page can be fetchable and still ask not to be indexed, and the ask is
-			// only readable now that the page is in hand. Dropping the article rather
+			// only readable now that the page is in hand. The article is dropped rather
 			// than falling back to the feed stub: the request was about the post, not
 			// about which copy of it we keep.
 			if noIndex(page) {
@@ -230,10 +222,9 @@ func (d *Discoverer) toArticle(ctx context.Context, s sources.Source, it feedIte
 		}
 	}
 
-	// The article's own opening paragraphs make a better card than a feed's
-	// description, which is often a machine-generated blurb built from raw Markdown.
-	// Both extracted forms have been sanitised; the feed description has not, so it
-	// is the last resort.
+	// The article's own opening paragraphs make a better card than a feed's description,
+	// which is often a machine-generated blurb built from raw Markdown. Both extracted
+	// forms have been sanitised; the feed description has not, so it is the last resort.
 	summary := extractSummary(doc, summaryWords)
 	if wordCount(summary) < minSummaryWords && wordCount(content) > wordCount(summary) {
 		summary = content
@@ -264,16 +255,14 @@ func (d *Discoverer) toArticle(ctx context.Context, s sources.Source, it feedIte
 // skipStored reports whether the article for link has already been captured, and so
 // need not be built, fetched or written again.
 //
-// The store is the crawler's memory, and only the sitemap path used to consult it.
-// The feed path rebuilt and rewrote its newest entries every pass — refetching the
-// page too, wherever the feed carried stubs — so a corpus that had not changed still
-// cost a blob write and an index upsert per post per pass. Feeds are most of the
-// corpus, which made that the largest recurring cost in the system.
+// The store is the crawler's memory. Without this the feed path rebuilt and rewrote its
+// newest entries every pass, refetching the page wherever the feed carried stubs, so a
+// corpus that had not changed still cost a blob write and an index upsert per post per
+// pass.
 //
-// A lookup that fails counts as stored. The post is skipped either way, which is the
-// conservative reading: taking a storage blip for "not stored" would turn every
-// source in the pass into a storm of refetches, where a post missed this time is
-// picked up on the next pass.
+// A lookup that fails counts as stored. Taking a storage blip for "not stored" would
+// turn every source in the pass into a storm of refetches, where a post missed this
+// time is picked up on the next pass.
 func (d *Discoverer) skipStored(ctx context.Context, sourceID, link string) bool {
 	// A Discoverer built without a store keeps nothing, so it has nothing to skip.
 	if d.store == nil {
@@ -283,7 +272,7 @@ func (d *Discoverer) skipStored(ctx context.Context, sourceID, link string) bool
 	stored, err := d.store.Has(ctx, articleID(sourceID, link))
 	if err != nil {
 		// Said out loud, because from the outside a broken store and a blog with
-		// nothing new to say look exactly alike.
+		// nothing new to say look alike.
 		slog.WarnContext(ctx, "store lookup failed",
 			"source", sourceID, "url", link, "error", err)
 		return true

@@ -19,7 +19,7 @@ const emptyResult = `{"@odata.count":0,"value":[]}`
 
 // newCapturingHandlers stands in for Azure AI Search, recording what was asked of it.
 // The second result reports the requests that reached the index, which is where the
-// paging and ranking decisions actually show up — a status code cannot tell a
+// paging and ranking decisions actually show up, since a status code cannot tell a
 // reranked page from a keyword one.
 func newCapturingHandlers(t *testing.T, semantic, body string, limits Limits) (*Handlers, func() []map[string]any) {
 	t.Helper()
@@ -105,7 +105,7 @@ func TestSearchReportsPageAndTotal(t *testing.T) {
 
 // Total counts documents and the per-source cap drops rows, so a client that has
 // paged to the end still holds fewer rows than Total. It cannot infer that from the
-// numbers alone — which is what left "load more" dead beside "26 of 27" — so the
+// numbers alone, which is what left "load more" dead beside "26 of 27", so the
 // answer has to carry the flag, under the name the browser reads.
 func TestSearchReportsExhaustion(t *testing.T) {
 	for _, tc := range []struct {
@@ -223,7 +223,7 @@ func TestSearchSemanticPageStaysInsideRerankedWindow(t *testing.T) {
 // A refused request never reaches the reranker, so it must not spend from the
 // reranking budget. That budget is shared by everyone on the instance, so letting
 // malformed traffic drain it would silently downgrade every real semantic query
-// behind it — for an hour, on the default settings.
+// behind it, for an hour on the default settings.
 func TestSearchRefusedRequestKeepsSemanticBudget(t *testing.T) {
 	limits := DefaultLimits()
 	limits.SemanticHourBurst = 2 // The whole service's reranking allowance, for this test.
@@ -259,7 +259,7 @@ func TestSearchRefusedRequestKeepsSemanticBudget(t *testing.T) {
 
 // The cap counts characters, matching the limit the browser puts on the search box.
 // Counted in bytes the same number refuses a query the client had already trimmed to
-// size — at 171 characters of Japanese rather than 512.
+// size: at 171 characters of Japanese rather than 512.
 func TestSearchQueryLengthCountsRunes(t *testing.T) {
 	h := newTestHandlers(t, emptyResult)
 
@@ -284,9 +284,9 @@ func TestSearchQueryLengthCountsRunes(t *testing.T) {
 }
 
 // The deploy workflow gates on health, so the one thing it must not do is pass
-// while search is broken. The failures worth catching all authenticate correctly —
+// while search is broken. The failures worth catching all authenticate correctly:
 // a role assignment that was never granted still issues a token, and a misspelled
-// index name is a valid request to somewhere that is not there — so health is
+// index name is a valid request to somewhere that is not there, so health is
 // asserted against what the index answers rather than against the process running.
 func TestHealthFollowsWhetherTheIndexCanBeRead(t *testing.T) {
 	for _, tc := range []struct {
@@ -341,7 +341,7 @@ func TestSearchCachesAnAnswerAndNothingElse(t *testing.T) {
 }
 
 // A page is thinned after the index has ranked it, so reading exactly a page's worth
-// hands back whatever survives — three rows of twenty for a query one blog dominates.
+// hands back whatever survives: three rows of twenty for a query one blog dominates.
 // Reading further is what fills it, and the request is where that shows up.
 func TestSearchReadsMoreDocumentsThanThePageHolds(t *testing.T) {
 	h, sent := newCapturingHandlers(t, "", emptyResult, DefaultLimits())
@@ -376,7 +376,7 @@ func TestSearchSemanticReadStaysInsideTheRerankedWindow(t *testing.T) {
 		t.Fatal("no index request was made")
 	}
 	if got, want := requests[0]["top"], float64(semanticWindow-offset); got != want {
-		t.Errorf("top = %v, want %v — the read ran past the reranked window", got, want)
+		t.Errorf("top = %v, want %v: the read ran past the reranked window", got, want)
 	}
 	// Never below the page size, or the clamp would be shortening pages on its own.
 	if requests[0]["top"].(float64) < 20 {
@@ -411,7 +411,7 @@ func TestSearchReportsWhereTheNextPageStarts(t *testing.T) {
 		t.Fatalf("count = %d, want a full page of 20", body.Count)
 	}
 	if want := 100 + 21; body.NextOffset != want {
-		t.Errorf("nextOffset = %d, want %d — rows returned are not documents read",
+		t.Errorf("nextOffset = %d, want %d: rows returned are not documents read",
 			body.NextOffset, want)
 	}
 }

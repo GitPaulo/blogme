@@ -1,3 +1,11 @@
+// Package quality judges how good an article is, independently of any query.
+//
+// Search answers two questions at once: does this document match what was asked for,
+// and is it worth reading at all. The index answers the first well and the second not
+// at all, which is why a search for "python" returned documentation landing pages,
+// newsletter archives and a Portuguese meetup announcement from 2007 ahead of articles
+// about Python. This package answers the second, once per article, so ranking can use
+// it on every query without paying for it on any of them.
 package quality
 
 import (
@@ -27,11 +35,11 @@ type scoreIndex interface {
 
 // Scorer keeps every article's quality figures up to date.
 //
-// It has no queue and no cursor. An article leaves the unscored set by being scored,
-// so each run takes the head of that set and the set shrinks by exactly what was
-// done; a corpus of any size drains in as many runs as it takes and then costs
-// nothing but the asking. Raising Version puts every article back into the set, which
-// is how a change to the model reaches articles judged under the old one.
+// It has no queue and no cursor. An article leaves the unscored set by being scored, so
+// each run takes the head of that set and the set shrinks by exactly what was done: a
+// corpus of any size drains in as many runs as it takes and then costs nothing but the
+// asking. Raising Version puts every article back into the set, which is how a change
+// to the model reaches articles judged under the old one.
 type Scorer struct {
 	index      scoreIndex
 	sources    sources.Provider
@@ -56,8 +64,8 @@ func New(idx scoreIndex, provider sources.Provider, popularity *Store, opts Opti
 		index:      idx,
 		sources:    provider,
 		popularity: popularity,
-		// Third-party and off the reader's path, so it can afford to be patient —
-		// but not indefinitely, or one unresponsive host holds up a sweep.
+		// Third-party and off the reader's path, so it can afford to be patient, but
+		// not indefinitely, or one unresponsive host holds up a sweep.
 		client:     &http.Client{Timeout: 15 * time.Second},
 		scoreBatch: opts.ScoreBatch,
 		sweepBatch: opts.SweepBatch,
@@ -87,14 +95,13 @@ func (s *Scorer) Run(ctx context.Context) error {
 	return nil
 }
 
-// gatherPopularity makes what is known about each site available to this run, and
-// learns a little more, reporting how many sites it read.
+// gatherPopularity makes what is known about each site available to this run, learns a
+// little more, and reports how many sites it read.
 //
-// Reading and gathering are separate steps because they fail and switch off
-// separately. Turning the sweep off must not also stop the scores already gathered
-// from being used, and a failed read must not be followed by a write — saving a sweep
-// on top of a map that could not be loaded would replace everything known with
-// whatever this one run happened to fetch.
+// Reading and gathering are separate steps because they fail and switch off separately.
+// Turning the sweep off must not also stop the scores already gathered from being used,
+// and a failed read must not be followed by a write: saving a sweep on top of a map that
+// could not be loaded would replace everything known with whatever this run fetched.
 func (s *Scorer) gatherPopularity(ctx context.Context) int {
 	if s.popularity == nil {
 		return 0
@@ -146,15 +153,14 @@ func (s *Scorer) sweep(ctx context.Context) (int, error) {
 	return read, nil
 }
 
-// score judges articles until the run's budget is spent or none are left, reporting
-// how many it judged and how many remain in the corpus.
+// score judges articles until the run's budget is spent or none are left, reporting how
+// many it judged and how many remain in the corpus.
 //
-// The articles already handled this run are remembered, because a score is not
-// visible to the next query the moment it is accepted. Without that, a run reads the
-// same head of the queue over and over while indexing catches up: judging two
-// articles spent nineteen rounds and reported thirty-eight against a real service.
-// Nothing was written wrongly — a merge is a merge — but the budget went on repeats
-// and the count that says how much work was done became fiction.
+// The articles already handled this run are remembered, because a score is not visible
+// to the next query the moment it is accepted. Without that, a run reads the same head
+// of the queue over and over while indexing catches up: judging two articles spent
+// nineteen rounds and reported thirty-eight against a real service. Nothing was written
+// wrongly, but the budget went on repeats and the count became fiction.
 func (s *Scorer) score(ctx context.Context) (int, int, error) {
 	scored, remaining := 0, 0
 	seen := make(map[string]struct{}, s.scoreBatch)

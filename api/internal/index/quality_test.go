@@ -11,7 +11,7 @@ import (
 )
 
 // The unscored set is the whole work queue, so the request that reads it has to name
-// the version that defines membership — and ask for the count, which is the only
+// the version that defines membership, and ask for the count, which is the only
 // measure a drain has of how much is left.
 func TestUnscoredAsksForTheArticlesNotYetJudged(t *testing.T) {
 	var sent map[string]any
@@ -102,7 +102,7 @@ func TestSaveScoresMergesOntoExistingArticles(t *testing.T) {
 	doc := sent.Value[0]
 
 	if doc["@search.action"] != "merge" {
-		t.Errorf("action = %v, want merge — an upload would invent an article", doc["@search.action"])
+		t.Errorf("action = %v, want merge: an upload would invent an article", doc["@search.action"])
 	}
 	for field, want := range map[string]any{
 		"id":             "blog-abc123",

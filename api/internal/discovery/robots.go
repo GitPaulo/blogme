@@ -8,9 +8,9 @@ import (
 	"sync"
 )
 
-// robots caches one robots.txt decision set per host. A discovery run touches many
-// pages on the same host, and re-fetching robots.txt for each would be both slow and
-// rude.
+// robots caches one robots.txt decision set per host, following RFC 9309
+// (https://www.rfc-editor.org/rfc/rfc9309). A discovery run touches many pages on the
+// same host, and re-fetching robots.txt for each would be both slow and rude.
 type robots struct {
 	fetcher *fetcher
 	mu      sync.Mutex
@@ -24,8 +24,8 @@ type robotRules struct {
 	sitemaps []string
 }
 
-// robotRule is one Allow or Disallow line. Precedence under RFC 9309 §2.2.2 goes
-// to the longest matching pattern, so the pattern is kept rather than only its
+// robotRule is one Allow or Disallow line. Precedence under RFC 9309 section 2.2.2
+// goes to the longest matching pattern, so the pattern is kept rather than only its
 // effect.
 type robotRule struct {
 	pattern string
@@ -70,14 +70,11 @@ func (r *robots) allowed(ctx context.Context, u *url.URL) bool {
 	return best.pattern == "" || best.allow
 }
 
-// matchPath reports whether a robots.txt pattern matches a path. '*' stands for
-// any run of characters and a trailing '$' anchors the end; anything else is a
-// prefix match.
-//
-// The literal-prefix comparison this replaces silently ignored every wildcard
-// rule — "/*/private" was compared as though a real path might begin with those
-// characters, so it never matched and the crawler fetched exactly what the site
-// had asked it not to.
+// matchPath reports whether a robots.txt pattern matches a path. '*' stands for any
+// run of characters and a trailing '$' anchors the end; anything else is a prefix
+// match. A literal-prefix comparison would ignore every wildcard rule, so a pattern
+// like "/*/private" would never match and the crawler would fetch what the site asked
+// it not to.
 func matchPath(pattern, path string) bool {
 	anchored := strings.HasSuffix(pattern, "$")
 	if anchored {
@@ -226,15 +223,15 @@ func parseRobots(body string) (robotRules, error) {
 	return out, scanner.Err()
 }
 
-// rulesForAgent picks the group that governs us: one naming this crawler if the
-// file has one, and the wildcard group otherwise. A file that addresses us by name
-// is talking to us specifically, so its group replaces the wildcard rather than
-// adding to it. Groups repeating the same agent are merged, which is common in
-// hand-maintained files.
+// rulesForAgent picks the group that governs us: one naming this crawler if the file
+// has one, and the wildcard group otherwise. A file that addresses us by name is
+// talking to us specifically, so its group replaces the wildcard rather than adding to
+// it. Groups repeating the same agent are merged, which is common in hand-maintained
+// files.
 func rulesForAgent(groups []robotGroup) []robotRule {
 	var named, wildcard []robotRule
-	// Tracked separately, because an empty group addressed to us is a decision —
-	// it says we may go anywhere — and not an absence of one.
+	// Tracked separately, because an empty group addressed to us is a decision (it
+	// says we may go anywhere) rather than an absence of one.
 	addressed := false
 
 	for _, group := range groups {

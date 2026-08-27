@@ -11,9 +11,9 @@ import (
 
 // parseHTML parses a page into the tree the extractors below all read from.
 //
-// Every extractor takes the tree rather than the source, because a page is parsed on
-// the crawler's hottest path and its body can be megabytes: parsing it once per field
-// cost three times as much for exactly the same result.
+// Every extractor takes the tree rather than the source, because a page body can be
+// megabytes and this is the crawler's hottest path: parsing once per field cost three
+// times as much for the same result.
 func parseHTML(doc string) *html.Node {
 	node, err := html.Parse(strings.NewReader(doc))
 	if err != nil {
@@ -26,9 +26,9 @@ func parseHTML(doc string) *html.Node {
 
 // extractText pulls readable prose out of a parsed page.
 //
-// This is deliberately not a full readability implementation: it drops the elements
-// that reliably contain no prose, prefers <article>/<main> when present, and takes
-// the document body otherwise. Good enough to index, cheap to run.
+// Deliberately not a full readability implementation: it drops the elements that
+// reliably contain no prose, prefers <article>/<main> when present, and takes the
+// document body otherwise. Good enough to index, cheap to run.
 func extractText(node *html.Node) string {
 	if main := findContentRoot(node); main != nil {
 		node = main
@@ -154,10 +154,9 @@ func extractSummary(node *html.Node, words int) string {
 
 // noIndex reports whether the page asks not to be indexed.
 //
-// robots.txt governs whether a page may be fetched at all; this is the separate
-// request not to keep what was fetched, and it is only visible once the page has
-// been read. Honouring it costs one walk and is the difference between a crawler
-// and a scraper.
+// robots.txt governs whether a page may be fetched at all; this is the separate request
+// not to keep what was fetched, and it is only visible once the page has been read.
+// https://developer.mozilla.org/docs/Web/HTML/Element/meta/name#robots
 func noIndex(node *html.Node) bool {
 	found := false
 
@@ -200,9 +199,9 @@ func noIndex(node *html.Node) bool {
 // whatever base it fetched the page from.
 //
 // Matched on the type containing a syndication format rather than on an exact media
-// type, because that attribute is written by hand as often as by a generator. A
-// false positive costs one fetch that fails to parse as a feed; a false negative
-// costs the whole blog.
+// type, because that attribute is written by hand as often as by a generator. A false
+// positive costs one fetch that fails to parse as a feed; a false negative costs the
+// whole blog.
 func declaredFeeds(node *html.Node) []string {
 	var feeds []string
 
@@ -233,9 +232,12 @@ func declaredFeeds(node *html.Node) []string {
 	return feeds
 }
 
+// Fragments that mark a <link type> as a syndication format.
+var feedTypeHints = []string{"rss", "atom", "feed", "xml"}
+
 // isFeedType reports whether a <link type> names a syndication format.
 func isFeedType(mediaType string) bool {
-	for _, name := range []string{"rss", "atom", "feed", "xml"} {
+	for _, name := range feedTypeHints {
 		if strings.Contains(mediaType, name) {
 			return true
 		}

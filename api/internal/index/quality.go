@@ -6,16 +6,6 @@ import (
 	"net/http"
 )
 
-// This file is the index's side of quality scoring: reading the articles that have
-// not been judged yet, and writing the figures back.
-//
-// The index is both the input and the output, which is what keeps the scorer free of
-// any store of its own. There is no queue and no cursor: an article leaves the
-// unscored set by being scored, so asking for the head of that set repeatedly walks
-// the whole corpus and then stops. Rebuilding the index from blob storage empties
-// every score with it, and the same loop simply fills them in again — the scores are
-// derived from indexed text, so nothing is lost that cannot be recomputed.
-
 // Candidate is one article awaiting a quality score, carrying the fields the score is
 // computed from.
 type Candidate struct {
@@ -30,8 +20,8 @@ type Candidate struct {
 // Scores is one article's quality figures.
 //
 // The parts are stored alongside the total on purpose. Reweighting the blend is the
-// change most likely to be wanted, and holding the parts means it costs a read of
-// three numbers per document rather than a re-read of every article's text.
+// change most likely to be wanted, and holding the parts makes that a read of three
+// numbers per document rather than a re-read of every article's text.
 type Scores struct {
 	ID         string
 	Quality    float64
@@ -56,11 +46,15 @@ type candidateResponse struct {
 // Unscored returns articles carrying no score, or one older than version, along with
 // how many such articles remain in the whole index.
 //
-// Newest first, so a corpus that is still draining spends its effort where a reader
-// is most likely to be looking. The count is returned because it is the only measure
-// of progress a run has: rows handled says how much work was done, remaining says how
-// much is left, and without the second a drain that has silently stopped advancing
-// looks exactly like a healthy one.
+// The index is both the input and the output of scoring, which keeps the scorer free
+// of any store of its own. There is no queue and no cursor: an article leaves the
+// unscored set by being scored, so asking for the head of that set repeatedly walks
+// the whole corpus and then stops. Rebuilding the index empties every score with it,
+// and the same loop fills them in again.
+//
+// Newest first, so a corpus that is still draining spends its effort where a reader is
+// most likely to be looking. The count is the only measure of progress a run has:
+// without it, a drain that has silently stopped advancing looks like a healthy one.
 func (i *Index) Unscored(ctx context.Context, version, limit int) ([]Candidate, int, error) {
 	body := map[string]any{
 		// A filter needs something to filter, and "*" matches every document without
@@ -95,10 +89,9 @@ func (i *Index) Unscored(ctx context.Context, version, limit int) ([]Candidate, 
 // scoreDocument is one article's scores on the wire.
 //
 // The action is "merge" rather than the "mergeOrUpload" the crawler writes with.
-// Upload would create a document from these fields alone if the article had since
-// been deleted, and a document holding a score and no title or URL is one that can be
-// returned by a search and rendered as an empty row. A merge onto nothing fails
-// instead, which is the correct outcome for a score with no article under it.
+// Upload would create a document from these fields alone if the article had since been
+// deleted, and a document holding a score but no title or URL can be returned by a
+// search and rendered as an empty row. A merge onto nothing fails instead.
 type scoreDocument struct {
 	Action      string  `json:"@search.action"`
 	ID          string  `json:"id"`

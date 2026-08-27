@@ -356,14 +356,12 @@ func mustURL(t *testing.T, raw string) *url.URL {
 // newLocalDiscoverer builds a Discoverer that will talk to a test server.
 //
 // It does not use New, because the crawl client refuses to connect to anything off
-// the public internet — the guard that stops a source list from being turned into a
-// port scanner, and which a loopback test server falls foul of by design.
+// the public internet: the guard that stops a source list being turned into a port
+// scanner, which a loopback test server falls foul of by design.
 func newLocalDiscoverer(maxPosts int) *Discoverer {
-	client := &http.Client{}
-	f := newFetcher(client)
+	f := newFetcher(&http.Client{})
 
 	return &Discoverer{
-		client:       client,
 		fetcher:      f,
 		robots:       newRobots(f),
 		maxPosts:     maxPosts,
@@ -488,7 +486,7 @@ func TestCrawlWithARecordedFeedNeverLooksAtTheHomepage(t *testing.T) {
 // A feed goes stale without the blog going quiet: the URL 404s, or the XML stops
 // parsing, while the site carries on publishing and still has a sitemap. Ending the
 // source on that failure left it in the list costing a request a pass and returning
-// nothing — the same hole the site-HTML fallback was added to close, but hidden
+// nothing: the same hole the site-HTML fallback was added to close, but hidden
 // behind a source list that claims the blog has a feed.
 //
 // The sitemap here is valid and empty, which is what keeps the test off the article

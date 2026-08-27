@@ -1,11 +1,3 @@
-// Package quality judges how good an article is, independently of any query.
-//
-// Search answers two different questions at once: does this document match what was
-// asked for, and is it worth reading at all. The index answers the first well and the
-// second not at all, which is why a search for "python" returned documentation
-// landing pages, newsletter archives and a Portuguese meetup announcement from 2007
-// ahead of articles about Python. This package answers the second, once per article,
-// so that ranking can use it on every query without paying for it on any of them.
 package quality
 
 import (
@@ -44,6 +36,10 @@ const (
 	// Used where there is too little text to measure vocabulary, so that a short
 	// article is neither rewarded nor punished for it.
 	neutralRichness = 0.5
+
+	// How much of the opening is read for a site-introduction phrase. These phrases
+	// come first or not at all.
+	openingWords = 20
 )
 
 // englishStopwords is a deliberately small set: the words that are hard to write
@@ -122,10 +118,9 @@ var versionPath = regexp.MustCompile(`^v?[0-9]+(\.[0-9]+)*$`)
 // siteRoot reports whether a URL addresses a site or a section of one rather than a
 // single article.
 //
-// Only two shapes count, because the third — a one-word path — is how a great many
-// blogs publish real posts, and treating those as landing pages would bury the small
-// personal sites this index exists to surface. An empty path is a homepage; a lone
-// version number is a documentation root. Both were live in the top ten for "python".
+// Only two shapes count: an empty path is a homepage, and a lone version number is a
+// documentation root. Both were live in the top ten for "python". A one-word path is
+// not one of them, because that is how a great many blogs publish real posts.
 func siteRoot(rawURL string) bool {
 	u, err := url.Parse(rawURL)
 	if err != nil {
@@ -168,7 +163,7 @@ func boilerplate(content string) bool {
 		return false
 	}
 
-	opening := strings.Join(ws[:min(n, 20)], " ")
+	opening := strings.Join(ws[:min(n, openingWords)], " ")
 	for _, o := range openers {
 		if strings.Contains(opening, o) {
 			return true
