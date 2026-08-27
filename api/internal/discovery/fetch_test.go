@@ -152,3 +152,21 @@ func TestIsPublicIPRejectsEverythingOffThePublicInternet(t *testing.T) {
 		}
 	}
 }
+
+// The platforms the cap exists for are the ones listed as public suffixes in their own
+// right, so eTLD+1 alone reads every blog on them as its own registrable domain.
+func TestLimiterKeyCollapsesSharedPlatforms(t *testing.T) {
+	for host, want := range map[string]string{
+		"emma.bearblog.dev":    "bearblog.dev",
+		"cirro.bearblog.dev":   "bearblog.dev",
+		"someone.github.io":    "github.io",
+		"someone.blogspot.com": "blogspot.com",
+		// An ordinary blog on its own domain still keys on the domain it registered.
+		"www.example.com": "example.com",
+		"example.com":     "example.com",
+	} {
+		if got := limiterKey(host); got != want {
+			t.Errorf("limiterKey(%q) = %q, want %q", host, got, want)
+		}
+	}
+}

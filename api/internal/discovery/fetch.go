@@ -142,12 +142,28 @@ func (f *fetcher) fetch(ctx context.Context, rawURL string, limit int64) ([]byte
 	return read, resp.Header, err
 }
 
-// acquire takes one of the domain's slots, returning the function that gives it back.
-func (f *fetcher) acquire(ctx context.Context, host string) (func(), error) {
+// limiterKey is the domain a host's concurrency is counted against.
+//
+// Not simply eTLD+1: the platforms this exists to be polite to are exactly the ones
+// registered in the public suffix list's private section, so bearblog.dev and github.io
+// are themselves suffixes and eTLD+1 hands back the per-blog subdomain unchanged — one
+// slot each, and the cap stops capping the operator it was written for. A private
+// suffix is the platform, so it is the key; under an ICANN suffix the registered domain
+// below it is.
+func limiterKey(host string) string {
+	if suffix, icann := publicsuffix.PublicSuffix(host); !icann && suffix != "" {
+		return suffix
+	}
 	key, err := publicsuffix.EffectiveTLDPlusOne(host)
 	if err != nil || key == "" {
-		key = host
+		return host
 	}
+	return key
+}
+
+// acquire takes one of the domain's slots, returning the function that gives it back.
+func (f *fetcher) acquire(ctx context.Context, host string) (func(), error) {
+	key := limiterKey(host)
 
 	f.mu.Lock()
 	slot, ok := f.domains[key]
