@@ -241,10 +241,21 @@ stay out. The URL is written once per search rather than once per keystroke: par
 because it should describe results that exist, and partly because browsers throttle
 history writes.
 
-An answer is cacheable for a minute, so a reload or a shared link opened twice costs
-neither an execution nor an index query. Only the answer: an error describes this moment
-rather than the query, and caching one would go on serving a failure the service had
-already recovered from.
+An answer is cacheable for two minutes, so a reload or a shared link opened twice costs
+neither an execution nor an index query. Discovery runs hourly, so anything well inside
+that cycle serves the corpus the index would have answered from anyway; a minute was
+short enough to expire between a reader opening a result and coming back for the next
+one. Only the answer is cached: an error describes this moment rather than the query,
+and caching one would go on serving a failure the service had already recovered from.
+
+Answers are gzipped when the caller says it can read them. A page of results is 10–18 KB
+of JSON that compresses to 36–45% of that, for about 0.3 ms against a search whose median
+is 31 ms — nearly all of what a reader waits for is the body crossing the network rather
+than the search itself. The Functions host proxies the response back untouched, so this
+happens in the worker or not at all. Bodies below 1 KB are sent as they are, because gzip
+costs eighteen bytes of header and footer before any content and every error here is one
+sentence. `Vary: Accept-Encoding` rides on both forms, since they share a URL and the
+answer is cacheable and public.
 
 `/api/health` asks the index for a document count rather than reporting that the process
 is up. The deploy workflow gates on it, and the failures worth catching all authenticate

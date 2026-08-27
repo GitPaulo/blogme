@@ -27,7 +27,9 @@ func main() {
 
 	app := sdk.FunctionApp()
 
-	app.HTTP("search", handlers.Search,
+	// Compressed, because a page of results is the only answer here large enough for
+	// it to matter; the health check's whole body is twenty bytes.
+	app.HTTP("search", httpapi.Compress(handlers.Search),
 		sdk.WithMethods("GET"),
 		sdk.WithAuth("anonymous"),
 	)

@@ -319,7 +319,7 @@ func TestHealthFollowsWhetherTheIndexCanBeRead(t *testing.T) {
 // costs nothing. A failure is about this moment rather than about the query, and
 // caching one would go on serving it after the service had recovered.
 func TestSearchCachesAnAnswerAndNothingElse(t *testing.T) {
-	const want = "public, max-age=60"
+	const want = "public, max-age=120"
 
 	if got := get(t, newTestHandlers(t, emptyResult), "/api/search?q=go").
 		Header().Get("Cache-Control"); got != want {
