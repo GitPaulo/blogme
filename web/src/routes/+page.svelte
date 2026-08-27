@@ -134,6 +134,13 @@
 			: 'Keyword ranking: matches the words you typed. Switch to semantic ranking.'
 	);
 	const emptyMessage = 'No results found. Try a different search.';
+	// Filters narrow the rows already fetched rather than the query behind them, so an
+	// empty list with pages still to come is a prompt rather than a dead end.
+	const noMatchMessage = $derived(
+		hasMore
+			? 'No loaded results match these filters. Try loading more.'
+			: 'No loaded results match these filters.'
+	);
 
 	// The bookmarked filter needs the saved keys, which the drawer would otherwise only
 	// load on its own schedule.
@@ -443,11 +450,12 @@
 		<Alert color="red" class="mt-6">{error}</Alert>
 	{/if}
 
-	<!-- Tied to there being a search rather than to there being results: a filter
-	narrow enough to return nothing would otherwise unmount the bar that holds the
-	control for undoing it. -->
 	{#if searchable}
 		<div class="mt-8">
+			<!-- One guard for the whole result view: the summary, the filters, the rows and
+			the controls each describe a set of loaded results, and none of them mean anything
+			without one. Gated on what was loaded rather than on what survives the filters, so
+			a filter narrow enough to match nothing still leaves the bar that undoes it. -->
 			{#if loaded > 0}
 				<!-- The sentence is aria-hidden because the live region above already reads it.
 				The note is not: it sits outside that region so the explanation is reachable by
@@ -469,87 +477,83 @@
 						<Tooltip class="max-w-64 text-center">{partialNote}</Tooltip>
 					{/if}
 				</div>
-			{/if}
 
-			<FilterBar {results} bind:filters />
+				<FilterBar {results} bind:filters />
 
-			{#if status === 'done' && loaded === 0}
-				<Alert color="gray" class="mt-4">{emptyMessage}</Alert>
-			{:else if loaded > 0 && shown === 0}
-				<Alert color="gray" class="mt-4">No loaded results match these filters.</Alert>
-			{/if}
+				{#if shown === 0}
+					<Alert color="gray" class="mt-4">{noMatchMessage}</Alert>
+				{/if}
 
-			<div class="mt-3 space-y-4" bind:this={resultList}>
-				{#each filtered as result (result.url)}
-					{@const published = formatDate(result.publishedAt)}
-					{@const opened = visited.has(result.url)}
-					<Card class="max-w-none p-4">
-						<div class="flex items-start gap-3">
-							<div class="min-w-0 flex-1">
-								<Heading tag="h2" class="text-lg font-semibold">
-									<!-- data-preview opens the shared hover panel, and carries what the crawler
-									found out about framing so the panel knows whether to try; data-visit tells the
-									shared tracker that following this link counts as reading the article.
+				<div class="mt-3 space-y-4" bind:this={resultList}>
+					{#each filtered as result (result.url)}
+						{@const published = formatDate(result.publishedAt)}
+						{@const opened = visited.has(result.url)}
+						<Card class="max-w-none p-4">
+							<div class="flex items-start gap-3">
+								<div class="min-w-0 flex-1">
+									<Heading tag="h2" class="text-lg font-semibold">
+										<!-- data-preview opens the shared hover panel, and carries what the crawler
+										found out about framing so the panel knows whether to try; data-visit tells the
+										shared tracker that following this link counts as reading the article.
 
-									An opened post takes the theme's blue, a step darker than the accent the
-									buttons wear: at eighteen pixels of semibold that accent shouts, and this
-									is a note about the post rather than the thing to look at. -->
-									<a
-										href={result.url}
-										target="_blank"
-										rel="noopener noreferrer"
-										data-preview={result.framingDenied === undefined
-											? ''
-											: result.framingDenied
-												? 'denied'
-												: 'allowed'}
-										data-visit
-										class="line-clamp-2 rounded-sm break-words hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 {opened
-											? 'text-primary-700 dark:text-primary-400'
-											: 'text-gray-900 dark:text-white'}"
-									>
-										{result.title}
-									</a>
-								</Heading>
-								{#if result.author || published}
-									<div class="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
-										{#if result.author}
-											<span class="truncate">{result.author}</span>
-										{/if}
-										{#if result.author && published}
-											<span aria-hidden="true">&middot;</span>
-										{/if}
-										{#if published}
-											<time datetime={result.publishedAt} class="shrink-0 tabular-nums">
-												{published}
-											</time>
-										{/if}
-									</div>
-								{/if}
+										An opened post takes the theme's blue, a step darker than the accent the
+										buttons wear: at eighteen pixels of semibold that accent shouts, and this
+										is a note about the post rather than the thing to look at. -->
+										<a
+											href={result.url}
+											target="_blank"
+											rel="noopener noreferrer"
+											data-preview={result.framingDenied === undefined
+												? ''
+												: result.framingDenied
+													? 'denied'
+													: 'allowed'}
+											data-visit
+											class="line-clamp-2 rounded-sm break-words hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 {opened
+												? 'text-primary-700 dark:text-primary-400'
+												: 'text-gray-900 dark:text-white'}"
+										>
+											{result.title}
+										</a>
+									</Heading>
+									{#if result.author || published}
+										<div class="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
+											{#if result.author}
+												<span class="truncate">{result.author}</span>
+											{/if}
+											{#if result.author && published}
+												<span aria-hidden="true">&middot;</span>
+											{/if}
+											{#if published}
+												<time datetime={result.publishedAt} class="shrink-0 tabular-nums">
+													{published}
+												</time>
+											{/if}
+										</div>
+									{/if}
+								</div>
+								<BookmarkButton {result} />
 							</div>
-							<BookmarkButton {result} />
-						</div>
-						{#if result.summary}
-							<P class="mt-2 line-clamp-3 break-words">{result.summary}</P>
-						{/if}
-						{#if result.origin === 'sitemap' || result.topics?.length}
-							<div class="mt-3 flex flex-wrap items-center gap-2">
-								{#if result.origin === 'sitemap'}
-									<Badge color="purple">Sitemapped</Badge>
-									<Tooltip class="max-w-64 text-center">
-										Found through the site's page list, not a feed, so details may be less exact.
-									</Tooltip>
-								{/if}
-								{#each result.topics ?? [] as topic (topic)}
-									<Badge class="max-w-full truncate">{topic}</Badge>
-								{/each}
-							</div>
-						{/if}
-					</Card>
-				{/each}
-			</div>
+							{#if result.summary}
+								<P class="mt-2 line-clamp-3 break-words">{result.summary}</P>
+							{/if}
+							{#if result.origin === 'sitemap' || result.topics?.length}
+								<div class="mt-3 flex flex-wrap items-center gap-2">
+									{#if result.origin === 'sitemap'}
+										<Badge color="purple">Sitemapped</Badge>
+										<Tooltip class="max-w-64 text-center">
+											Found through the site's page list, not a feed, so details may be less exact.
+										</Tooltip>
+									{/if}
+									{#each result.topics ?? [] as topic (topic)}
+										<Badge class="max-w-full truncate">{topic}</Badge>
+									{/each}
+								</div>
+							{/if}
+						</Card>
+					{/each}
+				</div>
 
-			{#if loaded > 0}
 				<div class="mt-6 flex items-center justify-center gap-2" bind:this={controlsRow}>
 					<!-- Present for as long as there are results, so the end of the list is a
 					disabled button rather than a control that vanishes from under the pointer. -->
@@ -594,6 +598,8 @@
 						<Tooltip>Back to top</Tooltip>
 					</div>
 				{/if}
+			{:else if status === 'done'}
+				<Alert color="gray" class="mt-4">{emptyMessage}</Alert>
 			{/if}
 		</div>
 	{/if}
