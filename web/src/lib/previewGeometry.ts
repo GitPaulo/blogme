@@ -149,6 +149,15 @@ export function readGeometry(): Geometry | undefined {
 	}
 }
 
+/** Forgets the remembered panel, so the next one comes back beside its link at DEFAULT_SIZE. */
+export function clearGeometry() {
+	try {
+		localStorage.removeItem(STORAGE_KEY);
+	} catch {
+		// Nothing was readable to begin with, so there is nothing to forget.
+	}
+}
+
 export function writeGeometry(geometry: Geometry) {
 	try {
 		localStorage.setItem(STORAGE_KEY, JSON.stringify(geometry));

@@ -9,6 +9,7 @@
 		clampSize,
 		clampSizeAt,
 		DEFAULT_SIZE,
+		clearGeometry,
 		type Geometry,
 		placeAtPoint,
 		placeAtRect,
@@ -59,6 +60,12 @@
 			 * is a longer journey for the pointer. See scheduleClose.
 			 */
 			placed: boolean;
+			/**
+			 * The panel as it comes: default size, beside the link that opened it. Carried
+			 * along so a double click can put it back without having to find the link again,
+			 * by which time the pointer is on the header and the list may have moved.
+			 */
+			home: Position & Size;
 		};
 
 	/** A move or a resize in progress, and what the panel was when it started. */
@@ -97,6 +104,12 @@
 		return node instanceof Element && node.closest('[data-preview-panel]') !== null;
 	}
 
+	// The Open link and the Visited badge share the header row with the drag handle, and a
+	// press on one of those is aimed at it rather than at the panel.
+	function onControl(node: EventTarget | null) {
+		return node instanceof Element && node.closest('a, button') !== null;
+	}
+
 	/**
 	 * What is known about this link's framing. Read from the value of the attribute
 	 * that opted it into previews, so a link carrying no answer reads as unknown, whether
@@ -132,17 +145,22 @@
 
 			// A refusal is one line whatever a framed panel has been resized to, so only the
 			// width carries across: the message would otherwise sit in a column of nothing.
-			const resized = clampSize(stored ?? DEFAULT_SIZE, view);
-			const size = framing === 'denied' ? { width: resized.width, height: DENIED_HEIGHT } : resized;
+			const sizeOf = (size: Size): Size =>
+				framing === 'denied' ? { width: size.width, height: DENIED_HEIGHT } : size;
+			// Beside the link, which is where a panel goes when nothing is remembered.
+			const beside = (size: Size) =>
+				point
+					? placeAtPoint(point.x, point.y, size, view)
+					: placeAtRect(anchor.getBoundingClientRect(), size, view);
 
+			const homeSize = sizeOf(DEFAULT_SIZE);
+			const home = { ...homeSize, ...beside(homeSize) };
+
+			const size = sizeOf(clampSize(stored ?? DEFAULT_SIZE, view));
 			// A panel the reader dragged somewhere opens there again. One they have only
 			// resized has no place of its own, so it goes beside the link as it always did.
 			const chosen = storedPosition(stored);
-			const position = chosen
-				? clampPosition(chosen, size, view)
-				: point
-					? placeAtPoint(point.x, point.y, size, view)
-					: placeAtRect(anchor.getBoundingClientRect(), size, view);
+			const position = chosen ? clampPosition(chosen, size, view) : beside(size);
 
 			// Nothing is being waited for when there is no frame to load.
 			loading = framing !== 'denied';
@@ -151,6 +169,7 @@
 				host: new URL(url).hostname.replace(/^www\./, ''),
 				framing,
 				placed: chosen !== undefined,
+				home,
 				...position,
 				...size
 			};
@@ -187,9 +206,7 @@
 		// sharing the header row. A second pointer arriving mid-drag would otherwise take
 		// the panel over with an origin measured from the wrong place.
 		if (!target || drag || event.button !== 0) return;
-		if (mode === 'move' && event.target instanceof Element && event.target.closest('a, button')) {
-			return;
-		}
+		if (mode === 'move' && onControl(event.target)) return;
 
 		// Narrowed rather than asserted, as elsewhere: currentTarget is the handle this is
 		// bound to, but the DOM types do not say so.
@@ -237,22 +254,44 @@
 
 	function endDrag(event: PointerEvent) {
 		if (!drag || event.pointerId !== drag.pointer) return;
-		const { mode } = drag;
+		const { origin } = drag;
 		drag = undefined;
 		if (!target) return;
+
+		// A press that went nowhere is a click, not a drag, and settles nothing. Written
+		// out anyway it would pin the panel to wherever it already sat, quietly turning a
+		// reader who had only ever resized it into one with a remembered place — and every
+		// click on the header, including the two that make up the double click below, into
+		// a write.
+		const moved = target.left !== origin.left || target.top !== origin.top;
+		const resized = target.width !== origin.width || target.height !== origin.height;
+		if (!moved && !resized) return;
 
 		// A refusal is one line by design, so its height is never what the reader wants
 		// kept — only the width it shares with a framed panel.
 		const height =
 			target.framing === 'denied' ? (stored?.height ?? DEFAULT_SIZE.height) : target.height;
-		// A drag is the reader choosing a place; a resize is only a size. Storing wherever
-		// the panel happened to be when a corner was taken would pin every later preview to
-		// a spot nobody picked, and one far from its link is a long way to reach.
-		const position =
-			mode === 'move' ? { left: target.left, top: target.top } : storedPosition(stored);
+		// Moving is the reader choosing a place; sizing says nothing about one, so it
+		// leaves whatever place was already remembered alone.
+		const position = moved ? { left: target.left, top: target.top } : storedPosition(stored);
 
 		stored = { width: target.width, height, ...position };
 		writeGeometry(stored);
+	}
+
+	/**
+	 * Puts the panel back the way it comes: default size, beside the link that opened it,
+	 * and nothing remembered for the next one either.
+	 *
+	 * On the header rather than a button of its own, because the header is already the
+	 * handle and undoing a drag belongs on the thing that did it. Pointer-only, like the
+	 * dragging it undoes; a reader who never moved a panel has nothing to put back.
+	 */
+	function reset(event: MouseEvent) {
+		if (!target || onControl(event.target)) return;
+		stored = undefined;
+		clearGeometry();
+		target = { ...target, placed: false, ...target.home };
 	}
 
 	// One handler, because "the pointer is now over something that is neither the open
@@ -353,6 +392,7 @@
 					? 'cursor-grabbing'
 					: 'cursor-grab'}"
 				onpointerdown={(event) => startDrag(event, 'move')}
+				ondblclick={reset}
 				onpointermove={onDragMove}
 				onpointerup={endDrag}
 				onpointercancel={endDrag}
