@@ -4,6 +4,20 @@
 	import { prefersReducedMotion } from 'svelte/motion';
 	import { fade } from 'svelte/transition';
 	import { safeHttpUrl } from '$lib/api';
+	import {
+		clampPosition,
+		clampSize,
+		clampSizeAt,
+		DEFAULT_SIZE,
+		type Geometry,
+		placeAtPoint,
+		placeAtRect,
+		type Position,
+		readGeometry,
+		type Size,
+		storedPosition,
+		writeGeometry
+	} from '$lib/previewGeometry';
 	import { visited } from '$lib/visited/store.svelte';
 
 	// One panel for the whole app: anchors opt in with a `data-preview` attribute and the
@@ -15,20 +29,15 @@
 	const DWELL_MS = 350;
 	// Long enough to cross the gap between the link and the panel.
 	const CLOSE_MS = 200;
-	const WIDTH = 420;
-	const HEIGHT = 460;
-	// A refusal is one line, so its panel is sized to one rather than left as a tall
-	// empty box. Both of these are also what the placement below reserves room for.
-	const DENIED_HEIGHT = 96;
-	// The strip under a preview whose framing nobody has checked. Taken out of HEIGHT
-	// rather than added to it, so a panel is the same size either way.
+	// A panel opening where the reader dragged the last one can be right across the window
+	// from the link that opened it, which is further than CLOSE_MS was measured for.
+	const REACH_MS = 600;
+	// The whole panel for a refusal, header included: the message is one line, so this is
+	// sized to it rather than left as a tall empty box. Not resizable for the same reason.
+	const DENIED_HEIGHT = 128;
+	// The strip under a preview whose framing nobody has checked. The frame is the flexible
+	// row, so this comes out of the panel's height rather than adding to it.
 	const NOTE_HEIGHT = 28;
-	const GAP = 10;
-	// Wider than GAP because a cursor is not a point: the arrow glyph is roughly 20px
-	// tall, and a panel edge tucked under it swallows the hover that opened the preview
-	// and lands the iframe's scrollbar beneath the pointer.
-	const CURSOR_GAP = 24;
-	const MARGIN = 12;
 	// No allow-top-navigation, allow-popups, allow-forms or allow-downloads: the framed
 	// page renders, scrolls and follows its own links, and can do nothing else.
 	const SANDBOX = 'allow-scripts allow-same-origin';
@@ -40,15 +49,44 @@
 	 */
 	type Framing = 'allowed' | 'denied' | 'unknown';
 
-	type Target = { url: string; host: string; left: number; top: number; framing: Framing };
+	type Target = Position &
+		Size & {
+			url: string;
+			host: string;
+			framing: Framing;
+			/**
+			 * Opened where the reader put the last panel rather than beside this link, which
+			 * is a longer journey for the pointer. See scheduleClose.
+			 */
+			placed: boolean;
+		};
+
+	/** A move or a resize in progress, and what the panel was when it started. */
+	type Drag = {
+		mode: 'move' | 'resize';
+		/** So a second pointer landing mid-drag cannot drive the same panel. */
+		pointer: number;
+		x: number;
+		y: number;
+		// Every move is measured from where the drag began rather than from the move before
+		// it, so a dropped frame cannot let the panel creep out from under the cursor.
+		origin: Position & Size;
+	};
 
 	let target = $state.raw<Target | undefined>();
+	let drag = $state.raw<Drag | undefined>();
 	let loading = $state(false);
 
 	let openTimer: ReturnType<typeof setTimeout> | undefined;
 	let closeTimer: ReturnType<typeof setTimeout> | undefined;
 	// Preconnecting twice to the same origin is wasted markup, not a wasted connection.
 	const warmed = new Set<string>();
+	// What the reader last left a panel at. Plain rather than state: it is read when a
+	// panel opens and written when a drag ends, and never drives what is on screen. Filled
+	// in from storage on mount, because this component is prerendered.
+	let stored: Geometry | undefined;
+
+	const viewport = () => ({ width: window.innerWidth, height: window.innerHeight });
 
 	function anchorFrom(node: EventTarget | null) {
 		const el = node instanceof Element ? node : undefined;
@@ -57,44 +95,6 @@
 
 	function inPanel(node: EventTarget | null) {
 		return node instanceof Element && node.closest('[data-preview-panel]') !== null;
-	}
-
-	const clamp = (value: number, limit: number) => Math.max(MARGIN, Math.min(value, limit - MARGIN));
-
-	// Anchored to the pointer, offset clear of the cursor and flipped to whichever side
-	// has room, the way native tooltips and floating-ui popovers avoid clipping.
-	function placeAtPoint(x: number, y: number, height: number) {
-		const left =
-			x + CURSOR_GAP + WIDTH + MARGIN <= window.innerWidth
-				? x + CURSOR_GAP
-				: x - CURSOR_GAP - WIDTH;
-		const top =
-			y + CURSOR_GAP + height + MARGIN <= window.innerHeight
-				? y + CURSOR_GAP
-				: y - CURSOR_GAP - height;
-		return {
-			left: clamp(left, window.innerWidth - WIDTH),
-			top: clamp(top, window.innerHeight - height)
-		};
-	}
-
-	// Keyboard focus has no pointer position to anchor to, so it falls back to the link's
-	// own rect, beside it where the viewport has room and below or above otherwise.
-	function placeAtRect(rect: DOMRect, height: number) {
-		const beside =
-			rect.right + GAP + WIDTH + MARGIN <= window.innerWidth
-				? rect.right + GAP
-				: rect.left - GAP - WIDTH;
-		if (beside >= MARGIN) {
-			return { left: beside, top: clamp(rect.top, window.innerHeight - height) };
-		}
-
-		const below = rect.bottom + GAP;
-		const top = below + height + MARGIN <= window.innerHeight ? below : rect.top - GAP - height;
-		return {
-			left: clamp(rect.left, window.innerWidth - WIDTH),
-			top: clamp(top, window.innerHeight - height)
-		};
 	}
 
 	/**
@@ -128,30 +128,137 @@
 			const url = safeHttpUrl(anchor.href);
 			if (!url) return;
 			const framing = framingOf(anchor);
-			const height = framing === 'denied' ? DENIED_HEIGHT : HEIGHT;
-			const { left, top } = point
-				? placeAtPoint(point.x, point.y, height)
-				: placeAtRect(anchor.getBoundingClientRect(), height);
+			const view = viewport();
+
+			// A refusal is one line whatever a framed panel has been resized to, so only the
+			// width carries across: the message would otherwise sit in a column of nothing.
+			const resized = clampSize(stored ?? DEFAULT_SIZE, view);
+			const size = framing === 'denied' ? { width: resized.width, height: DENIED_HEIGHT } : resized;
+
+			// A panel the reader dragged somewhere opens there again. One they have only
+			// resized has no place of its own, so it goes beside the link as it always did.
+			const chosen = storedPosition(stored);
+			const position = chosen
+				? clampPosition(chosen, size, view)
+				: point
+					? placeAtPoint(point.x, point.y, size, view)
+					: placeAtRect(anchor.getBoundingClientRect(), size, view);
+
 			// Nothing is being waited for when there is no frame to load.
 			loading = framing !== 'denied';
-			target = { url, host: new URL(url).hostname.replace(/^www\./, ''), left, top, framing };
+			target = {
+				url,
+				host: new URL(url).hostname.replace(/^www\./, ''),
+				framing,
+				placed: chosen !== undefined,
+				...position,
+				...size
+			};
 		}, DWELL_MS);
 	}
 
 	function scheduleClose() {
+		// A drag holds the panel open wherever the pointer has got to, including off the
+		// window entirely, which is one of the things that fires this.
+		if (drag) return;
 		clearTimeout(closeTimer);
-		closeTimer = setTimeout(close, CLOSE_MS);
+		closeTimer = setTimeout(close, target?.placed ? REACH_MS : CLOSE_MS);
+	}
+
+	// A drag outranks a scroll. The panel is fixed to the window, so the page moving under
+	// it changes nothing about where it sits, and a wheel nudged mid-gesture taking the
+	// panel away would be the only surprise in it.
+	function closeOnScroll() {
+		if (drag) return;
+		close();
 	}
 
 	function close() {
 		clearTimeout(openTimer);
 		clearTimeout(closeTimer);
+		// Dropped along with the panel it was moving: a drag outliving its target would
+		// write geometry for a preview that is no longer on screen.
+		drag = undefined;
 		target = undefined;
+	}
+
+	function startDrag(event: PointerEvent, mode: Drag['mode']) {
+		// Primary button only, one drag at a time, and never from the link or the badge
+		// sharing the header row. A second pointer arriving mid-drag would otherwise take
+		// the panel over with an origin measured from the wrong place.
+		if (!target || drag || event.button !== 0) return;
+		if (mode === 'move' && event.target instanceof Element && event.target.closest('a, button')) {
+			return;
+		}
+
+		// Narrowed rather than asserted, as elsewhere: currentTarget is the handle this is
+		// bound to, but the DOM types do not say so.
+		const handle = event.currentTarget;
+		if (!(handle instanceof HTMLElement)) return;
+		// Without capture the pointer is lost the moment it crosses into the framed page,
+		// which is cross-origin and hands back no events at all; the panel would then stay
+		// stuck to the cursor. It also keeps every pointerover during the drag addressed to
+		// the panel, which is what stops the hover machinery opening a different link.
+		handle.setPointerCapture(event.pointerId);
+
+		drag = {
+			mode,
+			pointer: event.pointerId,
+			x: event.clientX,
+			y: event.clientY,
+			origin: { left: target.left, top: target.top, width: target.width, height: target.height }
+		};
+		// Or the drag picks up a text selection, or the favicon, on its way across.
+		event.preventDefault();
+	}
+
+	function onDragMove(event: PointerEvent) {
+		if (!drag || !target || event.pointerId !== drag.pointer) return;
+		const dx = event.clientX - drag.x;
+		const dy = event.clientY - drag.y;
+		const view = viewport();
+
+		if (drag.mode === 'move') {
+			const moved = { left: drag.origin.left + dx, top: drag.origin.top + dy };
+			target = { ...target, ...clampPosition(moved, target, view) };
+			return;
+		}
+
+		// Anchored at the top-left, so only the far edges follow the pointer and the panel
+		// never moves while it is being sized. Measured from where it sits rather than
+		// against the viewport, so growing it stops at the edge of the window.
+		const size = clampSizeAt(
+			{ width: drag.origin.width + dx, height: drag.origin.height + dy },
+			target,
+			view
+		);
+		target = { ...target, ...size };
+	}
+
+	function endDrag(event: PointerEvent) {
+		if (!drag || event.pointerId !== drag.pointer) return;
+		const { mode } = drag;
+		drag = undefined;
+		if (!target) return;
+
+		// A refusal is one line by design, so its height is never what the reader wants
+		// kept — only the width it shares with a framed panel.
+		const height =
+			target.framing === 'denied' ? (stored?.height ?? DEFAULT_SIZE.height) : target.height;
+		// A drag is the reader choosing a place; a resize is only a size. Storing wherever
+		// the panel happened to be when a corner was taken would pin every later preview to
+		// a spot nobody picked, and one far from its link is a long way to reach.
+		const position =
+			mode === 'move' ? { left: target.left, top: target.top } : storedPosition(stored);
+
+		stored = { width: target.width, height, ...position };
+		writeGeometry(stored);
 	}
 
 	// One handler, because "the pointer is now over something that is neither the open
 	// link nor the panel" is exactly the condition for closing.
 	function onPointerOver(event: PointerEvent) {
+		if (drag) return;
 		if (inPanel(event.target)) {
 			clearTimeout(closeTimer);
 			return;
@@ -169,6 +276,7 @@
 	// Tabbing through the list would otherwise load a document per keystroke, so keyboard
 	// focus waits out the same dwell a pointer does.
 	function onFocusIn(event: FocusEvent) {
+		if (drag) return;
 		if (inPanel(event.target)) {
 			clearTimeout(closeTimer);
 			return;
@@ -191,20 +299,27 @@
 		const { connection } = navigator as Navigator & { connection?: { saveData?: boolean } };
 		if (!hoverable || connection?.saveData) return;
 
+		stored = readGeometry();
+
 		document.addEventListener('pointerover', onPointerOver);
 		document.addEventListener('pointerleave', scheduleClose);
 		document.addEventListener('focusin', onFocusIn);
 		document.addEventListener('keydown', onKeydown);
 		// Scrolling inside the frame never reaches us, so this only fires once the reader
 		// has moved the pointer off the panel.
-		window.addEventListener('scroll', close, { passive: true });
+		window.addEventListener('scroll', closeOnScroll, { passive: true });
+		// A panel is placed against a viewport that has now changed, and a remembered one
+		// can be wider than what is left. Both are settled by opening the next one, which
+		// clamps to the window it finds.
+		window.addEventListener('resize', close);
 
 		return () => {
 			document.removeEventListener('pointerover', onPointerOver);
 			document.removeEventListener('pointerleave', scheduleClose);
 			document.removeEventListener('focusin', onFocusIn);
 			document.removeEventListener('keydown', onKeydown);
-			window.removeEventListener('scroll', close);
+			window.removeEventListener('scroll', closeOnScroll);
+			window.removeEventListener('resize', close);
 			close();
 		};
 	});
@@ -215,22 +330,39 @@
 		data-preview-panel
 		role="group"
 		aria-label="Preview of {target.host}"
-		class="fixed z-60 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-800"
+		class="fixed z-60 flex flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-800"
 		style:left="{target.left}px"
 		style:top="{target.top}px"
-		style:width="{WIDTH}px"
+		style:width="{target.width}px"
+		style:height="{target.height}px"
 		transition:fade={{ duration: prefersReducedMotion.current ? 0 : 120 }}
 	>
 		<!-- Keyed so every target gets a fresh frame: assigning src to a live iframe pushes
-		a session history entry, which would turn the back button into frame navigation. -->
+		a session history entry, which would turn the back button into frame navigation. The
+		header is inside it too, so a favicon that failed to load for one host is not still
+		missing for the next. -->
 		{#key target.url}
+			<!-- The header doubles as the handle, because it is the one strip of the panel
+			that is neither the framed page nor a control, and a window dragged by its title
+			bar is what a reader already expects. touch-none keeps a pen from scrolling the
+			page out from under a drag on the hybrid devices that pass the hover gate. -->
 			<div
-				class="flex items-center gap-2 border-b border-gray-200 px-3 py-2 text-xs dark:border-gray-700"
+				role="presentation"
+				class="flex shrink-0 touch-none items-center gap-2 border-b border-gray-200 px-3 py-2 text-xs select-none dark:border-gray-700 {drag?.mode ===
+				'move'
+					? 'cursor-grabbing'
+					: 'cursor-grab'}"
+				onpointerdown={(event) => startDrag(event, 'move')}
+				onpointermove={onDragMove}
+				onpointerup={endDrag}
+				onpointercancel={endDrag}
+				onlostpointercapture={endDrag}
 			>
 				<img
 					src="https://{target.host}/favicon.ico"
 					alt=""
 					class="h-4 w-4 shrink-0 rounded-xs"
+					draggable="false"
 					onerror={(event) => event.currentTarget.remove()}
 				/>
 				<span class="truncate text-gray-500 dark:text-gray-400">{target.host}</span>
@@ -248,7 +380,7 @@
 					target="_blank"
 					rel="noopener noreferrer"
 					data-visit
-					class="ms-auto flex shrink-0 items-center gap-1 rounded-sm font-medium text-primary-600 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 dark:text-primary-400"
+					class="ms-auto flex shrink-0 cursor-pointer items-center gap-1 rounded-sm font-medium text-primary-600 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 dark:text-primary-400"
 				>
 					Open
 					<ArrowUpRightFromSquareOutline class="h-3 w-3" />
@@ -260,27 +392,28 @@
 				than opening a box the browser would leave blank and complain about. The way in
 				is the link above, which is where this was always going to send them. -->
 				<p
-					class="flex items-center justify-center px-6 text-center text-sm text-gray-500 dark:text-gray-400"
-					style:height="{DENIED_HEIGHT}px"
+					class="flex flex-1 items-center justify-center px-6 text-center text-sm text-gray-500 dark:text-gray-400"
 				>
 					{target.host} does not allow previews. Open it to read the post.
 				</p>
 			{:else}
-				{@const frameHeight = target.framing === 'unknown' ? HEIGHT - NOTE_HEIGHT : HEIGHT}
-				<div class="relative bg-white" style:height="{frameHeight}px">
+				<div class="relative min-h-0 flex-1 bg-white">
 					{#if loading}
 						<div class="absolute inset-0 z-10 animate-pulse bg-gray-100 dark:bg-gray-700"></div>
 					{/if}
 					<!-- A site that refuses framing leaves this blank, and from here there is no
 					way to tell that apart from a page that rendered nothing: the frame loads
 					either way and its document is cross-origin either way. Which is why the
-					answer comes from the crawler rather than from anything measured here. -->
+					answer comes from the crawler rather than from anything measured here.
+
+					Deaf to the pointer while a drag is running, because a cross-origin frame
+					swallows the events that would otherwise finish it. -->
 					<iframe
 						title="Preview of {target.host}"
 						src={target.url}
 						sandbox={SANDBOX}
 						referrerpolicy="no-referrer"
-						class="h-full w-full border-0"
+						class="h-full w-full border-0 {drag ? 'pointer-events-none' : ''}"
 						onload={() => (loading = false)}
 					></iframe>
 				</div>
@@ -289,7 +422,7 @@
 					meanings and the reader gets told which they might be looking at. Goes away on
 					its own as the crawler comes back round to the post. -->
 					<p
-						class="flex items-center justify-center border-t border-gray-200 px-3 text-center text-xs text-gray-400 dark:border-gray-700 dark:text-gray-500"
+						class="flex shrink-0 items-center justify-center border-t border-gray-200 px-3 text-center text-xs text-gray-400 dark:border-gray-700 dark:text-gray-500"
 						style:height="{NOTE_HEIGHT}px"
 					>
 						If nothing appears, this site does not allow previews.
@@ -297,5 +430,30 @@
 				{/if}
 			{/if}
 		{/key}
+
+		{#if target.framing !== 'denied'}
+			<!-- Outside the keyed block: the corner belongs to the panel rather than to what
+			is framed in it, and remounting it would drop a capture mid-drag. Physical
+			bottom-right rather than the logical end, so it agrees with both the resize cursor
+			and the sign of the delta the drag applies. -->
+			<div
+				role="presentation"
+				class="absolute right-0 bottom-0 z-20 h-4 w-4 cursor-nwse-resize touch-none"
+				onpointerdown={(event) => startDrag(event, 'resize')}
+				onpointermove={onDragMove}
+				onpointerup={endDrag}
+				onpointercancel={endDrag}
+				onlostpointercapture={endDrag}
+			>
+				<!-- Two rules rather than a filled corner: legible over a framed page of any
+				colour, and small enough not to cover any of it. -->
+				<span
+					class="pointer-events-none absolute right-0.5 bottom-0.5 h-2 w-px bg-gray-400 dark:bg-gray-500"
+				></span>
+				<span
+					class="pointer-events-none absolute right-0.5 bottom-0.5 h-px w-2 bg-gray-400 dark:bg-gray-500"
+				></span>
+			</div>
+		{/if}
 	</div>
 {/if}

@@ -26,8 +26,11 @@ const (
 	// no page fetch is needed. Most truncated feeds fall well below it.
 	feedContentWords = 200
 
-	// Length of the description shown on a result card.
-	summaryWords = 40
+	// Length of the description a result card draws from. Deliberately more than a card
+	// shows at its widest — roughly forty words over three lines — so the renderer has
+	// spare prose to find a sentence boundary in rather than being handed a fragment
+	// that was already cut mid-clause here. See web/src/lib/snippet.ts.
+	summaryWords = 55
 
 	// Below this, a paragraph-derived summary is too thin to be worth preferring.
 	minSummaryWords = 12
@@ -242,7 +245,7 @@ func (d *Discoverer) toArticle(ctx context.Context, s sources.Source, it feedIte
 		Author:        truncateWords(firstNonEmpty(it.Author, s.Name), maxAuthorWords),
 		SourceID:      s.ID,
 		Origin:        article.OriginFeed,
-		Summary:       truncateWords(summary, summaryWords),
+		Summary:       truncateSentences(summary, summaryWords),
 		Content:       truncateWords(content, d.contentWords),
 		Topics:        articleTopics(s.Tags, it.Categories),
 		Kind:          s.Kind,

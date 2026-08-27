@@ -24,8 +24,10 @@
 	} from '$lib/api';
 	import { bookmarks } from '$lib/bookmarks/store.svelte';
 	import { formatDate } from '$lib/date';
+	import { elementWidth } from '$lib/elementWidth.svelte';
 	import { applyFilters, emptyFilters, isFiltered } from '$lib/filters';
 	import { onScreen } from '$lib/onScreen.svelte';
+	import { snippet, snippetBudget } from '$lib/snippet';
 	import { visited } from '$lib/visited/store.svelte';
 
 	const DEBOUNCE_MS = 300;
@@ -45,6 +47,9 @@
 	// while the previous one was still animating.
 	const SCROLL_INPUT = ['wheel', 'touchmove', 'keydown'] as const;
 	const SCROLL_KEYS = new Set([' ', 'ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End']);
+	// What a card's padding and border take off the row width before the description
+	// gets any: p-4 either side, plus the Card's own hairline.
+	const CARD_TEXT_INSET = 34;
 	// Hoisted: building a formatter is the expensive half of rendering the total.
 	const decimal = new Intl.NumberFormat();
 
@@ -177,6 +182,9 @@
 	});
 
 	const controlsOnScreen = onScreen(() => controlsRow);
+	// Every card is the same width, so one row measurement sizes all of their descriptions.
+	const listWidth = elementWidth(() => resultList);
+	const summaryChars = $derived(snippetBudget(listWidth.current - CARD_TEXT_INSET));
 	// The shortcut exists to get back to the search box, so it has nothing left to offer
 	// once the box is in view.
 	const searchOnScreen = onScreen(() => searchForm);
@@ -535,7 +543,13 @@
 								<BookmarkButton {result} />
 							</div>
 							{#if result.summary}
-								<P class="mt-2 line-clamp-3 break-words">{result.summary}</P>
+								<!-- Cut to the width measured above, so the description ends on a sentence
+								or says that it did not. The clamp stays as the backstop for the frame
+								before the first measurement lands, and for anything the character
+								estimate underrates — a description of nothing but long words. -->
+								<P class="mt-2 line-clamp-3 break-words">
+									{snippet(result.summary, summaryChars)}
+								</P>
 							{/if}
 							{#if result.origin === 'sitemap' || result.topics?.length}
 								<div class="mt-3 flex flex-wrap items-center gap-2">

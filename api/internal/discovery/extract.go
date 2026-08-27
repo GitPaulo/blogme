@@ -4,6 +4,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
@@ -149,7 +150,7 @@ func extractSummary(node *html.Node, words int) string {
 	}
 	walk(node)
 
-	return truncateWords(sb.String(), words)
+	return truncateSentences(sb.String(), words)
 }
 
 // noIndex reports whether the page asks not to be indexed.
@@ -381,4 +382,75 @@ func truncateWords(s string, n int) string {
 		return strings.Join(fields, " ")
 	}
 	return strings.Join(fields[:n], " ")
+}
+
+// Words that end in a full stop without ending a sentence. Deliberately short: every
+// entry earns its place by being a word that would otherwise cut a summary in half.
+var abbreviations = map[string]bool{
+	"al": true, "approx": true, "cf": true, "dr": true, "eg": true, "etc": true,
+	"fig": true, "ie": true, "inc": true, "ltd": true, "mr": true, "mrs": true,
+	"ms": true, "no": true, "prof": true, "st": true, "vs": true,
+}
+
+// endsSentence reports whether word closes a sentence rather than merely ending in a
+// full stop. Quotes and brackets are stripped first, so a quoted sentence still counts.
+func endsSentence(word string) bool {
+	word = strings.TrimRight(word, `"'”’)]}»`)
+	last, _ := utf8.DecodeLastRuneInString(word)
+	switch last {
+	case '!', '?', '…':
+		return true
+	case '.':
+	default:
+		return false
+	}
+
+	stem := strings.Trim(strings.TrimSuffix(word, "."), `"'“”‘’([{«`)
+	// A single letter is an initial: "J. Random Hacker".
+	if utf8.RuneCountInString(stem) <= 1 {
+		return false
+	}
+	// An interior dot followed by a letter is the shape of a lettered abbreviation:
+	// "e.g.", "U.S.", "Ph.D.".
+	dot := false
+	for _, r := range stem {
+		if dot && unicode.IsLetter(r) {
+			return false
+		}
+		dot = r == '.'
+	}
+	return !abbreviations[strings.ToLower(stem)]
+}
+
+// A sentence-boundary cut is only worth taking when it keeps most of what was on offer.
+// Below this an opening one-liner — "Let's talk." — would swallow the whole card.
+// Mirrors SENTENCE_FLOOR in web/src/lib/snippet.ts.
+const sentenceFloorNum, sentenceFloorDen = 3, 5
+
+// truncateSentences caps text at n words the way truncateWords does, but ends on a
+// sentence where one is close enough to the cap to be worth ending on. Text that fits
+// is returned untouched: the cap is the only reason to drop anything, and a source
+// whose own prose trails off mid-sentence is the renderer's problem, not this one's.
+//
+// Mirrors snippet() in web/src/lib/snippet.ts, which applies the same rule a second
+// time against the width a card actually has. Neither layer marks the cut: an unmarked
+// tail is how the renderer knows there was more, and it appends the ellipsis once.
+func truncateSentences(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	fields := strings.Fields(s)
+	if len(fields) <= n {
+		return strings.Join(fields, " ")
+	}
+	fields = fields[:n]
+
+	// Walked back from the cap, so the last sentence that still clears the floor wins.
+	for kept := len(fields); kept*sentenceFloorDen >= n*sentenceFloorNum; kept-- {
+		if endsSentence(fields[kept-1]) {
+			fields = fields[:kept]
+			break
+		}
+	}
+	return strings.Join(fields, " ")
 }

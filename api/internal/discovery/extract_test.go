@@ -135,3 +135,63 @@ func TestDeclaredFeedsReadsWhatAPageAdvertises(t *testing.T) {
 		}
 	}
 }
+
+func TestTruncateSentencesEndsOnASentence(t *testing.T) {
+	// Ten words, then a sentence that runs past the cap.
+	text := "The allocator keeps a free list per size class. " +
+		"Whether that is worth the memory it costs depends entirely on how your workload allocates."
+
+	got := truncateSentences(text, 14)
+	want := "The allocator keeps a free list per size class."
+	if got != want {
+		t.Errorf("truncateSentences = %q, want the cut pulled back to the sentence end %q", got, want)
+	}
+}
+
+func TestTruncateSentencesKeepsTextThatFits(t *testing.T) {
+	// Ends mid-clause, but nothing was dropped, so nothing should be.
+	text := "A short note about the allocator and how"
+	if got := truncateSentences(text, 40); got != text {
+		t.Errorf("truncateSentences = %q, want it untouched", got)
+	}
+}
+
+func TestTruncateSentencesFallsBackToTheWordCut(t *testing.T) {
+	// The only sentence end sits far below the floor, so taking it would leave a card
+	// showing three words where twelve were available.
+	text := "Hello. " + strings.Repeat("a long clause that never ends ", 10)
+
+	got := truncateSentences(text, 12)
+	if got == "Hello." {
+		t.Fatal("truncateSentences took a sentence end well below the floor")
+	}
+	if words := len(strings.Fields(got)); words != 12 {
+		t.Errorf("truncateSentences kept %d words, want the full cap of 12", words)
+	}
+}
+
+func TestTruncateSentencesIgnoresAbbreviations(t *testing.T) {
+	for _, text := range []string{
+		"Deadlocks show up under load, e.g. when two workers contend for the same row and neither yields the lock",
+		"Reported by J. Random Hacker after a week of production traffic had gone through the new path without complaint",
+		"The U.S. numbers are the outlier here and the rest of the regions track each other closely enough to ignore",
+	} {
+		got := truncateSentences(text, 12)
+		if words := len(strings.Fields(got)); words != 12 {
+			t.Errorf("truncateSentences(%q) kept %d words, want 12: an abbreviation was read as a sentence end",
+				text, words)
+		}
+	}
+}
+
+func TestTruncateSentencesAcceptsQuotedAndExclaimedEnds(t *testing.T) {
+	for _, tail := range []string{`"`, `)`, `”`} {
+		text := "It closes like this" + tail[:0] + "so it counts." + tail + " " +
+			strings.Repeat("and then it carries on for a while longer ", 5)
+
+		got := truncateSentences(text, 10)
+		if strings.HasSuffix(got, "longer") {
+			t.Errorf("truncateSentences(%q...) ran past the quoted sentence end", tail)
+		}
+	}
+}

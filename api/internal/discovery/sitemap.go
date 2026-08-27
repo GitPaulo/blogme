@@ -321,7 +321,7 @@ func (d *Discoverer) sitemapArticle(ctx context.Context, s sources.Source, link 
 		Author:   truncateWords(s.Name, maxAuthorWords),
 		SourceID: s.ID,
 		Origin:   article.OriginSitemap,
-		Summary:  truncateWords(summary, summaryWords),
+		Summary:  truncateSentences(summary, summaryWords),
 		Content:  truncateWords(content, d.contentWords),
 		// A page carries no categories of its own, so the blog's subjects are all there
 		// is until an article is read for its own topics.
