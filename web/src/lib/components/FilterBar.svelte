@@ -21,8 +21,17 @@
 
 	let dateOpen = $state(false);
 
-	// Nothing is published in the future, so a stray year cannot empty the list.
-	const today = new Date().toISOString().slice(0, 10);
+	/** Nothing is published in the future, so a stray year cannot empty the list. */
+	const isoDay = () => new Date().toISOString().slice(0, 10);
+	// Refreshed as the picker opens rather than fixed at load, so a tab left open
+	// overnight does not go on capping the range at yesterday.
+	let today = $state(isoDay());
+
+	function openDatePicker() {
+		today = isoDay();
+		dateOpen = true;
+	}
+
 	const tagItems = $derived(filterTags(results).map((tag) => ({ value: tag, name: tag })));
 	const active = $derived(isFiltered(filters));
 	const ranged = $derived(filters.from !== '' || filters.to !== '');
@@ -39,9 +48,13 @@
 		dateOpen = false;
 	}
 
+	// Narrowed rather than asserted: Flowbite types its handlers with a bare Event, and
+	// currentTarget is the input this is bound to whatever the event passed through.
 	function setBound(bound: 'from' | 'to', event: Event) {
+		const input = event.currentTarget;
+		if (!(input instanceof HTMLInputElement)) return;
 		filters.days = 0; // A precise range replaces the quick window.
-		filters[bound] = (event.target as HTMLInputElement).value;
+		filters[bound] = input.value;
 	}
 </script>
 
@@ -75,7 +88,7 @@ that made the select taller pulled it further out of line. -->
 		class="max-w-64 shrink-0 gap-2"
 		aria-haspopup="dialog"
 		aria-expanded={dateOpen}
-		onclick={() => (dateOpen = true)}
+		onclick={openDatePicker}
 	>
 		<CalendarMonthOutline class="h-4 w-4 shrink-0" />
 		<span class="truncate">{dateLabel}</span>

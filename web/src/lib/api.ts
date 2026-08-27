@@ -34,10 +34,10 @@ export type SearchResponse = {
 	nextOffset: number;
 	/**
 	 * Whether this page reached the end of the index. When it has, the rows gathered so
-	 * far are every row there is — and there are fewer of them than `total`, which counts
-	 * documents including the ones the API's per-source cap dropped after ranking. Left
-	 * to infer this from `nextOffset` against `total`, the UI showed "26 of 27" beside a
-	 * dead button. Mirrors index.Page.Exhausted.
+	 * far are every row there is, and there are fewer of them than `total`, which counts
+	 * documents including the ones the API's per-source cap dropped after ranking. Left to
+	 * infer this from `nextOffset` against `total`, the UI showed "26 of 27" beside a dead
+	 * button. Mirrors index.Page.Exhausted.
 	 */
 	exhausted: boolean;
 	results: SearchResult[];
@@ -224,7 +224,17 @@ export async function search(
 		throw new Error('Could not reach the search service. Check your connection.');
 	}
 
-	const body = await response.json().catch(() => null);
+	let body: unknown = null;
+	try {
+		body = await response.json();
+	} catch (e) {
+		// The body arrives after the headers, so an abort can land between the two. Only
+		// a genuinely malformed payload falls through to be handled below: reading an
+		// abort as an empty body would report a cancelled search as one that found
+		// nothing.
+		if (signal?.aborted) throw e;
+		if (timeout.aborted) throw new Error('The search timed out. Try again.');
+	}
 
 	if (!response.ok) {
 		// A 5xx body only restates the failure, so the reader gets a useful sentence instead.

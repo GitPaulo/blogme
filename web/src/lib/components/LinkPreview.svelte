@@ -35,8 +35,8 @@
 
 	/**
 	 * What the crawler found out about this page's framing headers, as the results list
-	 * passed it on. `unknown` is not permission — it is a page nobody has checked —
-	 * and it is tried, which is what every link did before any of this existed.
+	 * passed it on. `unknown` is not permission but a page nobody has checked, and it is
+	 * tried, which is what every link did before any of this existed.
 	 */
 	type Framing = 'allowed' | 'denied' | 'unknown';
 
@@ -99,8 +99,8 @@
 
 	/**
 	 * What is known about this link's framing. Read from the value of the attribute
-	 * that opted it into previews, so a link carrying no answer — indexed before the
-	 * crawler read headers, or not a search result at all — reads as unknown.
+	 * that opted it into previews, so a link carrying no answer reads as unknown, whether
+	 * it was indexed before the crawler read headers or is not a search result at all.
 	 */
 	function framingOf(anchor: HTMLAnchorElement): Framing {
 		const value = anchor.dataset.preview;
@@ -185,8 +185,8 @@
 	}
 
 	$effect(() => {
-		// A preview costs a document load, so devices that cannot hover — and readers who
-		// asked for less data — never install any of this.
+		// A preview costs a document load, so devices that cannot hover, and readers who
+		// asked for less data, never install any of this.
 		const hoverable = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
 		const { connection } = navigator as Navigator & { connection?: { saveData?: boolean } };
 		if (!hoverable || connection?.saveData) return;

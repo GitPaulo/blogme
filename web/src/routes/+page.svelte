@@ -25,6 +25,7 @@
 	import { bookmarks } from '$lib/bookmarks/store.svelte';
 	import { formatDate } from '$lib/date';
 	import { applyFilters, emptyFilters, isFiltered } from '$lib/filters';
+	import { onScreen } from '$lib/onScreen.svelte';
 	import { visited } from '$lib/visited/store.svelte';
 
 	const DEBOUNCE_MS = 300;
@@ -40,7 +41,7 @@
 	const SCROLL_TOP_GAP = 64;
 	// What counts as the reader taking the page over mid-load. Read from input rather than
 	// from scrollY, because the page also moves under our own smooth scroll and a position
-	// check cannot tell the two apart — it cancelled the scroll on every click that landed
+	// check cannot tell the two apart: it cancelled the scroll on every click that landed
 	// while the previous one was still animating.
 	const SCROLL_INPUT = ['wheel', 'touchmove', 'keydown'] as const;
 	const SCROLL_KEYS = new Set([' ', 'ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End']);
@@ -103,18 +104,18 @@
 			isVisited: (url) => visited.has(url)
 		})
 	);
-	// The counts and the formatted total are their own deriveds so the summary string
-	// is rebuilt only when a number it actually shows changes. Re-running the filter
-	// pass — which a bookmark toggle or a half-typed date bound does — usually leaves
-	// both counts where they were, and the total moves only on a new page.
+	// The counts and the formatted total are their own deriveds, so the summary string is
+	// rebuilt only when a number it actually shows changes. Re-running the filter pass, as
+	// a bookmark toggle or a half-typed date bound does, usually leaves both counts where
+	// they were, and the total moves only on a new page.
 	const loaded = $derived(results.length);
 	const shown = $derived(filtered.length);
 	const totalLabel = $derived(decimal.format(total));
 	const partial = $derived(isFiltered(filters));
 	// "about", until the index says there is nothing left. The figure it reports counts
-	// documents, and rows are dropped from them after ranking, so it is an upper bound
-	// on what paging can reach rather than a number the reader will ever see reached —
-	// which as a flat "of 27" reads as a promise, and one the last page always breaks.
+	// documents, and rows are dropped from them after ranking, so it is an upper bound on
+	// what paging can reach rather than a number the reader will ever see reached. Written
+	// as a flat "of 27" it reads as a promise the last page always breaks.
 	const summary = $derived(
 		partial
 			? `Showing ${shown} of ${loaded} loaded ${loaded === 1 ? 'result' : 'results'}`
@@ -122,10 +123,9 @@
 				? `Showing all ${totalLabel} ${total === 1 ? 'result' : 'results'}`
 				: `Showing ${loaded} of about ${totalLabel} ${total === 1 ? 'result' : 'results'}`
 	);
-	// These filters narrow the rows already fetched rather than the query behind them,
-	// so the figure they are counted against climbs every time another page arrives.
-	// Worth saying out loud: a total that grows while you page through it reads as a
-	// bug, and the honest explanation is shorter than the guess.
+	// These filters narrow the rows already fetched rather than the query behind them, so
+	// the figure they are counted against climbs every time another page arrives. Said out
+	// loud because a total that grows while you page through it otherwise reads as a bug.
 	const partialNote =
 		'Filters apply to the results loaded so far, not the whole index, so both numbers grow each time you load more.';
 	const rankLabel = $derived(
@@ -169,28 +169,6 @@
 		};
 	});
 
-	// Whether an element is on screen, asked of the browser rather than derived from a
-	// scroll position: the answer survives the list growing underneath, which is exactly
-	// when these elements move. Absent elements read as off screen.
-	function onScreen(target: () => HTMLElement | undefined) {
-		let visible = $state(false);
-		$effect(() => {
-			const element = target();
-			if (!element) {
-				visible = false;
-				return;
-			}
-			const observer = new IntersectionObserver(([entry]) => (visible = entry.isIntersecting));
-			observer.observe(element);
-			return () => observer.disconnect();
-		});
-		return {
-			get current() {
-				return visible;
-			}
-		};
-	}
-
 	const controlsOnScreen = onScreen(() => controlsRow);
 	// The shortcut exists to get back to the search box, so it has nothing left to offer
 	// once the box is in view.
@@ -209,7 +187,7 @@
 	// the filters narrow the rows already fetched, and a fresh search clears them.
 	//
 	// Called once per search rather than once per keystroke. Both because a URL should
-	// describe results that exist, and because browsers throttle history writes — Safari
+	// describe results that exist, and because browsers throttle history writes: Safari
 	// stops at a hundred in thirty seconds, which is a fast typist.
 	function syncUrl(value: string, ranking?: Rank) {
 		const params = new URLSearchParams();
@@ -255,10 +233,9 @@
 			results = merged;
 			// Reaching the end settles the count. Until then it is the index's figure,
 			// which counts documents rather than rows and so overstates what paging can
-			// actually reach — the rows dropped for putting one blog over its share are
-			// counted there and unreachable both. Once there is nothing left to fetch,
-			// what is on screen is the whole answer and is the only figure that will not
-			// leave the reader waiting on a result that does not exist.
+			// reach: the rows dropped for putting one blog over its share are counted
+			// there and unreachable both. Once there is nothing left to fetch, what is on
+			// screen is the whole answer.
 			total = response.exhausted ? merged.length : response.total;
 			exhausted = response.exhausted;
 			// The API's figure rather than a stride of our own: it drops rows that put
@@ -397,7 +374,10 @@
 	}
 </script>
 
-<svelte:head><title>blogme</title></svelte:head>
+<svelte:head>
+	<title>blogme</title>
+	<meta name="description" content="Search across thousands of independent tech blogs." />
+</svelte:head>
 
 <main class="mx-auto max-w-3xl px-6 py-16">
 	<Heading tag="h1" class="mb-2">blogme</Heading>

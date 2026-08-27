@@ -42,9 +42,9 @@ export function database<const Stores extends readonly StoreSpec[]>(
 			const request = indexedDB.open(name, version);
 			request.onupgradeneeded = () => {
 				const db = request.result;
-				// Guarded per store because this handler runs for every version bump, not only
-				// the first: creating a store that is already there throws and takes the
-				// upgrade — and the whole database — down with it.
+				// Guarded per store because this handler runs for every version bump, not
+				// only the first: creating a store that is already there throws, taking
+				// the upgrade and the whole database down with it.
 				for (const spec of stores) {
 					if (db.objectStoreNames.contains(spec.name)) continue;
 					const store = db.createObjectStore(spec.name, { keyPath: spec.keyPath });

@@ -3,7 +3,7 @@
  *
  * A file the reader picked is third-party data even when this app wrote it: it may have
  * been hand-edited, truncated, or produced by another version. Every field is therefore
- * rebuilt rather than trusted, the same way a search response is in $lib/api — a record
+ * rebuilt rather than trusted, the same way a search response is in $lib/api. A record
  * that cannot be rebuilt is dropped instead of taking the file down with it.
  */
 import { safeHttpUrl } from '$lib/api';
@@ -81,7 +81,7 @@ function parseExport(source: string): Bookmark[] {
 	const raw = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>;
 	if (raw.format !== FORMAT) throw new Error('That file is not a blogme bookmarks export.');
 	// Unknown fields are ignored rather than fatal, so a file from a later version still
-	// imports what this one understands — but it is worth saying where it came from.
+	// imports what this one understands, but it is worth saying where it came from.
 	if (typeof raw.version === 'number' && raw.version > VERSION) {
 		throw new Error('That file was written by a newer version of blogme.');
 	}

@@ -6,7 +6,7 @@ import { visitKey } from './key';
  * What is known about the links on screen, never about the whole history. A history of
  * hundreds of thousands of urls is too large to hold in memory and too slow to read at
  * startup, and nothing on screen ever needs more than the handful of links in front of
- * the reader — so a lookup costs what is rendered, not what is stored.
+ * the reader, so a lookup costs what is rendered rather than what is stored.
  *
  * A SvelteMap so a caller re-renders when the answer it asked for lands, and only then.
  */

@@ -7,7 +7,7 @@
  */
 import { database } from '$lib/idb';
 
-/** A key and the moment that article was last opened. No url, no title — see key.ts. */
+/** A key and the moment that article was last opened. No url, no title: see key.ts. */
 type Visit = { key: number; at: number };
 
 const STORE = 'visited';

@@ -1,12 +1,15 @@
 <script lang="ts">
 	import { Button, Tooltip } from 'flowbite-svelte';
 	import { MoonSolid, SunSolid } from 'flowbite-svelte-icons';
-	import { readTheme, setTheme, type Theme } from '$lib/theme';
+	import { readTheme, setTheme, watchSystemTheme, type Theme } from '$lib/theme';
 
+	// Starts light to match the prerendered markup; the effect below settles it on the
+	// first client frame, by which point app.html's inline script has already painted.
 	let theme = $state<Theme>('light');
 
 	$effect(() => {
 		theme = readTheme();
+		return watchSystemTheme((next) => (theme = next));
 	});
 
 	function toggle() {

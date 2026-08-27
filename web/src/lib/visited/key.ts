@@ -4,7 +4,7 @@
  * The hash is a fixed eight bytes where a url averages nearer eighty, which is what keeps
  * a history of hundreds of thousands of reads small enough to sit on a phone and leaves
  * the index comparing numbers rather than strings. It also keeps a reading history off
- * disk in plain text — obfuscation rather than encryption, since a guessed url can still
+ * disk in plain text: obfuscation rather than encryption, since a guessed url can still
  * be tested, but the list cannot simply be read out of storage.
  *
  * The cost is collisions. cyrb53 spreads urls over 53 bits, so even a history filled to
@@ -63,4 +63,26 @@ function hash(value: string): number {
 	return 4294967296 * (2097151 & h2) + (h1 >>> 0);
 }
 
-export const visitKey = (url: string): number => hash(canonical(url));
+/**
+ * Keys already worked out. `visited.has` is called while rendering, once per row and
+ * again for every filter pass, so the same handful of urls is converted over and over:
+ * parsing a url, sorting its query and hashing it costs around 200 times what reading
+ * the answer back does. Bounded because the urls are third-party and a long session of
+ * paging would otherwise keep every one it ever saw.
+ */
+const keys = new Map<string, number>();
+const MAX_KEYS = 5_000;
+
+export function visitKey(url: string): number {
+	const cached = keys.get(url);
+	if (cached !== undefined) return cached;
+
+	const key = hash(canonical(url));
+	if (keys.size >= MAX_KEYS) {
+		// Insertion order is oldest first, so the first entry is the one longest unused.
+		const oldest = keys.keys().next();
+		if (!oldest.done) keys.delete(oldest.value);
+	}
+	keys.set(url, key);
+	return key;
+}

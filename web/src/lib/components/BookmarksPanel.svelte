@@ -135,11 +135,11 @@
 	// Split out so an untouched filter keeps handing the list the same array, and the
 	// virtual list has nothing to recompute.
 	const needle = $derived(filter.trim().toLowerCase());
-	const visible = $derived(
-		needle
-			? items.filter((item) => `${item.title} ${host(item.url)}`.toLowerCase().includes(needle))
-			: items
-	);
+	// What each row is matched against, built once per list rather than once per
+	// keystroke. host() parses a url, and doing that for every saved post on every
+	// character typed is most of the cost of filtering a full collection.
+	const haystacks = $derived(items.map((item) => `${item.title} ${host(item.url)}`.toLowerCase()));
+	const visible = $derived(needle ? items.filter((_, i) => haystacks[i].includes(needle)) : items);
 	const savedLabel = $derived(
 		needle
 			? `${visible.length} of ${items.length} shown`

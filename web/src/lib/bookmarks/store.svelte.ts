@@ -95,7 +95,7 @@ export const bookmarks = {
 	/**
 	 * Takes in a parsed export. `merge` keeps what is already saved and adds the rest;
 	 * `replace` swaps the collection for the file. Resolves true once it has landed, and
-	 * false when nothing was written — the reason is on `error`.
+	 * false when nothing was written; the reason is on `error`.
 	 *
 	 * Written before the in-memory keys are touched, unlike a single toggle: an import is
 	 * too large to unpick, so it is the store that has to agree it landed.
