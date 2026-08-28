@@ -153,6 +153,16 @@ before raising it. Truncating articles to 1,000 words is what keeps a document t
 6 KB — that cap is the main lever on index size, so raising it for recall and raising
 cadence for freshness both spend the same budget.
 
+Typeahead added about **0.8 KB** to that figure, measured on a 20,000-title probe: 295
+bytes for `titleSuggest`, which is a copy of the title because Azure AI Search will not
+build a suggester over a field that already exists, and 500 for the prefixes generated
+from it. That is roughly 12% on top of what a document already costs, and it is spent for
+good — a field cannot be deleted from an index without a rebuild. The lever is
+`--since` on [`backfill-suggest.sh`](../infra/backfill-suggest.sh): completing only from
+articles published since a given date scales the cost with the fraction of the corpus
+that qualifies, and arguably improves the completions by keeping a decade-old vocabulary
+out of them.
+
 Raising the window to 30 did exactly what the paragraph above warns of, and the figures
 are the reason to take that warning seriously:
 

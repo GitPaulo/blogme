@@ -136,6 +136,11 @@ sequenceDiagram
 
     U->>P: load gitpaulo.moe/blogme
     P-->>U: static HTML, JS, CSS
+    U->>F: GET /api/suggest?q=...
+    Note over F: validate q only
+    F->>S: prefix match on the suggester
+    S-->>F: completed queries
+    F-->>U: JSON completions
     U->>F: GET /api/search?q=...
     Note over F: validate q, limit, offset, origin
     F->>S: full-text query, ranked
@@ -159,16 +164,20 @@ the `RateLimit-*` headers. Semantic queries carry a second, tighter allowance �
 and across the service — because reranking spends from a metered monthly quota rather than
 from capacity that renews by the minute.
 
-| Setting                           | Default | Applies to             |
-| --------------------------------- | ------- | ---------------------- |
-| `BLOGME_SEARCH_RATE_PER_MINUTE`   | 60      | One caller, any search |
-| `BLOGME_SEARCH_RATE_BURST`        | 60      | One caller, any search |
-| `BLOGME_SEARCH_RATE_ALL_PER_MINUTE` | 600   | Everyone, any search   |
-| `BLOGME_SEARCH_RATE_ALL_BURST`    | 300     | Everyone, any search   |
-| `BLOGME_SEMANTIC_RATE_PER_MINUTE` | 10      | One caller, semantic   |
-| `BLOGME_SEMANTIC_RATE_BURST`      | 5       | One caller, semantic   |
-| `BLOGME_SEMANTIC_RATE_PER_HOUR`   | 60      | Everyone, semantic     |
-| `BLOGME_SEMANTIC_RATE_HOUR_BURST` | 15      | Everyone, semantic     |
+| Setting                              | Default | Applies to             |
+| ------------------------------------ | ------- | ---------------------- |
+| `BLOGME_SEARCH_RATE_PER_MINUTE`      | 60      | One caller, any search |
+| `BLOGME_SEARCH_RATE_BURST`           | 60      | One caller, any search |
+| `BLOGME_SEARCH_RATE_ALL_PER_MINUTE`  | 600     | Everyone, any search   |
+| `BLOGME_SEARCH_RATE_ALL_BURST`       | 300     | Everyone, any search   |
+| `BLOGME_SEMANTIC_RATE_PER_MINUTE`    | 10      | One caller, semantic   |
+| `BLOGME_SEMANTIC_RATE_BURST`         | 5       | One caller, semantic   |
+| `BLOGME_SEMANTIC_RATE_PER_HOUR`      | 60      | Everyone, semantic     |
+| `BLOGME_SEMANTIC_RATE_HOUR_BURST`    | 15      | Everyone, semantic     |
+| `BLOGME_SUGGEST_RATE_PER_MINUTE`     | 240     | One caller, typeahead  |
+| `BLOGME_SUGGEST_RATE_BURST`          | 60      | One caller, typeahead  |
+| `BLOGME_SUGGEST_RATE_ALL_PER_MINUTE` | 1200    | Everyone, typeahead    |
+| `BLOGME_SUGGEST_RATE_ALL_BURST`      | 600     | Everyone, typeahead    |
 
 The burst is sized against the client's own fan-out rather than against someone typing:
 one "load more" chases page after page while a filter hides what arrives, so a reader
@@ -257,6 +266,52 @@ costs eighteen bytes of header and footer before any content and every error her
 sentence. `Vary: Accept-Encoding` rides on both forms, since they share a URL and the
 answer is cacheable and public.
 
+`/api/suggest` completes the query being typed. It is the **autocomplete** half of Azure
+AI Search's typeahead rather than the **suggest** half, which returns documents: the page
+already searches on a pause in typing and renders titles live, so a dropdown of documents
+would duplicate the result list directly underneath it. What the box could not do before
+is say what is in the corpus, and that is what a completion is for. Each one is a whole
+query rather than the word that finishes it, because a list reading "query, queue,
+quantum" under a box saying "postgres qu" does not tell a reader what they are about to
+search for.
+
+Completions come from a **suggester**, which is an extra tokenisation of one field: the
+titles are indexed again as prefixes, so "kubernetes" is also stored as "kub", "kube",
+"kuber" and so on. That field is `titleSuggest`, a copy of `title`, and the copy is not an
+oversight — Azure AI Search refuses to add an existing field to a suggester, because
+prefixes are generated during indexing and an existing field is already tokenised. A
+suggester on `title` itself would have meant dropping and rebuilding the index, which also
+empties every quality score and costs days of degraded ranking to refill. A new field
+alongside it costs about 0.8 KB per document, no downtime, and no rebuild.
+
+Discovery writes `titleSuggest` for everything it indexes from now on, so only the
+documents that predate the field need filling in. That is what
+[`infra/backfill-suggest.sh`](../infra/backfill-suggest.sh) does, and it keeps no cursor:
+a document leaves the set carrying no `suggestVersion` by being written, so reading the
+head of that set repeatedly walks the corpus and then stops. The run is interruptible and
+re-runnable for the same reason, and it never has to page past the `$skip` ceiling of
+100,000.
+
+Typeahead is where an anonymous endpoint is easiest to abuse, so `q` is the only thing
+read from the request. How many completions come back, which suggester answers, and
+whether matching is fuzzy are all fixed in the code: a caller sending `fuzzy=true` or
+`top=100` gets the ordinary answer, because fuzzy matching measured four times the latency
+of an exact one and nobody should be able to buy that with a query string. The allowance
+is counted apart from search rather than shared with it — typeahead fires several times
+per search by design, so one bucket would mean a reader typing one query tripped their own
+limit for searching it — and it never touches the reranking budget, because nothing here
+is metered. Completions are cacheable for an hour, against two minutes for a page of
+results: prefixes are short and shared between readers, and the vocabulary of a million
+titles does not turn over in an hour. Nothing is logged on the way through, only failures
+and only in bounded form; the platform already counts invocations per function, so paying
+for a log line per keystroke would buy nothing.
+
+The browser does its share. It waits out a pause of 120 ms before asking, holds the
+answers to the last hundred queries, and asks nothing at all below three characters — so
+typing "rust" costs one request, and backspacing over it costs none. A query the reader
+has just accepted is not completed back at them, which saves both a request and a dropdown
+reopening under the cursor to offer the line already in the box.
+
 `/api/health` asks the index for a document count rather than reporting that the process
 is up. The deploy workflow gates on it, and the failures worth catching all authenticate
 correctly — a role assignment that was never granted still issues a token, and a
@@ -317,19 +372,21 @@ job logs a line per source, which at 1,000 sources an hour is not something to l
 
 ## Where each stage lives
 
-| Stage                   | Code                                                                            |
-| ----------------------- | ------------------------------------------------------------------------------- |
-| Build the blog list     | [`sources/tools/`](../sources/tools/)                                           |
-| Publish the list        | [`infra/upload-sources.sh`](../infra/upload-sources.sh)                         |
-| Load and cache the list | [`api/internal/sources`](../api/internal/sources)                               |
-| Batching and cursor     | [`api/internal/discovery/discovery.go`](../api/internal/discovery/discovery.go) |
-| Feeds, fetching, robots | [`api/internal/discovery`](../api/internal/discovery)                           |
-| Sitemap fallback        | [`api/internal/discovery/sitemap.go`](../api/internal/discovery/sitemap.go)     |
-| Text extraction         | [`api/internal/discovery/extract.go`](../api/internal/discovery/extract.go)     |
-| Canonical storage       | [`api/internal/store`](../api/internal/store)                                   |
-| Index and query         | [`api/internal/index`](../api/internal/index)                                   |
-| HTTP handlers           | [`api/internal/httpapi`](../api/internal/httpapi)                               |
-| Web UI                  | [`web/src`](../web/src)                                                         |
+| Stage                      | Code                                                                            |
+| -------------------------- | ------------------------------------------------------------------------------- |
+| Build the blog list        | [`sources/tools/`](../sources/tools/)                                           |
+| Publish the list           | [`infra/upload-sources.sh`](../infra/upload-sources.sh)                         |
+| Load and cache the list    | [`api/internal/sources`](../api/internal/sources)                               |
+| Batching and cursor        | [`api/internal/discovery/discovery.go`](../api/internal/discovery/discovery.go) |
+| Feeds, fetching, robots    | [`api/internal/discovery`](../api/internal/discovery)                           |
+| Sitemap fallback           | [`api/internal/discovery/sitemap.go`](../api/internal/discovery/sitemap.go)     |
+| Text extraction            | [`api/internal/discovery/extract.go`](../api/internal/discovery/extract.go)     |
+| Canonical storage          | [`api/internal/store`](../api/internal/store)                                   |
+| Index and query            | [`api/internal/index`](../api/internal/index)                                   |
+| Typeahead                  | [`api/internal/index/suggest.go`](../api/internal/index/suggest.go)             |
+| Backfilling `titleSuggest` | [`infra/backfill_suggest.py`](../infra/backfill_suggest.py)                     |
+| HTTP handlers              | [`api/internal/httpapi`](../api/internal/httpapi)                               |
+| Web UI                     | [`web/src`](../web/src)                                                         |
 
 ## Data at each stage
 

@@ -16,6 +16,7 @@
 		clampQuery,
 		MAX_QUERY_LENGTH,
 		maxOffsetFor,
+		MAX_SUGGESTIONS,
 		MIN_QUERY_LENGTH,
 		search,
 		SearchError,
@@ -28,6 +29,7 @@
 	import { applyFilters, emptyFilters, isFiltered } from '$lib/filters';
 	import { onScreen } from '$lib/onScreen.svelte';
 	import { snippet, snippetBudget } from '$lib/snippet';
+	import { suggestions } from '$lib/suggestions.svelte';
 	import { visited } from '$lib/visited/store.svelte';
 
 	const DEBOUNCE_MS = 300;
@@ -76,6 +78,10 @@
 	// Whether the document is taller than the window, which is the only thing that makes
 	// a shortcut back to the top worth offering.
 	let scrollable = $state(false);
+
+	// The last completion the reader picked, so it is not completed back at them. See
+	// `completions` below.
+	let accepted = $state('');
 
 	let searchInput = $state<HTMLInputElement>();
 	// One element per visible result, so children[n] is result n.
@@ -180,6 +186,17 @@
 			window.removeEventListener('resize', measure);
 		};
 	});
+
+	// Completions for what is in the box. Against `term` rather than the raw query so
+	// that the cache behind it is keyed by what the API would be asked anyway: a
+	// trailing space is not a different question.
+	//
+	// A query the reader just picked is asked about as an empty one, which is to say not
+	// at all. Left to itself the box would complete what it had only now completed: the
+	// list reopens under the cursor showing the one line already in the box, and a
+	// request is spent to fetch it. Editing the query again makes it a different one,
+	// and completions resume on their own.
+	const completions = suggestions(() => (term === accepted ? '' : term));
 
 	const controlsOnScreen = onScreen(() => controlsRow);
 	// Every card is the same width, so one row measurement sizes all of their descriptions.
@@ -362,6 +379,9 @@
 			exhausted = false;
 			error = '';
 			status = 'idle';
+			// The completion that was accepted belonged to the search being cleared, so
+			// typing it again is a new question and gets completed like any other.
+			accepted = '';
 			syncUrl(''); // No search to describe, so the address goes back to bare.
 			return;
 		}
@@ -379,6 +399,23 @@
 
 	// Leaving the page should not keep a request alive.
 	$effect(() => () => cancel());
+
+	// A completion is a whole query, not the word that finishes one.
+	//
+	// The combobox is built for word completion: it replaces the last word of the input
+	// with what was picked. That is the right behaviour for a list of words and the
+	// wrong one for a list of queries — picking "postgres query" while "postgres qu" is
+	// in the box would leave "postgres postgres query". Setting the query here overrides
+	// what it wrote, in the same tick, so the reader only ever sees the completion they
+	// chose. The search itself needs no prompting: the effect below already watches this.
+	//
+	// Whole queries rather than words because the list has to read as the thing that
+	// will be searched for. A dropdown of "query", "queue", "quantum" under a box saying
+	// "postgres qu" does not tell a reader what they are about to get.
+	function acceptCompletion(completion: string) {
+		accepted = completion;
+		query = completion;
+	}
 
 	// Submitting skips the pending debounce rather than queueing a second request.
 	function onsubmit(event: SubmitEvent) {
@@ -409,6 +446,9 @@
 			maxlength={MAX_QUERY_LENGTH}
 			aria-label="Search query"
 			aria-busy={status === 'loading'}
+			data={completions.current}
+			maxSuggestions={MAX_SUGGESTIONS}
+			onSelect={acceptCompletion}
 		>
 			{#snippet left()}
 				<!--

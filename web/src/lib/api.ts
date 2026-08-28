@@ -76,12 +76,32 @@ export function clampQuery(value: string): string {
 		: [...trimmed].slice(0, MAX_QUERY_LENGTH).join('');
 }
 
+/**
+ * The shortest and longest query worth completing, mirroring minSuggestLen and
+ * maxSuggestLen in api/internal/httpapi. Both ends count characters, not bytes. Asking
+ * outside them is a 400, so the caller checks rather than spending the round trip.
+ */
+export const MIN_SUGGEST_LENGTH = 3;
+export const MAX_SUGGEST_LENGTH = 64;
+/** Mirrors maxSuggestions in api/internal/index. */
+export const MAX_SUGGESTIONS = 8;
+
 /** Mirrors maxLimit in api/internal/httpapi. */
 const MAX_RESULTS = 50;
+/** A completion is a query, so it cannot be longer than one. */
+const MAX_SUGGESTION_LENGTH = MAX_QUERY_LENGTH;
 const MAX_TEXT_LENGTH = 2_000;
 const MAX_TOPICS = 12;
 const MAX_ERROR_LENGTH = 200;
 const REQUEST_TIMEOUT_MS = 15_000;
+/**
+ * Shorter than a search's, because the two are waited on differently. A search is what
+ * the reader asked for and is worth waiting out; a completion is for a word they have
+ * since finished typing, so past a few seconds there is nothing left to complete. The
+ * API gives up on its own side at 1.5s, and this only has to cover the trip there and
+ * an instance starting cold.
+ */
+const SUGGEST_TIMEOUT_MS = 5_000;
 
 // Empty in development, where Vite proxies /api to the Functions host.
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
@@ -251,4 +271,53 @@ export async function search(
 	}
 
 	return toResponse(body, term, offset);
+}
+
+/**
+ * Completions for the query being typed, most likely first.
+ *
+ * Each one is a whole query rather than the word that finishes it, so a caller can put
+ * it straight in the search box. Throws like `search` does; a caller that treats
+ * suggestions as a convenience should catch, because a failure here is not something a
+ * reader mid-word can act on.
+ */
+export async function suggest(
+	query: string,
+	options: { signal?: AbortSignal } = {}
+): Promise<string[]> {
+	const term = clampQuery(query);
+	// Checked rather than sent: both ends are a 400 at the API, and a request known to
+	// be refused is a round trip and an execution spent to learn nothing.
+	if (term.length < MIN_SUGGEST_LENGTH || term.length > MAX_SUGGEST_LENGTH) return [];
+
+	const url = `${API_BASE}/api/suggest?${new URLSearchParams({ q: term })}`;
+
+	const timeout = AbortSignal.timeout(SUGGEST_TIMEOUT_MS);
+	const combined = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
+
+	const response = await fetch(url, {
+		signal: combined,
+		headers: { Accept: 'application/json' }
+	});
+	if (!response.ok) {
+		throw new SearchError('Suggestions unavailable.', response.status);
+	}
+
+	return toSuggestions(await response.json());
+}
+
+/** The response is untrusted input, so anything unexpected is dropped rather than shown. */
+function toSuggestions(body: unknown): string[] {
+	const raw = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>;
+	if (!Array.isArray(raw.suggestions)) return [];
+
+	// Deduped because the combobox keys its list by the completion itself, and
+	// collapsing whitespace on the API side can bring two titles to the same string.
+	return [
+		...new Set(
+			raw.suggestions
+				.map((suggestion) => text(suggestion, MAX_SUGGESTION_LENGTH))
+				.filter((suggestion): suggestion is string => suggestion !== undefined)
+		)
+	].slice(0, MAX_SUGGESTIONS);
 }

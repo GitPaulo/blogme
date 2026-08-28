@@ -64,12 +64,19 @@ type Handlers struct {
 	all            *limiter
 	semanticClient *limiter
 	semanticAll    *limiter
+	suggestClient  *limiter
+	suggestAll     *limiter
 
 	// Throttling is loud when it fires, but not once per refused request: see
 	// throttleLogPerMinute. refused counts every refusal this instance has made and
 	// rides on each line that gets past the gate.
 	throttleLog *limiter
 	refused     atomic.Int64
+
+	// The same arrangement for completions that could not be fetched, kept separate so
+	// neither kind of noise can crowd the other out. See logSuggestFailure.
+	suggestLog    *limiter
+	suggestFailed atomic.Int64
 }
 
 func New(idx *index.Index, limits Limits) *Handlers {
@@ -80,7 +87,10 @@ func New(idx *index.Index, limits Limits) *Handlers {
 		all:            newLimiter(float64(limits.AllPerMinute), limits.AllBurst),
 		semanticClient: newLimiter(float64(limits.SemanticPerMinute), limits.SemanticBurst),
 		semanticAll:    newLimiter(float64(limits.SemanticPerHour)/60, limits.SemanticHourBurst),
+		suggestClient:  newLimiter(float64(limits.SuggestPerMinute), limits.SuggestBurst),
+		suggestAll:     newLimiter(float64(limits.SuggestAllPerMinute), limits.SuggestAllBurst),
 		throttleLog:    newLimiter(throttleLogPerMinute, throttleLogBurst),
+		suggestLog:     newLimiter(throttleLogPerMinute, throttleLogBurst),
 	}
 }
 

@@ -42,6 +42,20 @@ type Limits struct {
 	// once, which is the only limit that touches the monthly quota.
 	SemanticPerHour   int
 	SemanticHourBurst int
+	// SuggestPerMinute and SuggestBurst apply to one caller's typeahead requests, and
+	// SuggestAllPerMinute and SuggestAllBurst to everyone's at once.
+	//
+	// Counted apart from search rather than drawn from the same buckets, because the
+	// two are not the same request. Typeahead fires several times per search by
+	// design, so sharing a bucket would mean one reader typing one query tripped their
+	// own search limit; and a completion is a prefix lookup rather than a scored query
+	// over the corpus, so it is not worth the same allowance. The cost that remains
+	// shared is the instance an execution runs on, and what bounds that is
+	// maximumInstanceCount rather than anything here.
+	SuggestPerMinute    int
+	SuggestBurst        int
+	SuggestAllPerMinute int
+	SuggestAllBurst     int
 }
 
 // DefaultLimits is sized for a personal search engine: generous enough that a reader
@@ -65,6 +79,18 @@ func DefaultLimits() Limits {
 		SemanticBurst:     5,
 		SemanticPerHour:   60,
 		SemanticHourBurst: 15,
+		// Sized against a reader typing rather than against a search. The client waits
+		// out a pause before asking and answers repeats from its own cache, so a
+		// sentence typed straight through costs a handful of requests; four a second
+		// sustained is well past anyone's hands and well short of what a script would
+		// need to hurt.
+		SuggestPerMinute: 240,
+		SuggestBurst:     60,
+		// Twice the search allowance, for the one request that is meant to arrive
+		// several times per search. Like AllPerMinute this is the figure that bounds a
+		// flood arriving from many addresses, each of them polite.
+		SuggestAllPerMinute: 1200,
+		SuggestAllBurst:     600,
 	}
 }
 

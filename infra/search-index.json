@@ -28,6 +28,16 @@
       "analyzer": "en.microsoft"
     },
     {
+      "name": "titleSuggest",
+      "type": "Edm.String",
+      "searchable": true,
+      "retrievable": false,
+      "filterable": false,
+      "sortable": false,
+      "facetable": false,
+      "analyzer": "en.microsoft"
+    },
+    {
       "name": "author",
       "type": "Edm.String",
       "searchable": true,
@@ -141,6 +151,21 @@
       "filterable": true,
       "sortable": false,
       "facetable": false
+    },
+    {
+      "name": "suggestVersion",
+      "type": "Edm.Int32",
+      "searchable": false,
+      "filterable": true,
+      "sortable": false,
+      "facetable": false
+    }
+  ],
+  "suggesters": [
+    {
+      "name": "titles",
+      "searchMode": "analyzingInfixMatching",
+      "sourceFields": ["titleSuggest"]
     }
   ],
   "scoringProfiles": [

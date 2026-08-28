@@ -34,6 +34,13 @@ func main() {
 		sdk.WithAuth("anonymous"),
 	)
 
+	// Not compressed: eight completions is a couple of hundred bytes, well under the
+	// size at which gzip starts paying for itself. See compress.go.
+	app.HTTP("suggest", handlers.Suggest,
+		sdk.WithMethods("GET"),
+		sdk.WithAuth("anonymous"),
+	)
+
 	app.HTTP("health", handlers.Health,
 		sdk.WithMethods("GET"),
 		sdk.WithAuth("anonymous"),

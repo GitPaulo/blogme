@@ -373,18 +373,30 @@ func selectPage(resp searchResponse, offset, limit, fetch int) Page {
 
 // document is the wire shape of an indexed article, matching infra/search-index.json.
 type document struct {
-	Action      string   `json:"@search.action"`
-	ID          string   `json:"id"`
-	URL         string   `json:"url"`
-	Title       string   `json:"title"`
-	Author      string   `json:"author,omitempty"`
-	SourceID    string   `json:"sourceId"`
-	Origin      string   `json:"origin,omitempty"`
-	Summary     string   `json:"summary,omitempty"`
-	Content     string   `json:"content,omitempty"`
-	Topics      []string `json:"topics,omitempty"`
-	Kind        []string `json:"kind,omitempty"`
-	PublishedAt *string  `json:"publishedAt,omitempty"`
+	Action string `json:"@search.action"`
+	ID     string `json:"id"`
+	URL    string `json:"url"`
+	Title  string `json:"title"`
+	// TitleSuggest is the title again, under the field the suggester was built over.
+	//
+	// Duplicated rather than shared because Azure AI Search refuses to add a field
+	// that already exists to a suggester: "only new fields added in the same index
+	// update operation are allowed". Putting the suggester on title itself would have
+	// meant dropping and rebuilding the index, which also empties every quality score.
+	// The copy costs about 295 bytes a document and no downtime at all.
+	TitleSuggest string `json:"titleSuggest,omitempty"`
+	// SuggestVersion records that TitleSuggest was written, so the backfill in
+	// infra/backfill_suggest.py can find the documents indexed before the field
+	// existed. Same idea as qualityVersion, and the script mirrors this number.
+	SuggestVersion int      `json:"suggestVersion,omitempty"`
+	Author         string   `json:"author,omitempty"`
+	SourceID       string   `json:"sourceId"`
+	Origin         string   `json:"origin,omitempty"`
+	Summary        string   `json:"summary,omitempty"`
+	Content        string   `json:"content,omitempty"`
+	Topics         []string `json:"topics,omitempty"`
+	Kind           []string `json:"kind,omitempty"`
+	PublishedAt    *string  `json:"publishedAt,omitempty"`
 	// A pointer because false and unknown are different answers, and only the first is
 	// worth writing. See article.Article.FramingDenied.
 	FramingDenied *bool `json:"framingDenied,omitempty"`
@@ -398,17 +410,22 @@ func (i *Index) Upsert(ctx context.Context, articles []article.Article) error {
 		docs := make([]document, 0, end-start)
 		for _, a := range articles[start:end] {
 			d := document{
-				Action:   "mergeOrUpload",
-				ID:       a.ID,
-				URL:      a.URL,
-				Title:    a.Title,
-				Author:   a.Author,
-				SourceID: a.SourceID,
-				Origin:   a.Origin,
-				Summary:  a.Summary,
-				Content:  a.Content,
-				Topics:   a.Topics,
-				Kind:     a.Kind,
+				Action: "mergeOrUpload",
+				ID:     a.ID,
+				URL:    a.URL,
+				Title:  a.Title,
+				// Written here so every article discovered from now on arrives
+				// suggestable, leaving the backfill only the documents indexed before
+				// the field existed. See document.TitleSuggest.
+				TitleSuggest:   a.Title,
+				SuggestVersion: suggestVersion,
+				Author:         a.Author,
+				SourceID:       a.SourceID,
+				Origin:         a.Origin,
+				Summary:        a.Summary,
+				Content:        a.Content,
+				Topics:         a.Topics,
+				Kind:           a.Kind,
 
 				FramingDenied: a.FramingDenied,
 			}
