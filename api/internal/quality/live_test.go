@@ -185,7 +185,7 @@ func TestLiveQualityPipelineReordersResults(t *testing.T) {
 	}
 
 	// Everything is unscored, which is what a freshly built index looks like.
-	pending, remaining, err := idx.Unscored(ctx, Version, 100)
+	pending, remaining, err := idx.Unscored(ctx, Version, 100, index.Dated)
 	if err != nil {
 		t.Fatalf("unscored: %v", err)
 	}
@@ -224,7 +224,7 @@ func awaitUnscored(t *testing.T, idx *index.Index, want int) {
 
 	var last int
 	for range 20 {
-		pending, _, err := idx.Unscored(context.Background(), Version, 100)
+		pending, _, err := idx.Unscored(context.Background(), Version, 100, index.Dated)
 		if err != nil {
 			t.Fatalf("unscored: %v", err)
 		}
@@ -234,4 +234,77 @@ func awaitUnscored(t *testing.T, idx *index.Index, want int) {
 		time.Sleep(time.Second)
 	}
 	t.Errorf("unscored set settled at %d articles, want %d", last, want)
+}
+
+// TestLiveCrawlerUpsertPreservesScores checks that a later crawl of an article the
+// scorer has already judged leaves that judgement alone.
+//
+// It exists because the corpus said it might not. Scoring reported roughly three
+// times as much work as the index's scored count was gaining, and a crawler write
+// that silently reset the quality fields would explain the gap exactly: the article
+// returns to the unscored set, is judged again within the hour, and the coverage
+// never looks wrong because the hole is refilled before anyone counts it.
+//
+// Expressed through Unscored rather than by reading the fields back, because that is
+// the question the scorer actually asks: an article whose score was cleared is one
+// that reappears in the set the scorer drains.
+func TestLiveCrawlerUpsertPreservesScores(t *testing.T) {
+	live := newLiveIndex(t)
+	idx := index.New(live.endpoint, live.name, live.key, "")
+	ctx := context.Background()
+
+	articles := []article.Article{{
+		ID:          "invent-gotchas",
+		URL:         "https://inventwithpython.com/blog/2023/08/13/python-gotchas",
+		Title:       "8 Common Python Gotchas",
+		Author:      "Invent with Python",
+		SourceID:    "invent",
+		Origin:      article.OriginFeed,
+		Summary:     "Mutable defaults and import cycles surprise people for the same reason.",
+		Content:     repeat(prose, 3),
+		Topics:      []string{"python"},
+		PublishedAt: time.Date(2023, 8, 13, 0, 0, 0, 0, time.UTC),
+	}}
+
+	if err := idx.Upsert(ctx, articles); err != nil {
+		t.Fatalf("first crawl: %v", err)
+	}
+	live.awaitCount(t, len(articles))
+
+	if err := New(idx, nil, nil, Options{ScoreBatch: 10}).Run(ctx); err != nil {
+		t.Fatalf("scorer run: %v", err)
+	}
+	awaitUnscored(t, idx, 0)
+
+	// The same article, written exactly as a later discovery pass writes it: the
+	// crawler's own document shape, which names none of the quality fields.
+	if err := idx.Upsert(ctx, articles); err != nil {
+		t.Fatalf("second crawl: %v", err)
+	}
+
+	// Watched for a while rather than checked once. A clearing write would take the
+	// same moment to become visible as any other, so a single immediate read would
+	// pass whether or not the score survived.
+	if reappeared := unscoredWithin(t, idx, 15*time.Second); reappeared {
+		t.Error("a second crawl of an already-scored article returned it to the unscored set: " +
+			"the crawler's write is clearing the quality fields")
+	}
+}
+
+// unscoredWithin reports whether anything enters the unscored set within a window.
+func unscoredWithin(t *testing.T, idx *index.Index, window time.Duration) bool {
+	t.Helper()
+
+	deadline := time.Now().Add(window)
+	for time.Now().Before(deadline) {
+		pending, _, err := idx.Unscored(context.Background(), Version, 10, index.Dated)
+		if err != nil {
+			t.Fatalf("unscored: %v", err)
+		}
+		if len(pending) > 0 {
+			return true
+		}
+		time.Sleep(time.Second)
+	}
+	return false
 }

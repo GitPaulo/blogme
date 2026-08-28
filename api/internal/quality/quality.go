@@ -29,9 +29,18 @@ const maxSearchTop = 1000
 // An interface rather than *index.Index so the job can be exercised without an Azure
 // account behind it, matching how discovery takes its store.
 type scoreIndex interface {
-	Unscored(ctx context.Context, version, limit int) ([]index.Candidate, int, error)
+	Unscored(ctx context.Context, version, limit int, cohort index.Cohort) ([]index.Candidate, int, error)
 	SaveScores(ctx context.Context, scores []index.Scores) error
 }
+
+// undatedReserve is the fraction of a run's budget kept for articles with no
+// publication date: one part in this many.
+//
+// They are about a seventh of the corpus, so a quarter is more than their share. That
+// is deliberate — the reserve is a backlog to clear, not a standing cost. Once the
+// undated are judged their read returns nothing and the whole budget goes where it
+// went before.
+const undatedReserve = 4
 
 // Scorer keeps every article's quality figures up to date.
 //
@@ -156,17 +165,34 @@ func (s *Scorer) sweep(ctx context.Context) (int, error) {
 // score judges articles until the run's budget is spent or none are left, reporting how
 // many it judged and how many remain in the corpus.
 //
-// The articles already handled this run are remembered, because a score is not visible
-// to the next query the moment it is accepted. Without that, a run reads the same head
-// of the queue over and over while indexing catches up: judging two articles spent
-// nineteen rounds and reported thirty-eight against a real service. Nothing was written
-// wrongly, but the budget went on repeats and the count became fiction.
+// The budget is split because the two cohorts cannot compete for the same read: an
+// article with no date sorts behind every article with one, so a single newest-first
+// read starves it forever. Undated goes first with a reserved slice, and whatever it
+// leaves unspent falls through to the dated read rather than being lost, so reserving
+// costs a run nothing once the undated are done.
 func (s *Scorer) score(ctx context.Context) (int, int, error) {
-	scored, remaining := 0, 0
-	seen := make(map[string]struct{}, s.scoreBatch)
+	undated, undatedLeft, err := s.drain(ctx, index.Undated, s.scoreBatch/undatedReserve)
+	if err != nil {
+		return undated, undatedLeft, err
+	}
 
-	for scored < s.scoreBatch {
-		candidates, left, err := s.index.Unscored(ctx, Version, min(maxSearchTop, s.scoreBatch-scored))
+	dated, datedLeft, err := s.drain(ctx, index.Dated, s.scoreBatch-undated)
+	return undated + dated, undatedLeft + datedLeft, err
+}
+
+// drain judges one cohort until its budget is spent or it runs out.
+//
+// The articles already handled are remembered, because a score is not visible to the
+// next query the moment it is accepted. Without that, a run reads the same head of the
+// queue over and over while indexing catches up: judging two articles spent nineteen
+// rounds and reported thirty-eight against a real service. Nothing was written wrongly,
+// but the budget went on repeats and the count became fiction.
+func (s *Scorer) drain(ctx context.Context, cohort index.Cohort, budget int) (int, int, error) {
+	scored, remaining := 0, 0
+	seen := make(map[string]struct{}, budget)
+
+	for scored < budget {
+		candidates, left, err := s.index.Unscored(ctx, Version, min(maxSearchTop, budget-scored), cohort)
 		if err != nil {
 			return scored, remaining, err
 		}

@@ -26,3 +26,11 @@ sources:
     feed: https://www.seangoedecke.com/rss.xml
     kind: [personal-blogs, independent-web, small-web]
     tags: [software-engineering, ai, tech]
+
+  # Not a blog. The site publishes a working Atom feed of merge-request activity, so
+  # every check the extractor runs passes and the crawler indexes the stream as
+  # articles: 4,380 documents titled "opened merge request", 1,057 "commented on
+  # issue". Nothing here is writing, and no check short of reading the posts would
+  # say so.
+  - site: https://git.drupalcode.org/
+    drop: true

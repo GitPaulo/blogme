@@ -648,9 +648,10 @@ func TestQueryRepeatsDoNotSpendTheSourcesShare(t *testing.T) {
 	docs = append(docs,
 		`{"url":"https://example.com/a","title":"A","sourceId":"loud"}`,
 		`{"url":"https://example.com/a","title":"A","sourceId":"loud"}`)
+	// Distinct titles, because one source repeating a title is itself a repeat now.
 	for i := range 4 {
 		docs = append(docs, fmt.Sprintf(
-			`{"url":"https://example.com/%d","title":"P","sourceId":"loud"}`, i))
+			`{"url":"https://example.com/%d","title":"P%d","sourceId":"loud"}`, i, i))
 	}
 	srv := windowServer(t, docs)
 
@@ -740,5 +741,51 @@ func TestQuerySendsNoProfileByDefault(t *testing.T) {
 
 	if _, present := sent["scoringProfile"]; present {
 		t.Errorf("scoringProfile = %v, want it absent", sent["scoringProfile"])
+	}
+}
+
+// One site can publish a single article under several urls — a tutorial translated
+// into five languages is five paths holding one page — and the url check cannot see
+// it. Live, "opengl tutorial" returned "Tutorial 12 : OpenGL Extensions" three times:
+// the source's whole allowance spent on one article.
+func TestQueryDropsOneSourcesRepeatedTitles(t *testing.T) {
+	docs := []string{
+		`{"url":"https://gl.example/tutorial-12","title":"Tutorial 12 : OpenGL Extensions","sourceId":"gl"}`,
+		`{"url":"https://gl.example/hu/tutorial-12","title":"Tutorial 12 : OpenGL Extensions","sourceId":"gl"}`,
+		`{"url":"https://gl.example/ru/tutorial-12","title":"tutorial 12 :  opengl extensions","sourceId":"gl"}`,
+		`{"url":"https://gl.example/tutorial-13","title":"Tutorial 13 : Normal Mapping","sourceId":"gl"}`,
+	}
+	srv := windowServer(t, docs)
+
+	page := query(t, New(srv.URL, "articles", "test-key", ""), "q",
+		QueryOptions{Limit: 20, Fetch: 60})
+
+	if len(page.Results) != 2 {
+		t.Fatalf("got %d rows, want 2: the translations are one article", len(page.Results))
+	}
+	if page.Results[0].Title != "Tutorial 12 : OpenGL Extensions" {
+		t.Errorf("kept %q, want the first of the repeats", page.Results[0].Title)
+	}
+	if page.Results[1].Title != "Tutorial 13 : Normal Mapping" {
+		t.Errorf("second row is %q, want the source's other article", page.Results[1].Title)
+	}
+}
+
+// Two blogs posting under one title have written two different articles, and titles
+// as plain as "Shaders" are common. Collapsing across sources would hide real writing.
+func TestQueryKeepsTheSameTitleFromDifferentSources(t *testing.T) {
+	docs := []string{
+		`{"url":"https://one.example/shaders","title":"Shaders","sourceId":"one"}`,
+		`{"url":"https://two.example/shaders","title":"Shaders","sourceId":"two"}`,
+		`{"url":"https://three.example/shaders","title":"Shaders","sourceId":"three"}`,
+	}
+	srv := windowServer(t, docs)
+
+	page := query(t, New(srv.URL, "articles", "test-key", ""), "q",
+		QueryOptions{Limit: 20, Fetch: 60})
+
+	if len(page.Results) != len(docs) {
+		t.Errorf("got %d rows, want %d: different blogs, different articles",
+			len(page.Results), len(docs))
 	}
 }

@@ -3,8 +3,8 @@
 #
 # Two levers, because "something is wrong" has two shapes here. `stop` takes the whole
 # app down and is the answer to a flood: App Service refuses at the front door, so a
-# request never reaches the code and never bills an execution. `discovery off` stops
-# only the crawler and is the answer to a bill climbing on its own — the site carries
+# request never reaches the code and never bills an execution. `jobs off` stops the
+# background timers and is the answer to a bill climbing on its own — the site carries
 # on serving and readers see nothing.
 #
 # Neither lever touches the floor. Azure AI Search Basic bills by the hour whether or
@@ -22,17 +22,6 @@ RESOURCE_GROUP="${RESOURCE_GROUP:-rg-blogme}"
 FUNCTION_APP="${FUNCTION_APP:-func-blogme-b3d38b}"
 BUDGET="${BUDGET:-blogme-alert-budget}"
 
-# The timers' names as main.go registers them. Disabling a single function is an app
-# setting rather than a deployment, so it needs no redeploy and no code change.
-DISCOVERY_FUNCTION="${DISCOVERY_FUNCTION:-discover}"
-DISCOVERY_SETTING="AzureWebJobs.${DISCOVERY_FUNCTION}.Disabled"
-
-# Scoring is stopped separately from crawling, and is the cheaper of the two to lose:
-# it only rewrites figures on articles that are already indexed and already being
-# served. Turning it off leaves the last scores in place and search using them.
-SCORING_FUNCTION="${SCORING_FUNCTION:-score}"
-SCORING_SETTING="AzureWebJobs.${SCORING_FUNCTION}.Disabled"
-
 log() { printf '\n\033[36m==> %s\033[0m\n' "$1"; }
 die() { printf '\033[31merror: %s\033[0m\n' "$1" >&2; exit 1; }
 note() { printf '\033[33m  %s\033[0m\n' "$1"; }
@@ -43,14 +32,14 @@ usage() {
 Usage: infra/kill-switch.sh <command>
 
   status           What is running, and what it is costing
-  stop             Stop the app: search, health and the timers all refuse
+  stop             Stop the app: every function refuses
   start            Start it again
-  discovery off    Stop the crawler, leave the site serving
-  discovery on     Start the crawler again
-  scoring off      Stop quality scoring, leave the last scores in place
-  scoring on       Start quality scoring again
+  jobs off [name]  Stop the background timers, leave the site serving
+  jobs on  [name]  Start them again
 
-Environment: RESOURCE_GROUP, FUNCTION_APP, BUDGET, DISCOVERY_FUNCTION, SCORING_FUNCTION
+  Both jobs commands take every timer by default, or one named timer.
+
+Environment: RESOURCE_GROUP, FUNCTION_APP, BUDGET
 EOF
 }
 
@@ -58,7 +47,7 @@ EOF
 #
 # The Azure CLI emits CRLF on Windows, and a trailing carriage return is silent
 # trouble: it makes a comparison false against a value that prints identically, and a
-# number unparseable. Stripped once here rather than at four call sites. A query that
+# number unparseable. Stripped once here rather than at each call site. A query that
 # fails yields the empty string, which every caller reads as "unknown" rather than as
 # "off" — a lookup that did not work must never look like a service that is not
 # running.
@@ -80,28 +69,24 @@ state() {
 	printf '%s' "${value:-unknown}"
 }
 
-# function_disabled reads the setting rather than the function list, because the
-# setting is the thing this script controls and so the thing it can speak for. Unset
-# is the default and the default is enabled.
-function_disabled() {
-	local value
-	value="$(ask az functionapp config appsettings list \
+# timer_rows lists the app's timer functions as "name<TAB>disabled".
+#
+# Asked of the app rather than written down here, because a list written down is a list
+# that goes stale. This script was first written when discovery was the only timer, and
+# named it directly; a second timer was added later and the lever meant to stop
+# background work quietly left it running. A timer is recognised by its trigger, so
+# whatever the app registers is what this covers, including whatever it registers next.
+timer_rows() {
+	ask az functionapp function list \
 		--name "$FUNCTION_APP" --resource-group "$RESOURCE_GROUP" \
-		--query "[?name=='${1}'].value | [0]")"
-	[[ "${value,,}" == "true" ]]
+		--query "[?config.bindings[?type=='timerTrigger']].[name, isDisabled]" \
+		| sed 's|^[^/]*/||'
 }
 
-# timer_state names what a timer is doing, for one line of status.
-timer_state() {
-	if function_disabled "$1"; then
-		echo "off (${1}=true)"
-	else
-		echo "running"
-	fi
-}
+timer_names() { timer_rows | cut -f1; }
 
 cmd_status() {
-	local current ceiling spend unit limit
+	local current ceiling spend unit limit name disabled
 
 	current="$(state)"
 	ceiling="$(ask az functionapp scale config show \
@@ -117,21 +102,25 @@ cmd_status() {
 	case "$current" in
 	Running)
 		field "Search" "serving"
-		field "Discovery" "$(timer_state "$DISCOVERY_SETTING")"
-		field "Scoring" "$(timer_state "$SCORING_SETTING")"
+		while IFS=$'\t' read -r name disabled; do
+			[[ -n "$name" ]] || continue
+			if [[ "${disabled,,}" == "true" ]]; then
+				field "Job $name" "off"
+			else
+				field "Job $name" "running"
+			fi
+		done <<<"$(timer_rows)"
 		;;
 	unknown)
 		# Three states, not two. Reporting a failed lookup as "refusing" would answer
 		# "is it off?" with a confident yes on no evidence, which in the one situation
 		# this script exists for is worse than admitting the question went unanswered.
 		field "Search" "unknown"
-		field "Discovery" "unknown"
-		field "Scoring" "unknown"
+		field "Jobs" "unknown"
 		;;
 	*)
 		field "Search" "refusing"
-		field "Discovery" "stopped with the app"
-		field "Scoring" "stopped with the app"
+		field "Jobs" "stopped with the app"
 		;;
 	esac
 
@@ -156,7 +145,7 @@ cmd_status() {
 cmd_stop() {
 	log "Stopping $FUNCTION_APP"
 	az functionapp stop --name "$FUNCTION_APP" --resource-group "$RESOURCE_GROUP" --output none
-	echo "  stopped: search, health and discovery all refuse"
+	echo "  stopped: every function refuses, timers included"
 	printf '\n'
 	note "App Service now refuses at the front door, so a flood costs no executions."
 	note "The deploy workflow gates on /api/health, so deploys fail until this is undone."
@@ -169,63 +158,51 @@ cmd_start() {
 	az functionapp start --name "$FUNCTION_APP" --resource-group "$RESOURCE_GROUP" --output none
 	echo "  started"
 	printf '\n'
-	note "The first request pays a cold start. Discovery resumes at its next scheduled"
-	note "hour, continuing from the cursor rather than restarting the source list."
+	note "The first request pays a cold start. Timers resume at their next scheduled"
+	note "hour, continuing from where they left off rather than starting over."
 }
 
-# set_timer turns one timer on or off. Both timers are stopped the same way, so the
-# az call and its error handling live here once; what differs between them is only
-# what is worth saying afterwards, which each caller supplies.
-set_timer() {
-	local label="$1" setting="$2" action="$3" value
+cmd_jobs() {
+	local action="${1:-}" only="${2:-}" disabled names name
+	local -a settings=()
 
 	case "$action" in
-	off) value=true ;;
-	on) value=false ;;
-	*) die "expected '${label} off' or '${label} on'" ;;
+	off) disabled=true ;;
+	on) disabled=false ;;
+	*) die "expected 'jobs off' or 'jobs on', either optionally naming one timer" ;;
 	esac
 
-	log "$([[ $value == true ]] && echo Disabling || echo Enabling) ${label}"
+	names="$(timer_names)"
+	[[ -n "$names" ]] || die "found no timers on $FUNCTION_APP; is it deployed?"
+
+	if [[ -n "$only" ]]; then
+		grep -qxF "$only" <<<"$names" \
+			|| die "no timer named '$only' (found: $(tr '\n' ' ' <<<"$names"))"
+		names="$only"
+	fi
+
+	while read -r name; do
+		[[ -n "$name" ]] && settings+=("AzureWebJobs.${name}.Disabled=${disabled}")
+	done <<<"$names"
+
+	log "Turning background jobs $action"
+	# One call however many timers are named, because every settings change restarts
+	# the host and there is no reason to pay for that twice.
 	az functionapp config appsettings set \
 		--name "$FUNCTION_APP" --resource-group "$RESOURCE_GROUP" \
-		--settings "${setting}=${value}" --output none
-	echo "  ${setting}=${value}"
+		--settings "${settings[@]}" --output none
+	printf '  %s\n' "${settings[@]}"
 	printf '\n'
-}
 
-cmd_discovery() {
-	set_timer discovery "$DISCOVERY_SETTING" "${1:-}"
-
-	case "${1:-}" in
-	off)
-		note "The site keeps serving; only the crawl stops, and with it the writes that"
-		note "are most of what storage costs. Changing a setting restarts the host, so"
-		note "the next search pays a cold start."
+	if [[ "$action" == off ]]; then
+		note "The site keeps serving; only the background work stops, and with it the"
+		note "writes and third-party calls that are most of what it costs. Changing a"
+		note "setting restarts the host, so the next search pays a cold start."
 		printf '\n'
-		echo "  Undo with: infra/kill-switch.sh discovery on"
-		;;
-	on)
-		note "Resumes at the next scheduled hour, continuing from the cursor."
-		;;
-	esac
-}
-
-cmd_scoring() {
-	set_timer scoring "$SCORING_SETTING" "${1:-}"
-
-	case "${1:-}" in
-	off)
-		note "Search keeps using the scores already written; they simply stop being"
-		note "brought up to date, so newly crawled articles rank unboosted until this"
-		note "is turned back on."
-		printf '\n'
-		echo "  Undo with: infra/kill-switch.sh scoring on"
-		;;
-	on)
-		note "Resumes at the next scheduled half-hour. Articles left unscored are still"
-		note "unscored, so it continues where it stopped rather than starting over."
-		;;
-	esac
+		echo "  Undo with: infra/kill-switch.sh jobs on"
+	else
+		note "Each resumes at its next scheduled hour, continuing from where it left off."
+	fi
 }
 
 case "${1:-}" in
@@ -244,13 +221,9 @@ case "$1" in
 status) cmd_status ;;
 stop) cmd_stop ;;
 start) cmd_start ;;
-discovery)
+jobs)
 	shift
-	cmd_discovery "${1:-}"
-	;;
-scoring)
-	shift
-	cmd_scoring "${1:-}"
+	cmd_jobs "${1:-}" "${2:-}"
 	;;
 *)
 	usage

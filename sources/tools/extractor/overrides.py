@@ -29,6 +29,18 @@ from .urls import site_key
 # Anything else is a mistake worth stopping for rather than ignoring.
 OVERRIDE_FIELDS = ("id", "name", "site", "feed", "kind", "tags")
 
+# Takes a site out of the list entirely. Kept out of OVERRIDE_FIELDS because that
+# tuple is also the field order the generated file is written in, and this is an
+# instruction about a source rather than something a source carries.
+#
+# It exists for sites that answer every request and publish nothing worth reading:
+# git.drupalcode.org has a working Atom feed of merge-request activity, so the
+# extractor's checks pass and the crawler dutifully indexes "opened merge request"
+# thousands of times over.
+DROP_FIELD = "drop"
+
+ALLOWED_FIELDS = OVERRIDE_FIELDS + (DROP_FIELD,)
+
 # Rendered inline in the YAML, matching the generated entries.
 FLOW_FIELDS = ("kind", "tags")
 
@@ -54,7 +66,7 @@ def load_overrides(path: Path | None) -> list[dict[str, Any]]:
         if not isinstance(override, dict):
             raise ValueError(f"overrides[{idx}] is not a mapping")
 
-        unknown = sorted(set(override) - set(OVERRIDE_FIELDS))
+        unknown = sorted(set(override) - set(ALLOWED_FIELDS))
         if unknown:
             raise ValueError(
                 f"overrides[{idx}] has unknown field(s): {', '.join(unknown)}")
@@ -62,6 +74,11 @@ def load_overrides(path: Path | None) -> list[dict[str, Any]]:
         site = override.get("site")
         if not site:
             raise ValueError(f"overrides[{idx}] is missing 'site'")
+        # Dropping and patching are contradictory instructions, and an entry asking
+        # for both means one of them was meant and the reader cannot tell which.
+        if override.get(DROP_FIELD) and set(override) - {"site", DROP_FIELD}:
+            raise ValueError(
+                f"overrides[{idx}] both drops {site} and sets fields on it")
         # Compared the same way entries are matched, so two spellings of one blog
         # are caught here rather than fighting over the same entry later.
         if site_key(site) in seen:
@@ -115,10 +132,21 @@ def apply_overrides(
     used_ids = {entry["id"] for entry in merged} | set(known_by_key.values())
 
     unmatched: list[str] = []
+    dropped: set[str] = set()
 
     for override in overrides:
         site = override["site"]
         entry = by_site.get(site_key(site))
+
+        if override.get(DROP_FIELD):
+            # A drop that matches nothing is reported like any other override that
+            # matched nothing: the site may have moved, and silence would leave the
+            # list carrying it while the file says otherwise.
+            if entry is None:
+                unmatched.append(site)
+            else:
+                dropped.add(site_key(site))
+            continue
 
         if entry is not None:
             # `site` is deliberately not patched: the generated one is where the
@@ -144,7 +172,8 @@ def apply_overrides(
 
     # Sorted as build_entries sorts, so a patched name or an added source lands in
     # its proper place and the file stays a readable diff rather than growing a tail.
-    ordered = [ordered_entry(entry) for entry in merged]
+    kept = [entry for entry in merged if site_key(entry["site"]) not in dropped]
+    ordered = [ordered_entry(entry) for entry in kept]
     ordered.sort(key=lambda e: ((e.get("name") or "").lower(), e["site"]))
 
     return ordered, unmatched

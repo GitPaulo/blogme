@@ -396,8 +396,10 @@ func TestSearchReportsWhereTheNextPageStarts(t *testing.T) {
 		if i < 4 {
 			source = "loud"
 		}
+		// Distinct titles, so the cap is the only thing discarding rows here: one
+		// source repeating a title is a repeat in its own right.
 		docs[i] = fmt.Sprintf(
-			`{"url":"https://example.com/%d","title":"Post","sourceId":%q}`, i, source)
+			`{"url":"https://example.com/%d","title":"Post %d","sourceId":%q}`, i, i, source)
 	}
 	h := newTestHandlers(t, `{"@odata.count":900,"value":[`+strings.Join(docs, ",")+`]}`)
 

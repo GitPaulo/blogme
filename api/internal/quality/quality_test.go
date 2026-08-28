@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/GitPaulo/blogme/api/internal/index"
@@ -14,18 +15,26 @@ import (
 // scored, which is the property the whole design rests on.
 type fakeIndex struct {
 	unscored []index.Candidate
-	saved    []index.Scores
-	reads    int
-	saveErr  error
+	// undated is the other cohort. The real index keeps the two apart with mutually
+	// exclusive filters, so no article is ever handed back by both.
+	undated []index.Candidate
+	saved   []index.Scores
+	reads   int
+	saveErr error
 }
 
-func (f *fakeIndex) Unscored(_ context.Context, _, limit int) ([]index.Candidate, int, error) {
+func (f *fakeIndex) Unscored(_ context.Context, _, limit int, cohort index.Cohort) ([]index.Candidate, int, error) {
 	f.reads++
 
+	pool := &f.unscored
+	if cohort == index.Undated {
+		pool = &f.undated
+	}
+
 	// The count the index reports includes the documents it is about to hand over.
-	remaining := len(f.unscored)
-	batch := f.unscored[:min(limit, len(f.unscored))]
-	f.unscored = f.unscored[len(batch):]
+	remaining := len(*pool)
+	batch := (*pool)[:min(limit, len(*pool))]
+	*pool = (*pool)[len(batch):]
 	return batch, remaining, nil
 }
 
@@ -92,7 +101,7 @@ func TestRunStopsAtItsBudget(t *testing.T) {
 }
 
 // An empty set is the resting state, not an error: once a corpus is judged, every run
-// costs one query and stops.
+// costs one query per cohort and stops.
 func TestRunOnAJudgedCorpusDoesNothing(t *testing.T) {
 	idx := &fakeIndex{}
 	scorer := New(idx, nil, nil, Options{ScoreBatch: 5000})
@@ -101,8 +110,8 @@ func TestRunOnAJudgedCorpusDoesNothing(t *testing.T) {
 		t.Fatalf("run: %v", err)
 	}
 
-	if idx.reads != 1 {
-		t.Errorf("read the index %d times, want one look that found nothing", idx.reads)
+	if idx.reads != cohorts {
+		t.Errorf("read the index %d times, want one look per cohort that found nothing", idx.reads)
 	}
 	if len(idx.saved) != 0 {
 		t.Errorf("wrote %d scores against an empty corpus", len(idx.saved))
@@ -119,8 +128,9 @@ func TestRunStopsWhenScoresCannotBeWritten(t *testing.T) {
 	if err := scorer.Run(context.Background()); !errors.Is(err, failure) {
 		t.Fatalf("run returned %v, want the write failure", err)
 	}
-	if idx.reads != 1 {
-		t.Errorf("read the index %d times after a failed write, want one", idx.reads)
+	// One empty look at the undated cohort, then the dated read whose write failed.
+	if idx.reads != cohorts {
+		t.Errorf("read the index %d times after a failed write, want %d", idx.reads, cohorts)
 	}
 }
 
@@ -211,7 +221,13 @@ type stubbornIndex struct {
 	reads int
 }
 
-func (s *stubbornIndex) Unscored(context.Context, int, int) ([]index.Candidate, int, error) {
+func (s *stubbornIndex) Unscored(_ context.Context, _, _ int, cohort index.Cohort) ([]index.Candidate, int, error) {
+	// Everything it holds is dated, so the undated read finds nothing — as it would
+	// against a real index, where the two cohorts cannot overlap.
+	if cohort == index.Undated {
+		return nil, 0, nil
+	}
+
 	s.reads++
 	return s.batch, len(s.batch), nil
 }
@@ -236,5 +252,69 @@ func TestRunDoesNotRescoreWhatItJustScored(t *testing.T) {
 	}
 	if idx.reads != 2 {
 		t.Errorf("read the index %d times, want two: one that found work and one that found only repeats", idx.reads)
+	}
+}
+
+// cohorts is how many reads a run makes when there is nothing to do: the unscored set
+// is read once per cohort, because the two cannot share an ordering.
+const cohorts = 2
+
+// undatedCorpus builds articles carrying no publication date. In the index these are
+// the ones no ordering by date can reach.
+func undatedCorpus(n int) []index.Candidate {
+	out := make([]index.Candidate, n)
+	for i := range out {
+		out[i] = candidate(
+			fmt.Sprintf("undated-%d", i),
+			fmt.Sprintf("https://opengl-tutorial.org/tutorial-%d", i),
+			fmt.Sprintf("Tutorial %d : Opening a window", i),
+			"OpenGL Tutorial", "sitemap", repeat(prose, 3))
+	}
+	return out
+}
+
+// The failure this guards against is not a slow drain but a permanent one: read as a
+// single newest-first set, an article with no date sits behind every article with one,
+// and a corpus that grows faster than a run can judge it never reaches the end. Against
+// the live index that was 163,219 articles, a seventh of the corpus, none of which had
+// ever been judged.
+func TestRunJudgesUndatedArticlesAlongsideDatedOnes(t *testing.T) {
+	idx := &fakeIndex{unscored: corpus(4000), undated: undatedCorpus(400)}
+	scorer := New(idx, nil, nil, Options{ScoreBatch: 1000})
+
+	if err := scorer.Run(context.Background()); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	var undated int
+	for _, s := range idx.saved {
+		if strings.HasPrefix(s.ID, "undated-") {
+			undated++
+		}
+	}
+
+	// A quarter of the budget is reserved, and there is more than that waiting, so a
+	// run should spend the whole reserve on them.
+	if want := 1000 / undatedReserve; undated != want {
+		t.Errorf("judged %d undated articles, want the reserved %d", undated, want)
+	}
+	// The rest of the budget still goes where it went before.
+	if len(idx.saved) != 1000 {
+		t.Errorf("judged %d articles in total, want the full budget of 1000", len(idx.saved))
+	}
+}
+
+// The reserve is a backlog to clear, not a standing cost: once the undated are judged,
+// the whole budget goes back to the dated cohort.
+func TestUndatedReserveCostsNothingOnceDrained(t *testing.T) {
+	idx := &fakeIndex{unscored: corpus(4000)}
+	scorer := New(idx, nil, nil, Options{ScoreBatch: 1000})
+
+	if err := scorer.Run(context.Background()); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if len(idx.saved) != 1000 {
+		t.Errorf("judged %d articles with no undated backlog, want the full budget of 1000", len(idx.saved))
 	}
 }

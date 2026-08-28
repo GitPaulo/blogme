@@ -65194,11 +65194,6 @@ sources:
     site: https://drup.github.io/
     feed: https://drup.github.io/feed.xml
     tags: [tech]
-  - id: git-drupalcode
-    name: drupal activity
-    site: https://git.drupalcode.org/
-    feed: https://git.drupalcode.org/project/drupal.atom
-    tags: [tech]
   - id: internetdevels
     name: Drupal Development Company
     site: https://internetdevels.com/

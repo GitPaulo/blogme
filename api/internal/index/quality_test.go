@@ -35,7 +35,7 @@ func TestUnscoredAsksForTheArticlesNotYetJudged(t *testing.T) {
 	defer srv.Close()
 
 	got, remaining, err := New(srv.URL, "articles", "test-key", "").
-		Unscored(context.Background(), 3, 1000)
+		Unscored(context.Background(), 3, 1000, Dated)
 	if err != nil {
 		t.Fatalf("unscored: %v", err)
 	}

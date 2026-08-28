@@ -43,8 +43,27 @@ type candidateResponse struct {
 	} `json:"value"`
 }
 
-// Unscored returns articles carrying no score, or one older than version, along with
-// how many such articles remain in the whole index.
+// Cohort names which part of the unscored set to read.
+//
+// It exists because publishedAt is nullable and the set was read newest first. Under
+// any ordering by date an undated article sorts behind every dated one, so in a corpus
+// that gains documents faster than a run can judge them it is not merely last — it is
+// never reached. Read as one set, 163,219 undated articles, a seventh of the corpus,
+// had never been judged at all, and sampling them turned up ordinary tutorials rather
+// than the landing pages the ordering had been assumed to be burying.
+type Cohort int
+
+const (
+	// Dated reads articles carrying a publication date, newest first, so that a post
+	// published this hour is judged on the next pass rather than behind the backlog.
+	Dated Cohort = iota
+	// Undated reads the rest, in whatever order the index offers. There is nothing to
+	// sort them by, which is the whole reason they need a read of their own.
+	Undated
+)
+
+// Unscored returns articles from one cohort carrying no score, or one older than
+// version, along with how many such articles remain in that cohort.
 //
 // The index is both the input and the output of scoring, which keeps the scorer free
 // of any store of its own. There is no queue and no cursor: an article leaves the
@@ -52,19 +71,28 @@ type candidateResponse struct {
 // the whole corpus and then stops. Rebuilding the index empties every score with it,
 // and the same loop fills them in again.
 //
-// Newest first, so a corpus that is still draining spends its effort where a reader is
-// most likely to be looking. The count is the only measure of progress a run has:
-// without it, a drain that has silently stopped advancing looks like a healthy one.
-func (i *Index) Unscored(ctx context.Context, version, limit int) ([]Candidate, int, error) {
+// The count is per cohort, and the caller sums them: it is the only measure of
+// progress a run has, and without it a drain that has silently stopped advancing
+// looks exactly like a healthy one.
+func (i *Index) Unscored(ctx context.Context, version, limit int, cohort Cohort) ([]Candidate, int, error) {
+	// Built from the version and a fixed cohort rather than from anything a caller
+	// spells, so no filter can be composed from outside this package.
+	unjudged := fmt.Sprintf("(qualityVersion eq null or qualityVersion lt %d)", version)
+
 	body := map[string]any{
 		// A filter needs something to filter, and "*" matches every document without
 		// ranking any of it.
-		"search":  "*",
-		"filter":  fmt.Sprintf("qualityVersion eq null or qualityVersion lt %d", version),
-		"orderby": "publishedAt desc",
-		"top":     limit,
-		"count":   true,
-		"select":  "id,url,title,author,origin,content",
+		"search": "*",
+		"top":    limit,
+		"count":  true,
+		"select": "id,url,title,author,origin,content",
+	}
+
+	if cohort == Undated {
+		body["filter"] = unjudged + " and publishedAt eq null"
+	} else {
+		body["filter"] = unjudged + " and publishedAt ne null"
+		body["orderby"] = "publishedAt desc"
 	}
 
 	var resp candidateResponse

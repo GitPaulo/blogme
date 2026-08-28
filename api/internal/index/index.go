@@ -301,7 +301,24 @@ func selectPage(resp searchResponse, offset, limit, fetch int) Page {
 		}
 		seen[v.URL] = struct{}{}
 
-		// Counted after the repeat check, so a duplicate does not also spend one of its
+		// A site can also carry one article under many urls, which the check above
+		// cannot see: a tutorial published in five languages is five paths holding the
+		// same page. Searching for "opengl tutorial" returned "Tutorial 12 : OpenGL
+		// Extensions" three times, its source's whole allowance spent on one article
+		// under /hu/, /ru/ and no prefix at all.
+		//
+		// Matched within a source rather than across the corpus. Two blogs posting
+		// under one title have written two different articles, and titles as plain as
+		// "Shaders" or "Security" are common enough that collapsing them everywhere
+		// would hide real writing.
+		if title := repeatKey(v.SourceID, v.Title); title != "" {
+			if _, repeat := seen[title]; repeat {
+				continue
+			}
+			seen[title] = struct{}{}
+		}
+
+		// Counted after the repeat checks, so a duplicate does not also spend one of its
 		// source's three rows. Documents indexed before sourceId was selected carry
 		// none, and an unknown source cannot be shown to be over its share.
 		if v.SourceID != "" {
@@ -477,4 +494,17 @@ func (i *Index) authorize(ctx context.Context, req *http.Request) error {
 	}
 	req.Header.Set("Authorization", "Bearer "+token.Token)
 	return nil
+}
+
+// repeatKey identifies one source's title for the purpose of spotting a repeat, or
+// returns empty where there is nothing dependable to match on.
+//
+// Kept apart from the url keys in the same map by a separator no url contains, so the
+// two cannot collide. Case and spacing are normalised because the same page translated
+// or re-rendered rarely reproduces either exactly.
+func repeatKey(sourceID, title string) string {
+	if sourceID == "" || title == "" {
+		return ""
+	}
+	return sourceID + "\x00" + strings.ToLower(strings.Join(strings.Fields(title), " "))
 }
