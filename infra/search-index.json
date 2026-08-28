@@ -251,7 +251,7 @@
       "functionAggregation": "sum"
     }
   ],
-  "defaultScoringProfile": "relevance",
+  "defaultScoringProfile": "relevance-fresh",
   "semantic": {
     "defaultConfiguration": "blogme-semantic",
     "configurations": [
