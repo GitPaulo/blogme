@@ -1,6 +1,41 @@
 import { MAX_SUGGEST_LENGTH, MIN_SUGGEST_LENGTH, suggest } from './api';
 
 /**
+ * One row of the search box's dropdown.
+ *
+ * `kind` is what the row is, not how it looks: a completion the index offered and a
+ * search this browser has run before are different claims, and the reader is told which
+ * is which by the icon beside it.
+ */
+export type Suggestion = { text: string; kind: 'recent' | 'query' };
+
+/**
+ * The dropdown's rows: remembered searches first, then completions from the index,
+ * `limit` in all.
+ *
+ * Recent searches go on top because they are the stronger answer — a query this reader
+ * has already run beats one the corpus merely could answer — and there are never many of
+ * them, so they cannot crowd out the completions underneath.
+ *
+ * A completion identical to a remembered search is dropped rather than repeated. Which
+ * of the two survives is not arbitrary: the remembered one is the reader's own, and
+ * saying so is more use than offering the same words twice.
+ */
+export function merge(recents: string[], completions: string[], limit: number): Suggestion[] {
+	const seen = new Set(recents.map((text) => text.toLowerCase()));
+	const rows: Suggestion[] = recents.map((text) => ({ text, kind: 'recent' }));
+
+	for (const text of completions) {
+		if (rows.length === limit) break;
+		if (seen.has(text.toLowerCase())) continue;
+		seen.add(text.toLowerCase());
+		rows.push({ text, kind: 'query' });
+	}
+
+	return rows.slice(0, limit);
+}
+
+/**
  * How long the query has to hold still before completions are asked for.
  *
  * Shorter than the search debounce, because the completion is meant to arrive while the

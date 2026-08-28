@@ -12,6 +12,7 @@
 	import { replaceState } from '$app/navigation';
 	import BookmarkButton from '$lib/components/BookmarkButton.svelte';
 	import FilterBar from '$lib/components/FilterBar.svelte';
+	import SearchSuggestions from '$lib/components/SearchSuggestions.svelte';
 	import {
 		clampQuery,
 		MAX_QUERY_LENGTH,
@@ -28,8 +29,9 @@
 	import { elementWidth } from '$lib/elementWidth.svelte';
 	import { applyFilters, emptyFilters, isFiltered } from '$lib/filters';
 	import { onScreen } from '$lib/onScreen.svelte';
+	import { recent } from '$lib/recent.svelte';
 	import { snippet, snippetBudget } from '$lib/snippet';
-	import { suggestions } from '$lib/suggestions.svelte';
+	import { merge as mergeSuggestions, suggestions, type Suggestion } from '$lib/suggestions.svelte';
 	import { visited } from '$lib/visited/store.svelte';
 
 	const DEBOUNCE_MS = 300;
@@ -52,6 +54,12 @@
 	// What a card's padding and border take off the row width before the description
 	// gets any: p-4 either side, plus the Card's own hairline.
 	const CARD_TEXT_INSET = 34;
+	// How many remembered searches may take the top of the dropdown. Two, because they
+	// are the reader's own and belong first, and because more than two would start
+	// crowding out what the index has to offer on a list this short.
+	const MAX_RECENT = 2;
+	// The dropdown's own id, which is what ties it to the search box for a screen reader.
+	const LISTBOX_ID = 'search-suggestions';
 	// Hoisted: building a formatter is the expensive half of rendering the total.
 	const decimal = new Intl.NumberFormat();
 
@@ -82,6 +90,14 @@
 	// The last completion the reader picked, so it is not completed back at them. See
 	// `completions` below.
 	let accepted = $state('');
+	// Whether the search box has the caret, and whether the reader has dismissed the
+	// dropdown for the query now in it. Both are needed: a list that reopened on the next
+	// completion to arrive would undo the Escape that closed it.
+	let searchFocused = $state(false);
+	let dismissed = $state(false);
+	// Which row the keyboard is on, or -1 for none, in which case Enter searches for what
+	// was typed rather than for a suggestion.
+	let active = $state(-1);
 
 	let searchInput = $state<HTMLInputElement>();
 	// One element per visible result, so children[n] is result n.
@@ -197,6 +213,24 @@
 	// request is spent to fetch it. Editing the query again makes it a different one,
 	// and completions resume on their own.
 	const completions = suggestions(() => (term === accepted ? '' : term));
+
+	// Remembered searches are matched against whatever is in the box, including the one
+	// and two characters the index is never asked about: they are held locally and cost
+	// nothing to look through, so there is no reason to make the reader type a third
+	// letter before showing them their own history.
+	const options = $derived(
+		mergeSuggestions(recent.matching(term, MAX_RECENT), completions.current, MAX_SUGGESTIONS)
+	);
+	const suggestionsOpen = $derived(searchFocused && !dismissed && options.length > 0);
+
+	// The list changed under the cursor, so the row it was on is no longer the row it
+	// meant. Dropping the selection is the honest answer: completions arrive while the
+	// reader is still typing, and silently moving their highlight onto whatever took that
+	// position is how the wrong query gets searched for.
+	$effect(() => {
+		void options; // Read for the dependency, not for the value.
+		active = -1;
+	});
 
 	const controlsOnScreen = onScreen(() => controlsRow);
 	// Every card is the same width, so one row measurement sizes all of their descriptions.
@@ -400,21 +434,66 @@
 	// Leaving the page should not keep a request alive.
 	$effect(() => () => cancel());
 
-	// A completion is a whole query, not the word that finishes one.
+	// Taking a suggestion is choosing a whole query, not completing the word being typed.
 	//
-	// The combobox is built for word completion: it replaces the last word of the input
-	// with what was picked. That is the right behaviour for a list of words and the
-	// wrong one for a list of queries — picking "postgres query" while "postgres qu" is
-	// in the box would leave "postgres postgres query". Setting the query here overrides
-	// what it wrote, in the same tick, so the reader only ever sees the completion they
-	// chose. The search itself needs no prompting: the effect below already watches this.
-	//
-	// Whole queries rather than words because the list has to read as the thing that
-	// will be searched for. A dropdown of "query", "queue", "quantum" under a box saying
-	// "postgres qu" does not tell a reader what they are about to get.
-	function acceptCompletion(completion: string) {
-		accepted = completion;
-		query = completion;
+	// The list holds whole queries because it has to read as the thing that will be
+	// searched for: a dropdown of "query", "queue", "quantum" under a box saying
+	// "postgres qu" does not tell a reader what they are about to get. So this replaces
+	// what is in the box rather than appending to it. The search needs no prompting —
+	// the effect below already watches the query.
+	function acceptSuggestion(option: Suggestion) {
+		accepted = option.text;
+		query = option.text;
+		dismissed = true;
+		active = -1;
+		// Taking a suggestion is committing to it, whichever list it came from. A
+		// remembered search moves back to the front for having been used again.
+		recent.record(option.text);
+		// The press was prevented from moving focus, but a click on a row still leaves
+		// the caret where the reader last put it. Ending on the box means they can keep
+		// typing.
+		searchInput?.focus();
+	}
+
+	// The combobox keyboard contract. Only the keys that mean something to an open list
+	// are taken; everything else, Home and End included, belongs to the text field.
+	function onSearchKeydown(event: KeyboardEvent) {
+		if (event.key === 'Escape') {
+			// With the list closed, Escape belongs to the browser, which clears a search
+			// field with it.
+			if (!suggestionsOpen) return;
+			event.preventDefault();
+			dismissed = true;
+			active = -1;
+			return;
+		}
+
+		if (!suggestionsOpen) return;
+
+		switch (event.key) {
+			case 'ArrowDown':
+				// Wrapping, and starting from the top on the first press.
+				event.preventDefault();
+				active = (active + 1) % options.length;
+				break;
+			case 'ArrowUp':
+				// Up from nothing is the last row, which is what makes the two symmetrical.
+				event.preventDefault();
+				active = active <= 0 ? options.length - 1 : active - 1;
+				break;
+			case 'Enter':
+				// Only when a row is chosen. Otherwise this is an ordinary submit of
+				// whatever was typed, which is what the form below does with it.
+				if (active >= 0) {
+					event.preventDefault();
+					acceptSuggestion(options[active]);
+				}
+				break;
+			case 'Tab':
+				// Focus is leaving, so the list has nothing left to be open for.
+				dismissed = true;
+				break;
+		}
 	}
 
 	// Submitting skips the pending debounce rather than queueing a second request.
@@ -422,8 +501,44 @@
 		event.preventDefault();
 		clearTimeout(timer);
 		if (!searchable) return;
+		dismissed = true;
+		// Pressing Enter is the plainest way a reader says this query was the one they
+		// meant, which is what makes it worth remembering.
+		recent.record(term);
 		run(term, 0, rank);
 	}
+
+	// Opening a result is the other way of saying it, and the more common one: most
+	// searches here are typed, read and clicked without Enter ever being pressed, so a
+	// history that only recorded submissions would stay empty for most readers.
+	//
+	// Delegated to the list rather than bound per row, and listened for rather than
+	// written into the markup, which is how the visited tracker does the same job: a
+	// middle click opens a tab without ever firing `click` and arrives as `auxclick`
+	// instead, and a handler on the container element is a click handler on something
+	// that is not itself interactive. The anchors are.
+	$effect(() => {
+		const list = resultList;
+		if (!list) return;
+
+		const onopen = (event: MouseEvent) => {
+			// Something up the tree cancelled the navigation, so nothing was opened.
+			if (event.defaultPrevented) return;
+			// Left and middle both open the article; a right click only offers to.
+			if (event.button !== 0 && event.button !== 1) return;
+			const node = event.target instanceof Element ? event.target : undefined;
+			// The same `data-visit` anchors the visited tracker matches, so a link that
+			// is not an article does not count as one.
+			if (node?.closest('a[data-visit]')) recent.record(term);
+		};
+
+		list.addEventListener('click', onopen);
+		list.addEventListener('auxclick', onopen);
+		return () => {
+			list.removeEventListener('click', onopen);
+			list.removeEventListener('auxclick', onopen);
+		};
+	});
 </script>
 
 <svelte:head>
@@ -435,7 +550,9 @@
 	<Heading tag="h1" class="mb-2">blogme</Heading>
 	<P class="mb-8 text-gray-500 dark:text-gray-400">A search engine for tech blogs.</P>
 
-	<form {onsubmit} role="search" bind:this={searchForm}>
+	<!-- The positioning context for the suggestion list, which hangs below the box without
+	taking any room in the layout. -->
+	<form {onsubmit} role="search" bind:this={searchForm} class="relative">
 		<Input
 			type="search"
 			bind:value={query}
@@ -446,9 +563,16 @@
 			maxlength={MAX_QUERY_LENGTH}
 			aria-label="Search query"
 			aria-busy={status === 'loading'}
-			data={completions.current}
-			maxSuggestions={MAX_SUGGESTIONS}
-			onSelect={acceptCompletion}
+			role="combobox"
+			aria-expanded={suggestionsOpen}
+			aria-controls={suggestionsOpen ? LISTBOX_ID : undefined}
+			aria-activedescendant={active >= 0 ? `${LISTBOX_ID}-${active}` : undefined}
+			aria-autocomplete="list"
+			autocomplete="off"
+			onkeydown={onSearchKeydown}
+			onfocus={() => (searchFocused = true)}
+			onblur={() => (searchFocused = false)}
+			oninput={() => (dismissed = false)}
 		>
 			{#snippet left()}
 				<!--
@@ -476,6 +600,16 @@
 				<Tooltip>{rankLabel}</Tooltip>
 			{/snippet}
 		</Input>
+
+		{#if suggestionsOpen}
+			<SearchSuggestions
+				id={LISTBOX_ID}
+				{options}
+				{active}
+				onselect={acceptSuggestion}
+				onhover={(index) => (active = index)}
+			/>
+		{/if}
 	</form>
 
 	{#if tooShort}

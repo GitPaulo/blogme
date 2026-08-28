@@ -312,6 +312,25 @@ typing "rust" costs one request, and backspacing over it costs none. A query the
 has just accepted is not completed back at them, which saves both a request and a dropdown
 reopening under the cursor to offer the line already in the box.
 
+The top of that dropdown is the reader's own. Up to two **recent searches** matching what
+has been typed sit above the completions, most recent first, each marked with a clock
+where a completion carries a magnifier. They are kept in `localStorage` — at most
+twenty-five queries, forgotten after a month — and never leave the browser, which is also
+why they can be matched below the three-character floor the index is asked about: the
+lookup is free. Matching is on word boundaries, so "own" finds "rust ownership rules" and
+"ust" finds nothing. A search is remembered when the reader commits to it — submitting it,
+taking a suggestion, or opening one of its results — rather than on every keystroke the
+debounced search runs, which would fill the history with the prefixes typed on the way to
+a real query.
+
+The list itself is the [ARIA combobox
+pattern](https://www.w3.org/WAI/ARIA/apg/patterns/combobox/): the box is a `combobox` that
+owns the caret throughout, and the highlighted row is named by `aria-activedescendant`
+rather than focused. It is positioned absolutely, so opening it moves nothing on the page
+behind it, and it is capped at 60% of the window's height and tied to the width of the box
+above it, so it can neither run off a short screen nor push a long completion past the
+edge of a narrow one.
+
 `/api/health` asks the index for a document count rather than reporting that the process
 is up. The deploy workflow gates on it, and the failures worth catching all authenticate
 correctly — a role assignment that was never granted still issues a token, and a
