@@ -188,7 +188,14 @@
 	// only once there is a search to talk about, and only until it is waved away — see
 	// looksLikeAQuestion for how hard it is made to trigger.
 	const offerSemantic = $derived(
-		!semanticRanking && !questionHintDismissed && status !== 'idle' && looksLikeAQuestion(term)
+		!semanticRanking &&
+			!questionHintDismissed &&
+			looksLikeAQuestion(term) &&
+			// While a search is in flight, and afterwards only if it found something. A
+			// failed search has nothing to do with ranking, and an empty one is already
+			// answered by emptyMessage, which makes the same offer where the reader is
+			// looking. Two nudges towards the same button is one too many.
+			(status === 'loading' || loaded > 0)
 	);
 	const emptyMessage = $derived(
 		`No results found. Try a different search or ${semanticRanking ? 'disable' : 'enable'} semantic search.`

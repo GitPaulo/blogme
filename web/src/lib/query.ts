@@ -63,6 +63,10 @@ export function looksLikeAQuestion(query: string): boolean {
 	const trimmed = query.trim();
 	if (!trimmed) return false;
 
+	// A question is about something. "???" ends in a question mark and asks nothing, and
+	// offering to re-rank it would be the offer appearing where it is plainly no help.
+	if (!/[\p{L}\p{N}]/u.test(trimmed)) return false;
+
 	// Nobody types one of these by accident, and it is the only signal that needs no
 	// vocabulary at all.
 	if (trimmed.endsWith('?')) return true;

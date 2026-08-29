@@ -452,3 +452,41 @@ func TestSearchStillReportsARealFailure(t *testing.T) {
 		t.Errorf("status = %d, want 500 when the index genuinely fails", rec.Code)
 	}
 }
+
+// The page says when it answered a looser question than it was asked, because the reader
+// can see the words they typed. A client cannot tell that from the rows alone.
+func TestSearchSaysWhenItBroadened(t *testing.T) {
+	// Nothing matches every word; something matches any of them.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		if request["searchMode"] == "all" {
+			_, _ = io.WriteString(w, emptyResult)
+			return
+		}
+		_, _ = io.WriteString(w, fmt.Sprintf(`{"@odata.count":1,"value":[%s]}`, window(1)))
+	}))
+	t.Cleanup(srv.Close)
+	h := New(index.New(srv.URL, "articles", "test-key", ""), DefaultLimits())
+
+	rec := get(t, h, "/api/search?q=the+world+generation+of+minecraft")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, `"broadened":true`) {
+		t.Errorf("body does not report the broadening: %s", strings.TrimSpace(body))
+	}
+}
+
+// A search that matched every word answered exactly what was asked, and saying otherwise
+// would put a note under results that do not need one.
+func TestSearchDoesNotClaimToHaveBroadenedAnExactMatch(t *testing.T) {
+	body := fmt.Sprintf(`{"@odata.count":1,"value":[%s]}`, window(1))
+	rec := get(t, newTestHandlers(t, body), "/api/search?q=rust+ownership")
+
+	if body := rec.Body.String(); !strings.Contains(body, `"broadened":false`) {
+		t.Errorf("body claims a broadening that did not happen: %s", strings.TrimSpace(body))
+	}
+}

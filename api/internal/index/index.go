@@ -248,7 +248,7 @@ func (i *Index) Query(ctx context.Context, q string, opts QueryOptions) (Page, e
 	// that works today changes, and one that returned an empty page gets the answer it
 	// was looking for. It is a floor under the search rather than a fix for the index —
 	// a query that comes back with a handful of wrong rows never reaches here.
-	if broadening(q, opts, resp) {
+	if worthBroadening(q, resp) {
 		broad := maps.Clone(body)
 		broad["searchMode"] = "any"
 
@@ -269,7 +269,7 @@ func (i *Index) Query(ctx context.Context, q string, opts QueryOptions) (Page, e
 	return selectPage(resp, opts.Offset, opts.Limit, fetch), nil
 }
 
-// broadening reports whether a second, looser query is worth making.
+// worthBroadening reports whether a second, looser query is worth making.
 //
 // Only when the first found nothing, so a search that works is never touched, and only
 // when the query has more than one word: with a single term "all" and "any" are the same
@@ -277,7 +277,7 @@ func (i *Index) Query(ctx context.Context, q string, opts QueryOptions) (Page, e
 //
 // Semantic ranking never reaches here — it searches for any of the words already, and a
 // semantic run that failed has fallen back to a keyword one that this then applies to.
-func broadening(q string, opts QueryOptions, resp searchResponse) bool {
+func worthBroadening(q string, resp searchResponse) bool {
 	return resp.Total == 0 && len(resp.Value) == 0 && len(strings.Fields(q)) > 1
 }
 
