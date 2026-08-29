@@ -104,12 +104,15 @@ export function merge(
 /**
  * How long the query has to hold still before completions are asked for.
  *
- * Shorter than the search debounce, because the completion is meant to arrive while the
- * reader is still deciding what to type, and the search that follows it is the slower
- * of the two anyway. Short enough to feel immediate, long enough that a word typed at
- * speed costs one request rather than one per letter.
+ * Half a second is a deliberate pause rather than a hesitation: a whole phrase typed
+ * without stopping costs one request, and the list appears once the reader has actually
+ * paused to look at it. Longer than the search debounce, so on a query typed straight
+ * through the results arrive first and the completions settle after them.
+ *
+ * The cache in front of this is what keeps the wait from being felt twice: a prefix
+ * already asked about is answered without either the delay or the request.
  */
-const DEBOUNCE_MS = 120;
+const DEBOUNCE_MS = 500;
 
 /**
  * How many queries are remembered.

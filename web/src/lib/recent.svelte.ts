@@ -108,6 +108,11 @@ export const recent = {
 	record(query: string) {
 		const q = query.trim();
 		if (!q) return;
+		// Already the most recent, so there is nothing to move and nothing to write. This
+		// is the common case, not a rare one: a reader who presses Enter on a search, or
+		// opens two results from it, commits the same query several times over, and each
+		// of those would otherwise re-read and re-serialise the whole list.
+		if (entries[0]?.q.toLowerCase() === q.toLowerCase()) return;
 
 		const now = Date.now();
 		const kept = read().filter((entry) => entry.q.toLowerCase() !== q.toLowerCase());

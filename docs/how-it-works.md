@@ -250,6 +250,13 @@ stay out. The URL is written once per search rather than once per keystroke: par
 because it should describe results that exist, and partly because browsers throttle
 history writes.
 
+A link carrying a search does not take the caret. The bare page is a search box with a
+page around it, so the caret starts in it; a link with `?q=` is a result set someone has
+been sent to read, and focusing the box on arrival would open the suggestion list over the
+results they came for, offering completions for a query they never typed. The list appears
+when they go to the box, which is when they have asked for it. A link with other
+parameters and no `q` still focuses, because there is nothing to read yet.
+
 An answer is cacheable for two minutes, so a reload or a shared link opened twice costs
 neither an execution nor an index query. Discovery runs hourly, so anything well inside
 that cycle serves the corpus the index would have answered from anyway; a minute was
@@ -306,11 +313,22 @@ titles does not turn over in an hour. Nothing is logged on the way through, only
 and only in bounded form; the platform already counts invocations per function, so paying
 for a log line per keystroke would buy nothing.
 
-The browser does its share. It waits out a pause of 120 ms before asking, holds the
-answers to the last hundred queries, and asks nothing at all below three characters — so
-typing "rust" costs one request, and backspacing over it costs none. A query the reader
-has just accepted is not completed back at them, which saves both a request and a dropdown
-reopening under the cursor to offer the line already in the box.
+The browser does its share. It waits out a pause of half a second before asking, holds the
+answers to the last hundred queries, and asks nothing at all below three characters — so a
+phrase typed straight through costs one request, and backspacing over it costs none. That
+pause is longer than the search's own, so on a query typed without stopping the results
+arrive first and the completions settle after them. A query the reader has just accepted is
+not completed back at them, which saves both a request and a dropdown reopening under the
+cursor to offer the line already in the box.
+
+The list also closes on its own five seconds after the reader stops touching it, and says
+so while it waits: the bottom edge of the box drains from full width to nothing over those
+five seconds. Every keystroke and every row the pointer passes over starts it again, so it
+only ever expires on someone who has moved on — at which point a suggestion list is an
+interruption nobody has dismissed, sitting over the results. The bar is a scale transform
+rather than a width, so the frames it draws cost no layout, and it is a countdown of its
+own rather than the end of that animation: a reader who has asked for less motion gets no
+bar, and the list still has to close for them.
 
 The top of that dropdown is the reader's own. Up to two **recent searches** matching what
 has been typed sit above the completions, most recent first, each marked with a clock
@@ -329,7 +347,19 @@ owns the caret throughout, and the highlighted row is named by `aria-activedesce
 rather than focused. It is positioned absolutely, so opening it moves nothing on the page
 behind it, and it is capped at 60% of the window's height and tied to the width of the box
 above it, so it can neither run off a short screen nor push a long completion past the
-edge of a narrow one.
+edge of a narrow one. Each row shows the part of it the reader has already typed in bold,
+built as text segments rather than interpolated markup — the words come from indexed blog
+titles, and highlighting untrusted text by assembling a string is exactly how that becomes
+an injection.
+
+Two smaller decisions are what stop it feeling jumpy. The highlighted row is remembered as
+the suggestion itself rather than as a position, so completions arriving mid-keystroke
+reorder the list without moving the selection onto a row the reader never chose — it
+follows its own row, and lets go when that row stops being offered. And the store holds the
+previous answer while the next is in flight, so the list does not empty and refill on every
+letter; what keeps that honest is that a completion is dropped as soon as it no longer
+matches what is in the box. Without it, a request that failed or timed out would leave the
+last query's completions on screen for good, under a box that has since moved on.
 
 `/api/health` asks the index for a document count rather than reporting that the process
 is up. The deploy workflow gates on it, and the failures worth catching all authenticate

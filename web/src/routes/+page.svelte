@@ -104,6 +104,10 @@
 	// go when that row is gone, which is both the smoother behaviour and the safe one.
 	// Empty for no selection, in which case Enter searches for what was typed.
 	let selected = $state('');
+	// Bumped on every sign the reader is still with the list, which restarts the countdown
+	// drawn around it. A counter rather than a timestamp: the list only needs to know that
+	// something happened, not when.
+	let interaction = $state(0);
 
 	let searchInput = $state<HTMLInputElement>();
 	// One element per visible result, so children[n] is result n.
@@ -115,6 +119,9 @@
 
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let controller: AbortController | undefined;
+	// What the first page on screen was asked for, so a request for the same thing can be
+	// recognised as one that has already been made. Not state: nothing renders it.
+	let requested = '';
 
 	// Read before any effect can run, so writing the address bar back can never race
 	// reading it and clear the search the reader arrived with.
@@ -181,8 +188,16 @@
 		bookmarks.load();
 	});
 
-	// The page is a search box with a page around it, so the caret starts in it.
+	// The page is a search box with a page around it, so the caret starts in it — unless
+	// the link already carries a search.
+	//
+	// Someone opening a shared or bookmarked result set came to read it, and focusing the
+	// box for them opens the suggestion list on top of the results the moment they arrive:
+	// completions for a query they did not type, over the answer they followed the link
+	// for. Leaving the caret alone means the list appears when they go to the box, which
+	// is when they have asked for it.
 	$effect(() => {
+		if (opening.get('q')) return;
 		searchInput?.focus();
 	});
 
@@ -282,6 +297,9 @@
 
 		if (offset === 0) {
 			status = 'loading';
+			// Recorded before the request rather than after it, so that a second ask
+			// arriving while this one is still in flight is recognised too. See onsubmit.
+			requested = requestKey(value, ranking);
 			// Filters describe the result set on screen, so a fresh search starts clean.
 			filters = emptyFilters();
 			syncUrl(value, ranking);
@@ -326,6 +344,9 @@
 				nextOffset = 0;
 				exhausted = false;
 				status = 'error';
+				// Nothing was loaded, so nothing has been asked for as far as the next
+				// submit is concerned: pressing Enter again is a retry and must go out.
+				requested = '';
 			}
 			return false;
 		} finally {
@@ -416,6 +437,8 @@
 			// The completion that was accepted belonged to the search being cleared, so
 			// typing it again is a new question and gets completed like any other.
 			accepted = '';
+			// And nothing has been asked for any more, so typing that query again searches.
+			requested = '';
 			syncUrl(''); // No search to describe, so the address goes back to bare.
 			return;
 		}
@@ -424,6 +447,17 @@
 		// Read inside the effect so flipping the ranking mode re-runs the current search
 		// rather than only affecting the next one the user types.
 		const ranking = rank;
+
+		// Already on screen, so there is nothing to fetch. This runs whenever the query or
+		// the ranking changes, and both can change back: flipping the ranking on and off
+		// again, or typing a letter and deleting it before the debounce elapsed, each end
+		// where they started and would otherwise re-request the page already showing.
+		//
+		// `requested` is a plain variable rather than state, which matters here — reading
+		// the status instead would make this effect depend on something it sets, and it
+		// would re-run itself. A failed search clears it, so a retry is never suppressed.
+		if (requested === requestKey(value, ranking)) return;
+
 		// The pending debounce is still work in progress, so the spinner stays up throughout.
 		status = 'loading';
 		clearTimeout(timer);
@@ -458,6 +492,10 @@
 	// The combobox keyboard contract. Only the keys that mean something to an open list
 	// are taken; everything else, Home and End included, belongs to the text field.
 	function onSearchKeydown(event: KeyboardEvent) {
+		// Every key, before any of them is read: a reader still typing is a reader still
+		// using the list, whether or not the key meant anything to it.
+		interaction++;
+
 		if (event.key === 'Escape') {
 			// With the list closed, Escape belongs to the browser, which clears a search
 			// field with it.
@@ -496,6 +534,13 @@
 		}
 	}
 
+	/** What a first page is asked for: two searches are the same one when these match. */
+	function requestKey(value: string, ranking: Rank) {
+		// A separator no query survives being trimmed to, so a rank and a query cannot run
+		// together into the same string as some other pair.
+		return `${ranking} ${value}`;
+	}
+
 	// Submitting skips the pending debounce rather than queueing a second request.
 	function onsubmit(event: SubmitEvent) {
 		event.preventDefault();
@@ -505,6 +550,17 @@
 		// Pressing Enter is the plainest way a reader says this query was the one they
 		// meant, which is what makes it worth remembering.
 		recent.record(term);
+
+		// Enter is a way to have the results now rather than a way to ask for them again.
+		// By the time it is pressed the debounced search has usually already run, so
+		// running it again fetches a page that is on screen — and because a fresh search
+		// aborts whatever is in flight, holding Enter down turned into a run of requests
+		// each cancelling the one before it. Nothing to skip means nothing to do.
+		//
+		// A failed search clears `requested`, so this never suppresses a retry: there the
+		// query has been asked for and has nothing to show, and Enter means try again.
+		if (requested === requestKey(term, rank)) return;
+
 		run(term, 0, rank);
 	}
 
@@ -607,8 +663,19 @@
 				{options}
 				{active}
 				query={term}
+				restart={interaction}
 				onselect={acceptSuggestion}
-				onhover={(index) => (selected = options[index].text)}
+				onhover={(index) => {
+					// A pointer on the list is the other way of still being with it, and the
+					// one that matters most: without this the list can close under a hand on
+					// its way to the row it was reaching for.
+					interaction++;
+					selected = options[index].text;
+				}}
+				onexpire={() => {
+					dismissed = true;
+					selected = '';
+				}}
 			/>
 		{/if}
 	</form>
