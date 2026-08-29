@@ -179,7 +179,8 @@
 		'Filters apply to the results loaded so far, not the whole index, so both numbers grow each time you load more.';
 	// Said in full for the reader who hovers or tabs to it: nothing matched every word
 	// of the query, so these rows match any of them instead.
-	const broadenedNote = 'Nothing matched every word of the search, so these results match any of the words instead.';
+	const broadenedNote =
+		'Nothing matched every word of the search, so these results match any of the words instead.';
 	// The button's own label, which a screen reader reads and a tooltip cannot replace:
 	// it has to say what pressing it does, in one string, with no markup.
 	const rankLabel = $derived(

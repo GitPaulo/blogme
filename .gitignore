@@ -33,3 +33,8 @@ Thumbs.db
 
 # Written by infra/repair-authors.sh before it patches the index.
 author-repair-rollback.json
+
+# Written by infra/repair-summaries.sh: the summaries it records before patching the
+# index, and the slices it has finished so an interrupted run can resume.
+summary-repair-rollback.jsonl.gz
+summary-repair-checkpoint.json
