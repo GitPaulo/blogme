@@ -65,6 +65,54 @@ func TestCleanProseDropsMarkerOnlyTokens(t *testing.T) {
 	}
 }
 
+// A site that renders MDX for its pages but syndicates something closer to the source
+// leaves its comments in the feed, and a lint pragma sits at the top of the file, so
+// the paragraph carrying one is the first — the one the card shows. The same post also
+// covers the inline case: "it's <em>big</em>." read as "it's big ." on the live card.
+func TestExtractSummaryDropsMDXCommentsAndKeepsInlineMarkupInline(t *testing.T) {
+	const post = `<html><body><article>
+		<p>{/* eslint-disable react/jsx-no-undef */}</p>
+		<p>If you aren't familiar with the Minecraft modding scene, it's <em>big</em>.
+		The best example is <a href="https://example.com/create">Create</a>: a mod
+		with <strong>gears</strong>.</p>
+	</article></body></html>`
+
+	got := extractSummary(parseHTML(post), summaryWords)
+	want := "If you aren't familiar with the Minecraft modding scene, it's big. " +
+		"The best example is Create: a mod with gears."
+	if got != want {
+		t.Errorf("summary = %q, want %q", got, want)
+	}
+}
+
+func TestExtractTextKeepsInlineMarkupInline(t *testing.T) {
+	const post = `<html><body><article>` +
+		`<p>It's <em>big</em>.</p><p>A <b>second</b> paragraph.</p>` +
+		`</article></body></html>`
+
+	got := extractText(parseHTML(post))
+	want := "It's big. A second paragraph."
+	if got != want {
+		t.Errorf("extractText = %q, want %q", got, want)
+	}
+}
+
+func TestCleanProseDropsMDXComments(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"{/* eslint-disable react/jsx-no-undef */}", ""},
+		{"Prose {/* an aside */} continues", "Prose continues"},
+		{"Two {/* a */} comments {/* b */} here", "Two comments here"},
+		{"foo{/* c */}bar", "foo bar"},
+		{"An {/* unclosed comment takes the rest", "An"},
+		// Braces are not markers on their own: only the comment form is.
+		{"Set {timeout} to 30s", "Set {timeout} to 30s"},
+	} {
+		if got := cleanProse(tc.in); got != tc.want {
+			t.Errorf("cleanProse(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 func TestExtractSummaryPrefersParagraphsOverHeadings(t *testing.T) {
 	doc := `<article>
 		<h1>A Heading That Is Not Prose</h1>

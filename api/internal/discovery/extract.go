@@ -104,6 +104,28 @@ func skipNode(n *html.Node) bool {
 	return false
 }
 
+// Elements that sit inside a run of prose rather than breaking it, so the text either
+// side of one belongs to the same word: "<em>big</em>." is "big.", "<a>Create</a>:" is
+// "Create:".
+//
+// Everything else separates, including <br> and including elements this package has
+// never heard of. That is the safe default of the two: a separator wrongly added shows
+// up as a space in front of punctuation, where one wrongly omitted welds two words into
+// a token no query will ever match.
+var inlineElements = map[atom.Atom]bool{
+	atom.A: true, atom.Abbr: true, atom.B: true, atom.Bdi: true, atom.Bdo: true,
+	atom.Cite: true, atom.Data: true, atom.Del: true, atom.Dfn: true, atom.Em: true,
+	atom.I: true, atom.Ins: true, atom.Kbd: true, atom.Mark: true, atom.Q: true,
+	atom.S: true, atom.Samp: true, atom.Small: true, atom.Span: true, atom.Strong: true,
+	atom.Sub: true, atom.Sup: true, atom.Time: true, atom.U: true, atom.Var: true,
+}
+
+// collectText appends a node's readable text to sb.
+//
+// The separator goes at a block's edges rather than after every text node, so inline
+// markup leaves no trace in the output. Emphasising a word used to cost a space before
+// whatever punctuation followed it — "it's big ." — and that reached both the indexed
+// content and the description on the card.
 func collectText(n *html.Node, sb *strings.Builder) {
 	if skipNode(n) {
 		return
@@ -111,11 +133,19 @@ func collectText(n *html.Node, sb *strings.Builder) {
 
 	if n.Type == html.TextNode {
 		sb.WriteString(n.Data)
-		sb.WriteByte(' ')
 	}
 
+	// The edges are what keep "</p><p>" from running two sentences together. Source
+	// whitespace already does that for most pages, but not for a minified one.
+	block := n.Type == html.ElementNode && !inlineElements[n.DataAtom]
+	if block {
+		sb.WriteByte(' ')
+	}
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
 		collectText(c, sb)
+	}
+	if block {
+		sb.WriteByte(' ')
 	}
 }
 
@@ -329,10 +359,10 @@ func metaValue(metas map[string]string, keys []string) string {
 	return ""
 }
 
-// cleanProse removes leftover Markdown markers, which appear when a feed publishes
-// raw Markdown as its content.
+// cleanProse removes the markers left behind when a feed publishes something other
+// than finished HTML: raw Markdown, and the MDX source's own comments.
 func cleanProse(s string) string {
-	fields := strings.Fields(s)
+	fields := strings.Fields(stripMDXComments(s))
 	kept := fields[:0]
 	for _, f := range fields {
 		if strings.Trim(f, "#*`~_-=") == "" {
@@ -341,6 +371,42 @@ func cleanProse(s string) string {
 		kept = append(kept, f)
 	}
 	return strings.Join(kept, " ")
+}
+
+// MDX comments out an expression by wrapping it in braces: {/* like this */}.
+const mdxCommentOpen, mdxCommentClose = "{/*", "*/}"
+
+// stripMDXComments removes MDX comments from text.
+//
+// A site that renders MDX to HTML for its pages but syndicates something closer to the
+// source leaves these in the feed as prose, and because the place a lint pragma goes is
+// the top of the file, the paragraph that gets one is the first — which is the one a
+// result card shows. Max Leiter's "Vibe-coding Minecraft mods" led its card with
+// "{/* eslint-disable react/jsx-no-undef */}" for exactly that reason.
+//
+// A comment is replaced by a space rather than dropped, so the text either side of one
+// does not weld. An unclosed marker takes the rest of the text with it, which is what
+// an unclosed comment means.
+func stripMDXComments(s string) string {
+	var sb strings.Builder
+	for {
+		open := strings.Index(s, mdxCommentOpen)
+		if open < 0 {
+			break
+		}
+		// Searched past the opening marker so its own '*' cannot close it.
+		body := open + len(mdxCommentOpen)
+		end := strings.Index(s[body:], mdxCommentClose)
+		if end < 0 {
+			s = s[:open]
+			break
+		}
+		sb.WriteString(s[:open])
+		sb.WriteByte(' ')
+		s = s[body+end+len(mdxCommentClose):]
+	}
+	sb.WriteString(s)
+	return sb.String()
 }
 
 // stripTags removes markup without parsing, for short fields where a full parse is
