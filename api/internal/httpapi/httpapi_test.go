@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -415,5 +416,39 @@ func TestSearchReportsWhereTheNextPageStarts(t *testing.T) {
 	if want := 100 + 21; body.NextOffset != want {
 		t.Errorf("nextOffset = %d, want %d: rows returned are not documents read",
 			body.NextOffset, want)
+	}
+}
+
+// A reader who types keeps superseding their own search, and the browser aborts the
+// request it no longer wants. That is the client's decision, not a fault, and there is
+// nobody left to answer — but it used to be logged as a failure and answered with a
+// 500. Sixteen of one day's ninety-eight live searches were recorded that way, which is
+// the same error rate the search alert watches.
+func TestSearchDoesNotTreatAnAbandonedRequestAsAFailure(t *testing.T) {
+	h := newTestHandlers(t, `{"@odata.count":1,"value":[{"url":"https://example.com/a","title":"A"}]}`)
+
+	// Cancelled before it is served, which is what reaches the handler once the
+	// browser has hung up.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	rec := httptest.NewRecorder()
+	h.Search(rec, httptest.NewRequest(http.MethodGet, "/api/search?q=go", nil).WithContext(ctx))
+
+	if rec.Code == http.StatusInternalServerError {
+		t.Errorf("status = %d, want the handler to say nothing to a caller that has gone", rec.Code)
+	}
+	if body := rec.Body.String(); strings.Contains(body, "search failed") {
+		t.Errorf("body = %q, want no error written for an abandoned request", body)
+	}
+}
+
+// A genuine failure still has to be reported, or the fix above would hide real outages
+// behind the same silence.
+func TestSearchStillReportsARealFailure(t *testing.T) {
+	rec := get(t, newHandlersReturning(t, http.StatusInternalServerError), "/api/search?q=go")
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500 when the index genuinely fails", rec.Code)
 	}
 }
