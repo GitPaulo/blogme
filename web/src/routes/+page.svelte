@@ -173,7 +173,9 @@
 			? 'Semantic ranking: finds posts about the idea. Switch to keyword ranking.'
 			: 'Keyword ranking: matches the words you typed. Switch to semantic ranking.'
 	);
-	const emptyMessage = 'No results found. Try a different search.';
+	const emptyMessage = $derived(
+		`No results found. Try a different search or ${semanticRanking ? 'disable' : 'enable'} semantic search.`
+	);
 	// Filters narrow the rows already fetched rather than the query behind them, so an
 	// empty list with pages still to come is a prompt rather than a dead end.
 	const noMatchMessage = $derived(
@@ -424,6 +426,10 @@
 		window.scrollTo({ top: 0, behavior: prefersReducedMotion.current ? 'auto' : 'smooth' });
 	}
 
+	function toggleRanking() {
+		semanticRanking = !semanticRanking;
+	}
+
 	$effect(() => {
 		if (!searchable) {
 			cancel();
@@ -638,7 +644,7 @@
 				-->
 				<button
 					type="button"
-					onclick={() => (semanticRanking = !semanticRanking)}
+					onclick={toggleRanking}
 					aria-pressed={semanticRanking}
 					aria-label={rankLabel}
 					class="pointer-events-auto -m-1 rounded-sm p-1 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 {semanticRanking
@@ -855,7 +861,16 @@
 					</div>
 				{/if}
 			{:else if status === 'done'}
-				<Alert color="gray" class="mt-4">{emptyMessage}</Alert>
+				<Alert color="gray" class="mt-4">
+					No results found. Try a different search or
+					<button
+						type="button"
+						class="underline hover:no-underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600"
+						onclick={toggleRanking}
+					>
+						{semanticRanking ? 'disable' : 'enable'} semantic search
+					</button>.
+				</Alert>
 			{/if}
 		</div>
 	{/if}
