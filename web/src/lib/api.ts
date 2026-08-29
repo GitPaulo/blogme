@@ -40,6 +40,12 @@ export type SearchResponse = {
 	 * button. Mirrors index.Page.Exhausted.
 	 */
 	exhausted: boolean;
+	/**
+	 * Whether nothing matched every word, so these rows match any of them. The reader can
+	 * see the words they typed, so the page says so rather than quietly answering a looser
+	 * question. Mirrors index.Page.Broadened.
+	 */
+	broadened: boolean;
 	results: SearchResult[];
 };
 
@@ -217,6 +223,9 @@ function toResponse(body: unknown, query: string, offset: number): SearchRespons
 		// that does not send it says nothing, and nothing has to read as "there may be
 		// more": claiming the end early would strand every result past this page.
 		exhausted: raw.exhausted === true,
+		// Same rule, and the safe default is the quiet one: an API that does not send it
+		// has not broadened anything, so nothing is announced.
+		broadened: raw.broadened === true,
 		results
 	};
 }

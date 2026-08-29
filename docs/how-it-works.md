@@ -210,6 +210,24 @@ wide once the cap has removed some, so a fixed stride steps over whatever was re
 skips it for good rather than deferring it. This is what makes "load more" reach every
 result exactly once.
 
+When nothing matches every word, the search asks again for any of them, and says so.
+That is a floor rather than a fix. The index does not analyse every field the same way —
+`title`, `summary` and `content` declare `en.microsoft` and discard English stopwords,
+while `author` and `topics` were created without an analyzer and keep them — so a word
+like "the" survives as a term only in the fields that kept it. Requiring it then asks for
+an article whose _author name_ contains it. "The World Generation of Minecraft" matched
+nothing at all while its own article sat first for the same words without "the" and "of".
+
+The retry runs only on an empty page, so no search that works today is touched, and only
+on a query of more than one word, where "all" and "any" are different questions. A page
+that came back this way is flagged `broadened` and the result count says "nothing matched
+every word, so these match any of them" — the reader can see what they typed, and rows
+answering a looser question should not arrive unannounced. It is worth being clear about
+what this does not reach: a query that comes back with a handful of wrong rows rather than
+none never triggers it. "a tour of go" returns two dozen articles matched on author names
+containing "a" and "of", and looks like it worked. Only giving every searched field the
+same analyzer fixes that half.
+
 A search matches only documents containing **every** word of the query. Matching any of
 them was the original choice, meant to hand the reranker a wide field to sort out, and
 measured against the queries people actually type it was the wrong trade: "ai text
@@ -241,6 +259,20 @@ default profile reaches every query without a line of code changing. The index c
 three further profiles that each differ from `relevance` by one variable, so which of
 them should be the default is a question `make harness` can answer rather than one to
 argue about.
+
+Two ranking modes is one more than most search boxes have, so the toggle teaches rather
+than labels: hovering it says what that mode matches on, what it is good for, and two
+queries worth trying, with semantic's shallower paging spelled out. The button's own
+`aria-label` carries the same thing in one sentence, because a tooltip is not reachable by
+every reader.
+
+The box also offers the other mode when a query reads like a question — "why is my
+postgres slow" — as a row under the search box with a **Try it** and a dismissal, never by
+switching modes underneath somebody. The test for a question is deliberately hard to pass:
+a trailing question mark, or an opening pair like "why is", "how do", "can i". Both halves
+of the pair are required, and that is the whole design — "how" alone opens "how I built my
+blog", which is a title a keyword search finds exactly. An offer that appears over
+ordinary searches is worse than none, because it teaches people to ignore it.
 
 A search lives in the address bar. The query and the ranking mode — everything the server
 was asked for — are written back as `?q=` and `?mode=`, so a search can be shared,

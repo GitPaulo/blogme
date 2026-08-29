@@ -29,6 +29,7 @@
 	import { elementWidth } from '$lib/elementWidth.svelte';
 	import { applyFilters, emptyFilters, isFiltered } from '$lib/filters';
 	import { onScreen } from '$lib/onScreen.svelte';
+	import { looksLikeAQuestion } from '$lib/query';
 	import { recent } from '$lib/recent.svelte';
 	import { snippet, snippetBudget } from '$lib/snippet';
 	import { merge as mergeSuggestions, suggestions, type Suggestion } from '$lib/suggestions.svelte';
@@ -80,6 +81,10 @@
 	// over its share, so the rows on screen stop short of the total by an amount nothing
 	// here can predict.
 	let exhausted = $state(false);
+	// Whether nothing matched every word, so the rows on screen match any of them. Said
+	// out loud: the reader can see what they typed, and rows answering a looser question
+	// than the one they asked should not arrive unannounced.
+	let broadened = $state(false);
 	let status = $state<'idle' | 'loading' | 'done' | 'error'>('idle');
 	let loadingMore = $state(false);
 	let error = $state('');
@@ -104,6 +109,10 @@
 	// go when that row is gone, which is both the smoother behaviour and the safe one.
 	// Empty for no selection, in which case Enter searches for what was typed.
 	let selected = $state('');
+	// A reader who has waved the offer of semantic ranking away is not asked again this
+	// visit. Keyed by nothing: one dismissal covers the session, because an offer that
+	// comes back is the thing that made it annoying.
+	let questionHintDismissed = $state(false);
 	// Bumped on every sign the reader is still with the list, which restarts the countdown
 	// drawn around it. A counter rather than a timestamp: the list only needs to know that
 	// something happened, not when.
@@ -168,10 +177,18 @@
 	// loud because a total that grows while you page through it otherwise reads as a bug.
 	const partialNote =
 		'Filters apply to the results loaded so far, not the whole index, so both numbers grow each time you load more.';
+	// The button's own label, which a screen reader reads and a tooltip cannot replace:
+	// it has to say what pressing it does, in one string, with no markup.
 	const rankLabel = $derived(
 		semanticRanking
-			? 'Semantic ranking: finds posts about the idea. Switch to keyword ranking.'
-			: 'Keyword ranking: matches the words you typed. Switch to semantic ranking.'
+			? 'Semantic ranking, which finds posts about the idea. Switch to keyword ranking.'
+			: 'Keyword ranking, which matches the words you typed. Switch to semantic ranking.'
+	);
+	// Whether to offer semantic ranking for what has been typed. Only in keyword mode,
+	// only once there is a search to talk about, and only until it is waved away — see
+	// looksLikeAQuestion for how hard it is made to trigger.
+	const offerSemantic = $derived(
+		!semanticRanking && !questionHintDismissed && status !== 'idle' && looksLikeAQuestion(term)
 	);
 	const emptyMessage = $derived(
 		`No results found. Try a different search or ${semanticRanking ? 'disable' : 'enable'} semantic search.`
@@ -324,6 +341,7 @@
 			// screen is the whole answer.
 			total = response.exhausted ? merged.length : response.total;
 			exhausted = response.exhausted;
+			broadened = response.broadened;
 			// The API's figure rather than a stride of our own: it drops rows that put
 			// one blog over its share of a page, so a page is wider than the rows it
 			// returns, and counting by page size would step over whatever it dropped.
@@ -345,6 +363,7 @@
 				total = 0;
 				nextOffset = 0;
 				exhausted = false;
+				broadened = false;
 				status = 'error';
 				// Nothing was loaded, so nothing has been asked for as far as the next
 				// submit is concerned: pressing Enter again is a retry and must go out.
@@ -438,6 +457,7 @@
 			total = 0;
 			nextOffset = 0;
 			exhausted = false;
+			broadened = false;
 			error = '';
 			status = 'idle';
 			// The completion that was accepted belonged to the search being cleared, so
@@ -546,6 +566,14 @@
 		// together into the same string as some other pair. Written as an escape rather
 		// than the byte itself, which would make the whole file binary to git and grep.
 		return `${ranking}\0${value}`;
+	}
+
+	// Taking the offer switches the mode, which the effect below re-runs the search for.
+	// Dismissing it is the same decision made the other way, so both close the row.
+	function useSemanticRanking() {
+		semanticRanking = true;
+		questionHintDismissed = true;
+		searchInput?.focus();
 	}
 
 	// Submitting skips the pending debounce rather than queueing a second request.
@@ -660,7 +688,47 @@
 						<SearchOutline class="h-4 w-4" aria-hidden="true" />
 					{/if}
 				</button>
-				<Tooltip>{rankLabel}</Tooltip>
+				<!--
+					Two modes is one more than most search boxes have, so the tooltip has to
+					teach rather than label: what this one matches on, what it is good for,
+					and two queries worth trying. The button's aria-label says the same thing
+					in a sentence, because a tooltip is not reachable by every reader.
+				-->
+				<Tooltip class="max-w-72 text-left">
+					{#if semanticRanking}
+						<span class="mb-1 flex items-center gap-1.5 font-semibold">
+							<WandMagicSparklesOutline class="h-3.5 w-3.5" aria-hidden="true" />
+							Semantic — finds the idea
+						</span>
+						<span class="block text-gray-300 dark:text-gray-400">
+							Reads the query as a sentence, so posts that never use your exact words can still come
+							back. Best for questions and descriptions.
+						</span>
+						<span class="mt-1.5 block font-mono text-xs text-gray-200 dark:text-gray-300">
+							why is my postgres slow<br />essays about leaving big tech
+						</span>
+						<span class="mt-1.5 block text-gray-400 dark:text-gray-500">
+							Ranks the first 50 matches only, so it cannot page as deep.
+						</span>
+					{:else}
+						<span class="mb-1 flex items-center gap-1.5 font-semibold">
+							<SearchOutline class="h-3.5 w-3.5" aria-hidden="true" />
+							Keyword — matches your words
+						</span>
+						<span class="block text-gray-300 dark:text-gray-400">
+							Every word has to appear. Best for names, libraries and exact phrases, and it pages
+							through the whole result set.
+						</span>
+						<span class="mt-1.5 block font-mono text-xs text-gray-200 dark:text-gray-300">
+							sean goedecke<br />rust ownership
+						</span>
+					{/if}
+					<span
+						class="mt-1.5 block border-t border-gray-600 pt-1.5 text-gray-400 dark:text-gray-500"
+					>
+						Click to switch.
+					</span>
+				</Tooltip>
 			{/snippet}
 		</Input>
 
@@ -690,6 +758,46 @@
 		<P size="sm" class="mt-2 text-gray-500 dark:text-gray-400">
 			Type at least {MIN_QUERY_LENGTH} characters to search.
 		</P>
+	{/if}
+
+	<!--
+		Offered rather than applied. Switching somebody's search mode out from under them
+		because their words looked a certain way is the kind of help that is hard to
+		undo; a row they can take or wave away is not. It only appears for a query that
+		reads as a question, which looksLikeAQuestion is deliberately strict about.
+
+		Arriving is animated and leaving is not, for the reason the suggestion list gives
+		at length: an outro holds the element in the document until it finishes, and in a
+		background tab, where animation frames are paused, that is until the reader comes
+		back. A row offering to re-rank a query they have since replaced is worse than no
+		animation at all.
+	-->
+	{#if offerSemantic}
+		<div
+			class="mt-2 flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400"
+			in:fade={{ duration: prefersReducedMotion.current ? 0 : 120 }}
+		>
+			<WandMagicSparklesOutline
+				class="h-4 w-4 shrink-0 text-primary-600 dark:text-primary-400"
+				aria-hidden="true"
+			/>
+			<span class="min-w-0">That reads like a question — semantic ranking looks for the idea.</span>
+			<button
+				type="button"
+				class="shrink-0 rounded-sm font-medium text-primary-600 underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 dark:text-primary-400"
+				onclick={useSemanticRanking}
+			>
+				Try it
+			</button>
+			<button
+				type="button"
+				class="shrink-0 rounded-sm px-1 text-gray-400 hover:text-gray-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 dark:hover:text-gray-200"
+				onclick={() => (questionHintDismissed = true)}
+				aria-label="Dismiss the suggestion to use semantic ranking"
+			>
+				&times;
+			</button>
+		</div>
 	{/if}
 
 	<p class="sr-only" role="status">
@@ -722,6 +830,11 @@
 					<P size="sm" class="text-gray-500 tabular-nums dark:text-gray-400" aria-hidden="true">
 						{summary}
 					</P>
+					{#if broadened}
+						<P size="sm" class="text-gray-500 dark:text-gray-400">
+							&nbsp;· nothing matched every word, so these match any of them
+						</P>
+					{/if}
 					{#if partial}
 						<button
 							type="button"

@@ -15,6 +15,11 @@ import (
 	"github.com/GitPaulo/blogme/api/internal/article"
 )
 
+const (
+	emptyResultJSON = `{"@odata.count": 0, "value": []}`
+	oneResultJSON   = `{"@odata.count": 1, "value": [{"url": "https://example.com/a", "title": "A post"}]}`
+)
+
 // query runs a search that is expected to succeed. Every test in this file is about
 // what comes back rather than about failing, so the error check belongs in one place.
 func query(t *testing.T, idx *Index, q string, opts QueryOptions) Page {
@@ -670,10 +675,16 @@ func TestQueryRepeatsDoNotSpendTheSourcesShare(t *testing.T) {
 // result set with pages that happened to say "text". Semantic ranking wants the
 // opposite; see TestQueryRequestsSemanticRanking.
 func TestQueryKeywordRequiresEveryWordOfTheQuery(t *testing.T) {
-	var sent map[string]any
+	// The first ask, specifically. An empty answer is broadened to "any" afterwards, so
+	// only recording the last request would test the fallback and call it the rule.
+	var first map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var sent map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
 			t.Errorf("decode request: %v", err)
+		}
+		if first == nil {
+			first = sent
 		}
 		_, _ = io.WriteString(w, `{"@odata.count":0,"value":[]}`)
 	}))
@@ -682,8 +693,8 @@ func TestQueryKeywordRequiresEveryWordOfTheQuery(t *testing.T) {
 	query(t, New(srv.URL, "articles", "test-key", ""), "ai text watermarks",
 		QueryOptions{Limit: 20})
 
-	if sent["searchMode"] != "all" {
-		t.Errorf("searchMode = %v, want all", sent["searchMode"])
+	if first["searchMode"] != "all" {
+		t.Errorf("searchMode = %v, want all", first["searchMode"])
 	}
 }
 
@@ -787,5 +798,100 @@ func TestQueryKeepsTheSameTitleFromDifferentSources(t *testing.T) {
 	if len(page.Results) != len(docs) {
 		t.Errorf("got %d rows, want %d: different blogs, different articles",
 			len(page.Results), len(docs))
+	}
+}
+
+// broadening stands in for a service that finds nothing for every word of a query and
+// something for any of them, recording which mode each request asked for.
+func broadeningService(t *testing.T, strict, loose string) (*Index, func() []string) {
+	t.Helper()
+
+	var modes []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		mode, _ := request["searchMode"].(string)
+		modes = append(modes, mode)
+		if mode == "all" {
+			_, _ = io.WriteString(w, strict)
+			return
+		}
+		_, _ = io.WriteString(w, loose)
+	}))
+	t.Cleanup(srv.Close)
+
+	return New(srv.URL, "articles", "test-key", ""), func() []string { return slices.Clone(modes) }
+}
+
+// The index does not analyse every field the same way, so a query holding a word one
+// half of it discarded can be satisfiable only through the other half — and match
+// nothing. Asking again for any of the words is the floor under that.
+func TestQueryBroadensWhenNothingMatchesEveryWord(t *testing.T) {
+	idx, modes := broadeningService(t, emptyResultJSON, oneResultJSON)
+
+	page := query(t, idx, "the world generation of minecraft", QueryOptions{Limit: 20})
+
+	if want := []string{"all", "any"}; !slices.Equal(modes(), want) {
+		t.Errorf("asked %v, want %v", modes(), want)
+	}
+	if len(page.Results) != 1 {
+		t.Fatalf("got %d results, want the broadened one", len(page.Results))
+	}
+	if !page.Broadened {
+		t.Error("the page does not say it answered a looser question than it was asked")
+	}
+}
+
+// A search that works is never touched: broadening exists for the empty page alone.
+func TestQueryDoesNotBroadenWhenTheStrictQueryAnswers(t *testing.T) {
+	idx, modes := broadeningService(t, oneResultJSON, oneResultJSON)
+
+	page := query(t, idx, "rust ownership rules", QueryOptions{Limit: 20})
+
+	if want := []string{"all"}; !slices.Equal(modes(), want) {
+		t.Errorf("asked %v, want only the strict query", modes())
+	}
+	if page.Broadened {
+		t.Error("a page that matched every word claims it was broadened")
+	}
+}
+
+// With one term the two modes ask the same question, so a second request would spend an
+// execution to be told the same thing.
+func TestQueryDoesNotBroadenASingleWord(t *testing.T) {
+	idx, modes := broadeningService(t, emptyResultJSON, oneResultJSON)
+
+	page := query(t, idx, "zzzqqq", QueryOptions{Limit: 20})
+
+	if want := []string{"all"}; !slices.Equal(modes(), want) {
+		t.Errorf("asked %v, want only the strict query", modes())
+	}
+	if len(page.Results) != 0 || page.Broadened {
+		t.Error("a single word was broadened")
+	}
+}
+
+// A failed retry must not turn an empty answer into a broken one.
+func TestQueryKeepsTheStrictAnswerWhenBroadeningFails(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&request)
+		if request["searchMode"] == "all" {
+			_, _ = io.WriteString(w, emptyResultJSON)
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	page, err := New(srv.URL, "articles", "test-key", "").
+		Query(context.Background(), "two words", QueryOptions{Limit: 20})
+	if err != nil {
+		t.Fatalf("a failed retry failed the whole search: %v", err)
+	}
+	if len(page.Results) != 0 || page.Broadened {
+		t.Error("got something other than the strict, empty answer")
 	}
 }

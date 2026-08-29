@@ -182,6 +182,7 @@ func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
 		"total", page.Total,
 		"read", page.Read,
 		"downgraded", downgraded,
+		"broadened", page.Broadened,
 		"duration_ms", time.Since(started).Milliseconds())
 
 	// Only on the answer. An error describes this moment rather than the query, so
@@ -195,6 +196,7 @@ func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
 		Offset:     p.offset,
 		NextOffset: page.NextOffset,
 		Exhausted:  page.Exhausted,
+		Broadened:  page.Broadened,
 		Results:    page.Results,
 	})
 }
@@ -237,7 +239,11 @@ type searchResponse struct {
 	// Exhausted says this page reached the end of the index. A client that has paged
 	// to here holds every row there is, and holds fewer than Total, which counts the
 	// documents the per-source cap dropped. See index.Page.Exhausted.
-	Exhausted bool             `json:"exhausted"`
+	Exhausted bool `json:"exhausted"`
+	// Broadened says nothing matched every word, so these rows match any of them. The
+	// reader can see the words they typed, so the page says so rather than quietly
+	// answering a different question. See index.Page.Broadened.
+	Broadened bool             `json:"broadened"`
 	Results   []article.Result `json:"results"`
 }
 

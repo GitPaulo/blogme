@@ -126,6 +126,11 @@ type Page struct {
 	// against len(Results) is how hard the cap is working on a query, which is worth
 	// a log line.
 	Read int
+	// Broadened reports that nothing matched every word of the query, so these rows
+	// match any of them instead. The rows are real results, ranked as usual, but they
+	// answer a looser question than the one that was asked and a caller saying so is
+	// being honest with a reader who can see the words they typed.
+	Broadened bool
 	// Exhausted reports that this page reached the end of the index: there is nothing
 	// further to fetch, whatever Total says.
 	//
@@ -227,7 +232,53 @@ func (i *Index) Query(ctx context.Context, q string, opts QueryOptions) (Page, e
 	if err := i.search(ctx, body, &resp); err != nil {
 		return Page{}, err
 	}
+
+	// Nothing matched every word, so ask again for any of them.
+	//
+	// Requiring all of them is right and stays the first thing tried — it is what puts
+	// "How AI text watermarking works" above the 185,000 documents that merely say
+	// "text". But the index does not analyse every field the same way: title, summary
+	// and content discard English stopwords, while author and topics were created
+	// without an analyzer and keep them. So "the" and "of" survive as terms only in
+	// author and topics, and requiring them asks for an article whose author name
+	// contains them. "The World Generation of Minecraft" matched nothing at all, while
+	// its article sat first for the same words without "the" and "of".
+	//
+	// Broadening only when the strict query found nothing keeps that trade: no query
+	// that works today changes, and one that returned an empty page gets the answer it
+	// was looking for. It is a floor under the search rather than a fix for the index —
+	// a query that comes back with a handful of wrong rows never reaches here.
+	if broadening(q, opts, resp) {
+		broad := maps.Clone(body)
+		broad["searchMode"] = "any"
+
+		var second searchResponse
+		if err := i.search(ctx, broad, &second); err != nil {
+			// The strict answer is still an answer, empty as it is. Failing the request
+			// over a retry would turn "no results" into "search is broken".
+			slog.WarnContext(ctx, "broadened search failed, reporting the strict result",
+				"error", err)
+			return selectPage(resp, opts.Offset, opts.Limit, fetch), nil
+		}
+
+		page := selectPage(second, opts.Offset, opts.Limit, fetch)
+		page.Broadened = true
+		return page, nil
+	}
+
 	return selectPage(resp, opts.Offset, opts.Limit, fetch), nil
+}
+
+// broadening reports whether a second, looser query is worth making.
+//
+// Only when the first found nothing, so a search that works is never touched, and only
+// when the query has more than one word: with a single term "all" and "any" are the same
+// question, and asking it twice spends an execution to be told the same thing.
+//
+// Semantic ranking never reaches here — it searches for any of the words already, and a
+// semantic run that failed has fallen back to a keyword one that this then applies to.
+func broadening(q string, opts QueryOptions, resp searchResponse) bool {
+	return resp.Total == 0 && len(resp.Value) == 0 && len(strings.Fields(q)) > 1
 }
 
 // search runs one query under its own time budget.
