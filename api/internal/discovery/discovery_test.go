@@ -1,8 +1,12 @@
 package discovery
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"testing"
 
+	"github.com/GitPaulo/blogme/api/internal/article"
 	"github.com/GitPaulo/blogme/api/internal/sources"
 )
 
@@ -101,3 +105,82 @@ func TestBatchFromCoversAllSourcesOverMultipleRuns(t *testing.T) {
 		}
 	}
 }
+
+// recordingSink records the order in which the index and the store were written, so
+// the ordering the corpus depends on is asserted rather than assumed.
+type recordingSink struct {
+	ops      []string
+	storeErr error
+}
+
+func (r *recordingSink) Upsert(_ context.Context, articles []article.Article) error {
+	r.ops = append(r.ops, fmt.Sprintf("index:%d", len(articles)))
+	return nil
+}
+
+func (r *recordingSink) Save(_ context.Context, a article.Article) error {
+	if r.storeErr != nil {
+		return r.storeErr
+	}
+	r.ops = append(r.ops, "store:"+a.ID)
+	return nil
+}
+
+func (r *recordingSink) Has(context.Context, string) (bool, error) { return false, nil }
+
+func batch(ids ...string) []article.Article {
+	out := make([]article.Article, len(ids))
+	for i, id := range ids {
+		out[i] = article.Article{ID: id, URL: "https://example.com/" + id, Title: id}
+	}
+	return out
+}
+
+// The store is what skipStored consults to decide an article has been dealt with, so
+// storing before indexing means a pass killed in between leaves an article that is
+// stored, unsearchable, and never looked at again. Twelve runs hit the invocation
+// ceiling on 17 August and did exactly that, and the articles are still invisible.
+func TestProjectIndexesBeforeItStores(t *testing.T) {
+	sink := &recordingSink{}
+	d := &Discoverer{index: sink, store: sink}
+
+	if err := d.project(context.Background(), batch("one", "two")); err != nil {
+		t.Fatalf("project: %v", err)
+	}
+
+	want := []string{"index:2", "store:one", "store:two"}
+	if !equal(sink.ops, want) {
+		t.Errorf("writes went %v, want %v: the store must not be written before the index",
+			sink.ops, want)
+	}
+}
+
+// A store that refuses one article leaves it unstored, which is the state the next
+// pass knows how to fix. Abandoning the batch would throw away a thousand articles
+// already indexed for the sake of one blob.
+func TestProjectKeepsGoingWhenTheStoreRefuses(t *testing.T) {
+	sink := &recordingSink{storeErr: errors.New("storage unavailable")}
+	d := &Discoverer{index: sink, store: sink}
+
+	if err := d.project(context.Background(), batch("one", "two")); err != nil {
+		t.Errorf("project returned %v, want the pass to continue", err)
+	}
+	if want := []string{"index:2"}; !equal(sink.ops, want) {
+		t.Errorf("writes went %v, want %v", sink.ops, want)
+	}
+}
+
+// The index is a shared sink: if it refuses, every remaining source will meet the same
+// failure, so the pass stops and the cursor stays where it is.
+func TestProjectStopsWhenTheIndexRefuses(t *testing.T) {
+	failure := errors.New("index unavailable")
+	d := &Discoverer{index: refusingIndex{failure}, store: &recordingSink{}}
+
+	if err := d.project(context.Background(), batch("one")); !errors.Is(err, failure) {
+		t.Errorf("project returned %v, want the index failure", err)
+	}
+}
+
+type refusingIndex struct{ err error }
+
+func (r refusingIndex) Upsert(context.Context, []article.Article) error { return r.err }

@@ -13,7 +13,6 @@ import (
 
 	"github.com/GitPaulo/blogme/api/internal/article"
 	"github.com/GitPaulo/blogme/api/internal/blob"
-	"github.com/GitPaulo/blogme/api/internal/index"
 	"github.com/GitPaulo/blogme/api/internal/sources"
 )
 
@@ -38,6 +37,12 @@ type articleStore interface {
 	Has(ctx context.Context, id string) (bool, error)
 }
 
+// articleIndex is what discovery needs of the search index: somewhere to project the
+// articles a pass has gathered. An interface for the same reason articleStore is one.
+type articleIndex interface {
+	Upsert(ctx context.Context, articles []article.Article) error
+}
+
 // Discoverer fills the corpus one bounded pass at a time.
 //
 // The source list is far larger than one invocation can process, so each run handles a
@@ -47,7 +52,7 @@ type articleStore interface {
 type Discoverer struct {
 	sources   sources.Provider
 	store     articleStore
-	index     *index.Index
+	index     articleIndex
 	cursor    *Cursor
 	batchSize int
 
@@ -66,7 +71,7 @@ type Options struct {
 	Concurrency  int
 }
 
-func New(provider sources.Provider, st articleStore, idx *index.Index, cur *Cursor, opts Options) *Discoverer {
+func New(provider sources.Provider, st articleStore, idx articleIndex, cur *Cursor, opts Options) *Discoverer {
 	f := newFetcher(newCrawlClient(20 * time.Second))
 
 	return &Discoverer{
@@ -128,22 +133,10 @@ func (d *Discoverer) Run(ctx context.Context) error {
 		if len(pending) == 0 {
 			return nil
 		}
-		if err := d.index.Upsert(ctx, pending); err != nil {
-			return fmt.Errorf("index upsert: %w", err)
+		if err := d.project(ctx, pending); err != nil {
+			return err
 		}
 		pending = pending[:0]
-		return nil
-	}
-
-	// save persists one source's articles and queues them for the index. Blob storage
-	// is written per article, so a failure here is that source's problem alone.
-	save := func(articles []article.Article) error {
-		for _, a := range articles {
-			if err := d.store.Save(ctx, a); err != nil {
-				return fmt.Errorf("save %s: %w", a.ID, err)
-			}
-			pending = append(pending, a)
-		}
 		return nil
 	}
 
@@ -179,13 +172,8 @@ func (d *Discoverer) Run(ctx context.Context) error {
 	}()
 
 	for res := range results {
-		// One bad source must not abort the whole pass, whether it failed while being
-		// crawled or while being stored.
-		err := res.err
-		if err == nil {
-			err = save(res.articles)
-		}
-		if err != nil {
+		// One bad source must not abort the whole pass.
+		if err := res.err; err != nil {
 			kind := failureKind(err)
 			if kind == "timeout" {
 				timedOut++
@@ -206,6 +194,9 @@ func (d *Discoverer) Run(ctx context.Context) error {
 			"articles", len(res.articles),
 			"duration_ms", res.duration.Milliseconds())
 
+		// Held until the next flush rather than written here: see project for why the
+		// index has to be written before the store.
+		pending = append(pending, res.articles...)
 		processed += len(res.articles)
 
 		// The index is a shared sink, so unlike a per-source failure its errors will
@@ -256,6 +247,35 @@ func failureKind(err error) string {
 	default:
 		return "error"
 	}
+}
+
+// project writes one batch of gathered articles to the index and then to the store.
+//
+// The order is the whole point. The store is what skipStored consults to decide an
+// article has already been dealt with, so writing it first means a run killed in
+// between leaves an article that is stored, unsearchable, and never looked at again:
+// the next pass sees the blob and skips the post for good. Twelve consecutive runs hit
+// the thirty-minute ceiling on 17 August and did exactly that, and 6,285 articles —
+// half a percent of the corpus — are still invisible because of it.
+//
+// Indexing first makes the stored copy the proof that indexing happened. A run cut
+// short now leaves an article neither indexed nor stored, which is the state the next
+// pass already knows how to fix.
+func (d *Discoverer) project(ctx context.Context, batch []article.Article) error {
+	if err := d.index.Upsert(ctx, batch); err != nil {
+		return fmt.Errorf("index upsert: %w", err)
+	}
+
+	for _, a := range batch {
+		// Not fatal. An article that fails to store is simply unstored, so the next
+		// pass crawls and indexes it again — mergeOrUpload makes that a repeat rather
+		// than a duplicate. Losing the canonical copy of one post is not a reason to
+		// abandon a pass that has just indexed a thousand.
+		if err := d.store.Save(ctx, a); err != nil {
+			slog.WarnContext(ctx, "store write failed", "article", a.ID, "error", err)
+		}
+	}
+	return nil
 }
 
 // resumeIndex finds where to continue from. Resuming by source ID rather than by
