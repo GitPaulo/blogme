@@ -17,3 +17,7 @@ make dev     # Azurite + Functions host + Vite dev server
 
 - Web: <http://localhost:5173>
 - API: <http://localhost:7071/api/search?q=test>
+
+Search has no emulator, so a dev host queries the live index and needs `az login`.
+`make dev` fetches a read-only query key for it; set `BLOGME_SEARCH_ENDPOINT` and
+`BLOGME_SEARCH_API_KEY` yourself to point at another service.

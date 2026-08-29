@@ -46,6 +46,10 @@
 
 	html {
 		color-scheme: light;
+		/* The gutter is reserved whether or not the page currently overflows, so a result set
+		   arriving or clearing cannot take the scrollbar with it and shift every centred
+		   thing on the page sideways by its width. A no-op where scrollbars overlay. */
+		scrollbar-gutter: stable;
 	}
 
 	html.dark {

@@ -34,8 +34,22 @@ setup: ## Install dependencies and create local settings
 		|| cp api/local.settings.sample.json api/local.settings.json
 	@[[ -f web/.env ]] || cp web/.env.example web/.env
 
+# There is no emulator for Azure AI Search, so a dev host reads the live index. The key
+# is a query key rather than the admin key the harnesses use: search and suggest only
+# read, and a read-only key is the one worth leaving in a shell. Both are taken from the
+# environment first, so pointing a session at another service needs no edit here.
+#
+# Without them the app falls back to managed identity, which locally means shelling out
+# to `az` for a token — slower than the suggest timeout allows, so completions fail on a
+# deadline rather than on the missing setting.
 dev: ## Run Azurite, the Functions host and the Vite dev server together
-	@trap 'kill 0' EXIT INT TERM; \
+	@export BLOGME_SEARCH_ENDPOINT="$${BLOGME_SEARCH_ENDPOINT:-https://$(SEARCH_SERVICE).search.windows.net}"; \
+	export BLOGME_SEARCH_API_KEY="$${BLOGME_SEARCH_API_KEY:-$$(az search query-key list \
+		--service-name $(SEARCH_SERVICE) --resource-group $(RESOURCE_GROUP) \
+		--query '[0].key' -o tsv 2>/dev/null)}"; \
+	[[ -n "$$BLOGME_SEARCH_API_KEY" ]] \
+		|| echo "warning: no search key — run 'az login'; search and suggest will fail"; \
+	trap 'kill 0' EXIT INT TERM; \
 	azurite --silent --location .azurite & \
 	(cd api && func start) & \
 	(cd web && pnpm dev) & \

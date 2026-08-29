@@ -612,8 +612,8 @@
 	<Heading tag="h1" class="mb-2">blogme</Heading>
 	<P class="mb-8 text-gray-500 dark:text-gray-400">A search engine for tech blogs.</P>
 
-	<!-- The positioning context for the suggestion list, which hangs below the box without
-	taking any room in the layout. -->
+	<!-- The suggestion list sits below the box as part of this form, so opening it makes
+	room for itself and moves what follows down rather than covering it. -->
 	<form {onsubmit} role="search" bind:this={searchForm} class="relative">
 		<Input
 			type="search"
@@ -663,27 +663,26 @@
 			{/snippet}
 		</Input>
 
-		{#if suggestionsOpen}
-			<SearchSuggestions
-				id={LISTBOX_ID}
-				{options}
-				{active}
-				query={term}
-				restart={interaction}
-				onselect={acceptSuggestion}
-				onhover={(index) => {
-					// A pointer on the list is the other way of still being with it, and the
-					// one that matters most: without this the list can close under a hand on
-					// its way to the row it was reaching for.
-					interaction++;
-					selected = options[index].text;
-				}}
-				onexpire={() => {
-					dismissed = true;
-					selected = '';
-				}}
-			/>
-		{/if}
+		<SearchSuggestions
+			id={LISTBOX_ID}
+			open={suggestionsOpen}
+			{options}
+			{active}
+			query={term}
+			restart={interaction}
+			onselect={acceptSuggestion}
+			onhover={(index) => {
+				// A pointer on the list is the other way of still being with it, and the
+				// one that matters most: without this the list can close under a hand on
+				// its way to the row it was reaching for.
+				interaction++;
+				selected = options[index].text;
+			}}
+			onexpire={() => {
+				dismissed = true;
+				selected = '';
+			}}
+		/>
 	</form>
 
 	{#if tooShort}
@@ -740,7 +739,17 @@
 					<Alert color="gray" class="mt-4">{noMatchMessage}</Alert>
 				{/if}
 
-				<div class="mt-3 space-y-4" bind:this={resultList}>
+				<!-- A replaced set of results is faded through rather than cut to: the rows on
+				screen are the previous search's until the new ones land, and dimming them says so
+				while the page is still answering. One property on one element, so the cost does not
+				grow with the number of rows underneath it. -->
+				<div
+					class="mt-3 space-y-4 motion-safe:transition-opacity motion-safe:duration-200 {status ===
+					'loading'
+						? 'opacity-40'
+						: ''}"
+					bind:this={resultList}
+				>
 					{#each filtered as result (result.url)}
 						{@const published = formatDate(result.publishedAt)}
 						{@const opened = visited.has(result.url)}
