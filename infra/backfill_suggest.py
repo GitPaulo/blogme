@@ -62,6 +62,21 @@ VERSION = 2
 # pass that sees no new documents waits instead of asking again straight away.
 SETTLE_SECONDS = 2
 
+# How much of the tier's storage quota a run may take the index to before it stops.
+#
+# A merge is a delete and a reinsert, so writing one field rewrites the whole document —
+# content included — and the superseded copy sits there until a background merge collects
+# it. Measured on this corpus, a pass over 84,233 documents grew the index by 1.2 GiB,
+# about 15 KB for each one, against a field holding 22 bytes of text. Reclamation catches
+# up afterwards; it does not keep pace during a run.
+#
+# A Basic service has one partition and a hard 15 GiB ceiling, and an index that reaches
+# it stops accepting writes — which would take discovery down as the price of a backfill
+# nobody had to run today. So the run watches its own cost and stops short, leaving a set
+# that is smaller than it found and a message saying to come back later. 0.85 of 15 GiB
+# leaves better than 2 GiB of room for the writes already in flight.
+DEFAULT_STORAGE_CEILING = 0.85
+
 # How many passes in a row may come back with nothing new before giving up.
 #
 # Without this a write that is accepted but never applied would loop forever. With it
@@ -71,12 +86,13 @@ MAX_STALLED = 5
 
 class Search:
     def __init__(self, endpoint: str, index: str, key: str) -> None:
-        self.base = f"{endpoint.rstrip('/')}/indexes/{index}"
+        self.endpoint = endpoint.rstrip("/")
+        self.base = f"{self.endpoint}/indexes/{index}"
         self.key = key
 
-    def _call(self, method: str, path: str, body: dict | None) -> dict:
+    def _call(self, method: str, path: str, body: dict | None, root: bool = False) -> dict:
         req = urllib.request.Request(
-            f"{self.base}{path}?api-version={API_VERSION}",
+            f"{self.endpoint if root else self.base}{path}?api-version={API_VERSION}",
             method=method,
             data=json.dumps(body).encode() if body is not None else None,
             headers={"Content-Type": "application/json", "api-key": self.key},
@@ -88,6 +104,11 @@ class Search:
         except urllib.error.HTTPError as err:
             detail = err.read().decode("utf-8", "replace")[:500]
             raise SystemExit(f"search {method} {path} failed: {err.code} {detail}")
+
+    def storage(self) -> tuple[int, int]:
+        """Bytes used and the tier's ceiling, for the guard in the run loop."""
+        used = self._call("GET", "/servicestats", None, root=True)["counters"]["storageSize"]
+        return used["usage"], used["quota"]
 
     def count(self, flt: str) -> int:
         return self._call("POST", "/docs/search",
@@ -148,6 +169,10 @@ def main() -> None:
                              "lever on how much index storage the suggester takes")
     parser.add_argument("--limit", type=int, default=0, metavar="N",
                         help="stop after about N documents, for a cautious first pass")
+    parser.add_argument("--max-storage", type=float, default=DEFAULT_STORAGE_CEILING,
+                        metavar="FRACTION",
+                        help=f"stop when the index passes this share of its storage quota "
+                             f"(default {DEFAULT_STORAGE_CEILING})")
     args = parser.parse_args()
 
     endpoint = os.environ.get("BLOGME_SEARCH_ENDPOINT")
@@ -180,6 +205,20 @@ def main() -> None:
     # Until the set is empty, rather than until a count says so. The count is a moment
     # behind the writes, and trusting it would stop a run early on a stale zero.
     while True:
+        # Before the page rather than after the write, so the run stops one pass short of
+        # the ceiling rather than one pass past it.
+        used, quota = client.storage()
+        if quota and used / quota > args.max_storage:
+            print()
+            print(f"stopped: the index is at {used / 2**30:.1f} GiB of "
+                  f"{quota / 2**30:.0f}, past the {args.max_storage:.0%} ceiling "
+                  f"this run keeps to.")
+            print(f"Superseded copies are collected in the background, so storage falls "
+                  f"on its own once writing stops. Wait for it to settle and run this "
+                  f"again — {client.count(flt):,} documents are left, and none of the "
+                  f"work so far is repeated.")
+            break
+
         page = client.head(flt)
         if not page:
             break
