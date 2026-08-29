@@ -7,8 +7,11 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/GitPaulo/blogme/api/internal/index"
 )
 
 const (
@@ -39,8 +42,8 @@ const (
 // It completes the query a reader is typing. Deliberately narrower than Search: the
 // only thing it reads from the request is q, so there is no parameter through which a
 // caller can make their own request cost more than anyone else's. Everything that
-// decides the work — how many completions, which suggester, whether to match fuzzily —
-// is fixed in index.Autocomplete.
+// decides the work — how many rows, which suggester, whether to match fuzzily — is
+// fixed in index.Suggest and the two halves behind it.
 func (h *Handlers) Suggest(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	started := time.Now()
@@ -65,7 +68,7 @@ func (h *Handlers) Suggest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	terms, err := h.index.Autocomplete(ctx, q)
+	found, err := h.index.Suggest(ctx, q)
 	if err != nil {
 		h.logSuggestFailure(ctx, q, err)
 		writeError(ctx, w, http.StatusInternalServerError, "suggestions unavailable")
@@ -78,14 +81,16 @@ func (h *Handlers) Suggest(w http.ResponseWriter, r *http.Request) {
 	// function, so how much this endpoint is used is visible without paying to say so.
 	w.Header().Set("Cache-Control", "public, max-age="+strconv.Itoa(suggestMaxAge))
 
-	writeJSON(ctx, w, http.StatusOK, suggestResponse{Query: q, Suggestions: terms})
+	writeJSON(ctx, w, http.StatusOK, suggestResponse{Query: q, Suggestions: found})
 }
 
 type suggestResponse struct {
 	Query string `json:"query"`
-	// Never null: a client rendering a list should get an empty one rather than have
-	// to spell the difference between "no completions" and "no field".
-	Suggestions []string `json:"suggestions"`
+	// Written straight out rather than copied into a shape of this package's own, as
+	// the search response does with article.Result. Never null: index.Suggest returns
+	// an empty slice rather than none, so a client rendering a list gets an empty one
+	// instead of having to tell "no suggestions" from "no field".
+	Suggestions []index.Suggestion `json:"suggestions"`
 }
 
 // parseSuggest validates the one parameter this endpoint has. Its error is answered
@@ -97,7 +102,7 @@ type suggestResponse struct {
 // was recognised.
 func parseSuggest(values url.Values) (string, error) {
 	q := values.Get("q")
-	if q == "" {
+	if strings.TrimSpace(q) == "" {
 		return "", errors.New("query parameter 'q' is required")
 	}
 
@@ -111,7 +116,7 @@ func parseSuggest(values url.Values) (string, error) {
 	return q, nil
 }
 
-// logSuggestFailure reports that completions could not be fetched, without letting the
+// logSuggestFailure reports that suggestions could not be fetched, without letting the
 // reporting become the flood.
 //
 // Bounded for the same reason logThrottled is, and more sharply needed here: the

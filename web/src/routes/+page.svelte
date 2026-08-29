@@ -87,17 +87,17 @@
 	// a shortcut back to the top worth offering.
 	let scrollable = $state(false);
 
-	// The last completion the reader picked, so it is not completed back at them. See
-	// `completions` below.
+	// The last suggestion the reader picked, so it is not suggested back at them. See
+	// `suggested` below.
 	let accepted = $state('');
 	// Whether the search box has the caret, and whether the reader has dismissed the
 	// dropdown for the query now in it. Both are needed: a list that reopened on the next
-	// completion to arrive would undo the Escape that closed it.
+	// suggestion to arrive would undo the Escape that closed it.
 	let searchFocused = $state(false);
 	let dismissed = $state(false);
 	// The highlighted row, held as the suggestion itself rather than as its position.
 	//
-	// Completions land while the reader is still typing, so the list is reordered under
+	// Suggestions land while the reader is still typing, so the list is reordered under
 	// whatever they had arrowed onto. A remembered position would then point at a
 	// different row than the one they chose, and Enter would search for it. Holding the
 	// text means the highlight follows its row when the list changes around it and lets
@@ -193,7 +193,7 @@
 	//
 	// Someone opening a shared or bookmarked result set came to read it, and focusing the
 	// box for them opens the suggestion list on top of the results the moment they arrive:
-	// completions for a query they did not type, over the answer they followed the link
+	// suggestions for a query they did not type, over the answer they followed the link
 	// for. Leaving the caret alone means the list appears when they go to the box, which
 	// is when they have asked for it.
 	$effect(() => {
@@ -232,15 +232,15 @@
 	// at all. Left to itself the box would complete what it had only now completed: the
 	// list reopens under the cursor showing the one line already in the box, and a
 	// request is spent to fetch it. Editing the query again makes it a different one,
-	// and completions resume on their own.
-	const completions = suggestions(() => (term === accepted ? '' : term));
+	// and suggestions resume on their own.
+	const suggested = suggestions(() => (term === accepted ? '' : term));
 
 	// Remembered searches are matched against whatever is in the box, including the one
 	// and two characters the index is never asked about: they are held locally and cost
 	// nothing to look through, so there is no reason to make the reader type a third
 	// letter before showing them their own history.
 	const options = $derived(
-		mergeSuggestions(recent.matching(term, MAX_RECENT), completions.current, term, MAX_SUGGESTIONS)
+		mergeSuggestions(recent.matching(term, MAX_RECENT), suggested.current, term, MAX_SUGGESTIONS)
 	);
 	const suggestionsOpen = $derived(searchFocused && !dismissed && options.length > 0);
 	// Where the highlighted suggestion currently sits, or -1 once it is no longer offered.

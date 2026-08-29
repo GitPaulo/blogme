@@ -89,11 +89,6 @@ function matches(entry: string, query: string): boolean {
 }
 
 export const recent = {
-	/** Every remembered search, most recent first. */
-	get all(): readonly string[] {
-		return entries.map((entry) => entry.q);
-	},
-
 	/**
 	 * Remembers a search, moving it to the front if it was already there.
 	 *

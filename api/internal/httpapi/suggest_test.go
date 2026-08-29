@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/GitPaulo/blogme/api/internal/index"
 )
 
 const twoCompletions = `{"value": [
@@ -22,12 +24,24 @@ func suggest(t *testing.T, h *Handlers, target string) *httptest.ResponseRecorde
 	return rec
 }
 
+// The rows a response carries, as text. Kind is checked where it is the point; most
+// of these tests are about which rows come back rather than what they are.
 func completions(t *testing.T, rec *httptest.ResponseRecorder) []string {
 	t.Helper()
 
+	text := make([]string, 0, len(rows(t, rec)))
+	for _, row := range rows(t, rec) {
+		text = append(text, row.Text)
+	}
+	return text
+}
+
+func rows(t *testing.T, rec *httptest.ResponseRecorder) []index.Suggestion {
+	t.Helper()
+
 	var body struct {
-		Query       string   `json:"query"`
-		Suggestions []string `json:"suggestions"`
+		Query       string             `json:"query"`
+		Suggestions []index.Suggestion `json:"suggestions"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode response: %v", err)
@@ -91,23 +105,29 @@ func TestSuggestIgnoresParametersThatWouldCostMore(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 
+	// Two, because a suggestion is drawn from two sources at once: ranked titles and
+	// assembled completions. Both are checked, because a caller's parameters must reach
+	// neither.
 	requests := sent()
-	if len(requests) != 1 {
-		t.Fatalf("sent %d requests, want 1", len(requests))
+	if len(requests) != 2 {
+		t.Fatalf("sent %d requests, want 2 — titles and completions", len(requests))
 	}
-	request := requests[0]
-
-	if request["fuzzy"] != nil {
-		t.Errorf("fuzzy = %v; a caller must not be able to buy the expensive match", request["fuzzy"])
-	}
-	if request["top"] != float64(8) {
-		t.Errorf("top = %v, want the fixed 8", request["top"])
-	}
-	if request["filter"] != nil {
-		t.Errorf("filter = %v; nothing a caller sends may reach one", request["filter"])
-	}
-	if request["suggesterName"] != "titles" {
-		t.Errorf("suggesterName = %v, want the index's own", request["suggesterName"])
+	for _, request := range requests {
+		if request["suggesterName"] != "titles" {
+			t.Errorf("suggesterName = %v, want the index's own", request["suggesterName"])
+		}
+		if request["fuzzy"] != nil {
+			t.Errorf("fuzzy = %v; a caller must not be able to buy the expensive match", request["fuzzy"])
+		}
+		if request["filter"] != nil {
+			t.Errorf("filter = %v; nothing a caller sends may reach one", request["filter"])
+		}
+		if request["top"] == float64(100) {
+			t.Errorf("top = %v; the caller chose how much work to ask for", request["top"])
+		}
+		if got, ok := request["top"].(float64); !ok || got <= 0 {
+			t.Errorf("top = %v, want a figure the index package set", request["top"])
+		}
 	}
 }
 
@@ -198,5 +218,31 @@ func TestSuggestReportsAnUnreadableIndex(t *testing.T) {
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Errorf("status = %d, want 500", rec.Code)
+	}
+}
+
+// A client renders a list from this, so "nothing to suggest" has to arrive as an empty
+// list rather than as null — otherwise every caller has to tell the two apart itself.
+func TestSuggestAnswersAnEmptyListRatherThanNull(t *testing.T) {
+	rec := suggest(t, newTestHandlers(t, `{"value": []}`), "/api/suggest?q=kubernet")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, `"suggestions":[]`) {
+		t.Errorf("body = %s, want an empty suggestions list", strings.TrimSpace(body))
+	}
+}
+
+// Whitespace passes a length check and buys two index queries that can only come back
+// empty, so it is refused with everything else that cannot be completed.
+func TestSuggestRejectsAQueryOfNothingButSpaces(t *testing.T) {
+	h, sent := newCapturingHandlers(t, "", twoCompletions, DefaultLimits())
+
+	if rec := suggest(t, h, "/api/suggest?q=%20%20%20%20"); rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", rec.Code)
+	}
+	if n := len(sent()); n != 0 {
+		t.Errorf("sent %d requests to the index for a blank query, want 0", n)
 	}
 }

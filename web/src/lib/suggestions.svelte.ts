@@ -1,4 +1,4 @@
-import { MAX_SUGGEST_LENGTH, MIN_SUGGEST_LENGTH, suggest } from './api';
+import { MAX_SUGGEST_LENGTH, MIN_SUGGEST_LENGTH, suggest, type ApiSuggestion } from './api';
 
 /**
  * One row of the search box's dropdown.
@@ -7,7 +7,7 @@ import { MAX_SUGGEST_LENGTH, MIN_SUGGEST_LENGTH, suggest } from './api';
  * search this browser has run before are different claims, and the reader is told which
  * is which by the icon beside it.
  */
-export type Suggestion = { text: string; kind: 'recent' | 'query' };
+export type Suggestion = { text: string; kind: 'recent' | 'title' | 'query' };
 
 /** One run of a suggestion, and whether it is the part the reader has already typed. */
 export type Segment = { text: string; match: boolean };
@@ -62,14 +62,14 @@ export function highlight(text: string, query: string): Segment[] {
 }
 
 /**
- * The dropdown's rows: remembered searches first, then completions from the index,
- * `limit` in all.
+ * The dropdown's rows: remembered searches first, then what the API suggested — its
+ * ranked titles and then its completions, in the order it put them — `limit` in all.
  *
  * Recent searches go on top because they are the stronger answer — a query this reader
  * has already run beats one the corpus merely could answer — and there are never many of
- * them, so they cannot crowd out the completions underneath.
+ * them, so they cannot crowd out what follows.
  *
- * A completion identical to a remembered search is dropped rather than repeated. Which
+ * A suggestion identical to a remembered search is dropped rather than repeated. Which
  * of the two survives is not arbitrary: the remembered one is the reader's own, and
  * saying so is more use than offering the same words twice.
  *
@@ -83,31 +83,34 @@ export function highlight(text: string, query: string): Segment[] {
  */
 export function merge(
 	recents: string[],
-	completions: string[],
+	suggestions: ApiSuggestion[],
 	query: string,
 	limit: number
 ): Suggestion[] {
 	const seen = new Set(recents.map((text) => text.toLowerCase()));
 	const rows: Suggestion[] = recents.map((text) => ({ text, kind: 'recent' }));
 
-	for (const text of completions) {
+	// The API has already put its ranked titles in front of its completions and held
+	// each to its share, so the order here is its order. What this adds is the reader's
+	// own rows on top and the cap that covers all three sources at once.
+	for (const { text, kind } of suggestions) {
 		if (rows.length === limit) break;
 		if (seen.has(text.toLowerCase())) continue;
 		if (matchAt(text, query) < 0) continue;
 		seen.add(text.toLowerCase());
-		rows.push({ text, kind: 'query' });
+		rows.push({ text, kind });
 	}
 
 	return rows.slice(0, limit);
 }
 
 /**
- * How long the query has to hold still before completions are asked for.
+ * How long the query has to hold still before suggestions are asked for.
  *
  * Half a second is a deliberate pause rather than a hesitation: a whole phrase typed
  * without stopping costs one request, and the list appears once the reader has actually
  * paused to look at it. Longer than the search debounce, so on a query typed straight
- * through the results arrive first and the completions settle after them.
+ * through the results arrive first and the suggestions settle after them.
  *
  * The cache in front of this is what keeps the wait from being felt twice: a prefix
  * already asked about is answered without either the delay or the request.
@@ -126,19 +129,19 @@ const DEBOUNCE_MS = 500;
 const CACHE_LIMIT = 100;
 
 /**
- * Completions for the query being typed.
+ * Suggestions for the query being typed, as the API ordered them.
  *
  * Takes a getter rather than the query itself, so it tracks whatever the caller reads
  * inside it. Like any rune, call it while the component is initialising.
  *
- * A query with nothing to complete, or one the API refuses, reads as no completions:
+ * A query with nothing to suggest, or one the API refuses, reads as no suggestions:
  * this is a convenience beside the search box, and a reader mid-word can do nothing
  * with an error about it. Failures are left to the API's own logging, which is where
  * they can be seen without a message in front of someone typing.
  */
 export function suggestions(query: () => string) {
-	let current = $state.raw<string[]>([]);
-	const cache = new Map<string, string[]>();
+	let current = $state.raw<ApiSuggestion[]>([]);
+	const cache = new Map<string, ApiSuggestion[]>();
 
 	$effect(() => {
 		const term = query();
@@ -151,7 +154,7 @@ export function suggestions(query: () => string) {
 			return;
 		}
 
-		// Answered without a request, and without the debounce: the completions for this
+		// Answered without a request, and without the debounce: the suggestions for this
 		// query are already known, so waiting would only make a known answer late.
 		const known = cache.get(term);
 		if (known) {
@@ -185,8 +188,8 @@ export function suggestions(query: () => string) {
 	};
 }
 
-/** Stores a query's completions, dropping the oldest once the cache is full. */
-function remember(cache: Map<string, string[]>, term: string, found: string[]) {
+/** Stores a query's suggestions, dropping the oldest once the cache is full. */
+function remember(cache: Map<string, ApiSuggestion[]>, term: string, found: ApiSuggestion[]) {
 	// An empty answer is worth keeping too: it is the one that stops a query with
 	// nothing to complete being asked about on every keystroke that follows it.
 	cache.set(term, found);

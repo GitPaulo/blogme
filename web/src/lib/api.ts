@@ -86,6 +86,13 @@ export const MAX_SUGGEST_LENGTH = 64;
 /** Mirrors maxSuggestions in api/internal/index. */
 export const MAX_SUGGESTIONS = 8;
 
+/**
+ * One suggestion as the API sends it. Mirrors the Kind constants in
+ * api/internal/index: a `title` is a phrase somebody wrote and the service ranked, a
+ * `query` one the suggester assembled from a pair of terms and did not rank.
+ */
+export type ApiSuggestion = { text: string; kind: 'title' | 'query' };
+
 /** Mirrors maxLimit in api/internal/httpapi. */
 const MAX_RESULTS = 50;
 /** A completion is a query, so it cannot be longer than one. */
@@ -284,7 +291,7 @@ export async function search(
 export async function suggest(
 	query: string,
 	options: { signal?: AbortSignal } = {}
-): Promise<string[]> {
+): Promise<ApiSuggestion[]> {
 	const term = clampQuery(query);
 	// Checked rather than sent: both ends are a 400 at the API, and a request known to
 	// be refused is a round trip and an execution spent to learn nothing.
@@ -307,17 +314,28 @@ export async function suggest(
 }
 
 /** The response is untrusted input, so anything unexpected is dropped rather than shown. */
-function toSuggestions(body: unknown): string[] {
+function toSuggestions(body: unknown): ApiSuggestion[] {
 	const raw = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>;
 	if (!Array.isArray(raw.suggestions)) return [];
 
-	// Deduped because the combobox keys its list by the completion itself, and
-	// collapsing whitespace on the API side can bring two titles to the same string.
-	return [
-		...new Set(
-			raw.suggestions
-				.map((suggestion) => text(suggestion, MAX_SUGGESTION_LENGTH))
-				.filter((suggestion): suggestion is string => suggestion !== undefined)
-		)
-	].slice(0, MAX_SUGGESTIONS);
+	const seen = new Set<string>();
+	const rows: ApiSuggestion[] = [];
+	for (const entry of raw.suggestions) {
+		if (rows.length === MAX_SUGGESTIONS) break;
+		if (typeof entry !== 'object' || entry === null) continue;
+
+		const row = entry as Record<string, unknown>;
+		const suggestion = text(row.text, MAX_SUGGESTION_LENGTH);
+		if (suggestion === undefined) continue;
+		// Deduped because the list is keyed by the suggestion itself in the markup, and
+		// two rows sharing a key is an error rather than a repeat on screen.
+		if (seen.has(suggestion)) continue;
+		seen.add(suggestion);
+
+		// Only the two kinds the API sends are an answer. Anything else — a kind added
+		// later, or none at all — is a suggestion whose provenance we do not know, and
+		// the safe reading of that is the ordinary one.
+		rows.push({ text: suggestion, kind: row.kind === 'title' ? 'title' : 'query' });
+	}
+	return rows;
 }

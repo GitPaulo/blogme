@@ -282,6 +282,45 @@ query rather than the word that finishes it, because a list reading "query, queu
 quantum" under a box saying "postgres qu" does not tell a reader what they are about to
 search for.
 
+Half of what the suggester offers is thrown away before a reader sees it, and that is
+the difference between a useful list and a distracting one. It extends a query by one
+whole term and has no notion of which terms are worth extending it by, so asked for eight
+completions of "rust" it answers "rust and", "rust for", "rust in", "rust 1". Measured
+across fourteen prefixes on the live index, **53% of the rows it offers are of that
+kind**. So the request reads five times as many as it needs — forty completions cost a
+median 157 ms against 173 ms for eight, because the work is finding the prefix rather
+than returning the rows — and drops any whose added words are function words or bare
+numbers, along with plurals of a completion already in the list. `make suggest-harness`
+prints the before and the after for a fixed set of prefixes, which is how that figure is
+arrived at and how a change to it can be judged.
+
+Filtering could not fix the ordering, though. The service returns completions
+alphabetically within a prefix rather than by how often a phrase occurs, so "go conc"
+offered "go concept art" and never "go concurrency" — and nothing downstream can rank
+terms that arrive without a score. That is why a suggestion is drawn from **two sources
+at once**.
+
+The second is the **suggest** API against the same suggester, which returns matching
+documents rather than assembled terms — and documents are scored, so "go conc" answers
+"Learning Go: Concurrency Patterns using errgroup package". The two cover each other's
+failure. Titles are ranked but only exist where the whole input appears in a headline, so
+"why is my postgres" finds none; completions are unranked but never come back empty. Both
+are asked at once rather than one after the other, because in sequence the wall clock is
+the sum and, worse, a fallback would spend its second round trip on exactly the queries
+the first source could not serve. One source failing is a shorter list; only both failing
+is a failed request.
+
+Titles take at most three of the eight rows and go first, because ranked beats
+alphabetical and because eight article titles is a worse search box than one that also
+offers "rust compiler". Three further rules came out of running the harness against the
+real corpus rather than from taste: at most **one title per blog**, after "how to" filled
+every row with consecutive posts from a single accessibility series; nothing longer than
+seventy characters, after a title arrived that was a paragraph; and, where the query is in
+Latin script, titles in Latin script only. That last one is a judgement call worth naming
+— the corpus is multilingual by design and search still returns all of it — but asked to
+complete "python" the index offered three Chinese titles to a reader typing in English,
+which spent every ranked row it had.
+
 Completions come from a **suggester**, which is an extra tokenisation of one field: the
 titles are indexed again as prefixes, so "kubernetes" is also stored as "kub", "kube",
 "kuber" and so on. That field is `titleSuggest`, a copy of `title`, and the copy is not an

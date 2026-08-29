@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ClockOutline, SearchOutline } from 'flowbite-svelte-icons';
+	import { ClockOutline, FileLinesOutline, SearchOutline } from 'flowbite-svelte-icons';
 	import { prefersReducedMotion } from 'svelte/motion';
 	import { fly } from 'svelte/transition';
 	import { highlight, type Suggestion } from '$lib/suggestions.svelte';
@@ -129,8 +129,15 @@
 				}}
 				onmousemove={() => onhover(i)}
 			>
+				<!-- What the row is: a search this browser has run before, an article somebody
+			wrote, or a phrase the suggester assembled from a pair of terms. -->
 				{#if option.kind === 'recent'}
 					<ClockOutline
+						class="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-400"
+						aria-hidden="true"
+					/>
+				{:else if option.kind === 'title'}
+					<FileLinesOutline
 						class="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-400"
 						aria-hidden="true"
 					/>
@@ -152,9 +159,12 @@
 							>{:else}{segment.text}{/if}{/each}
 				</span>
 				<!-- Said in words as well as in an icon, for a reader who cannot see the icon.
-				Only for remembered searches: a completion is what this list is by default. -->
+				Not for completions: a phrase the suggester assembled is what this list is by
+				default, and naming it on every row would be noise on most of them. -->
 				{#if option.kind === 'recent'}
 					<span class="sr-only">recent search</span>
+				{:else if option.kind === 'title'}
+					<span class="sr-only">article title</span>
 				{/if}
 			</li>
 		{/each}
