@@ -543,8 +543,9 @@
 	/** What a first page is asked for: two searches are the same one when these match. */
 	function requestKey(value: string, ranking: Rank) {
 		// A separator no query survives being trimmed to, so a rank and a query cannot run
-		// together into the same string as some other pair.
-		return `${ranking} ${value}`;
+		// together into the same string as some other pair. Written as an escape rather
+		// than the byte itself, which would make the whole file binary to git and grep.
+		return `${ranking}\0${value}`;
 	}
 
 	// Submitting skips the pending debounce rather than queueing a second request.
@@ -872,13 +873,17 @@
 			{:else if status === 'done'}
 				<Alert color="gray" class="mt-4">
 					No results found. Try a different search or
+					<!-- A control rather than a link: it changes how the page searches, and does not
+					go anywhere. Carries the same wand the ranking toggle in the box wears, so the
+					two are recognisably the same switch offered twice. -->
 					<button
 						type="button"
-						class="underline hover:no-underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600"
+						class="mx-0.5 inline-flex items-center gap-1.5 rounded-full border border-primary-200 bg-primary-50 px-2.5 py-0.5 align-baseline font-medium text-primary-700 transition-colors hover:border-primary-300 hover:bg-primary-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 dark:border-primary-800 dark:bg-primary-900/40 dark:text-primary-300 dark:hover:border-primary-700 dark:hover:bg-primary-900/70"
 						onclick={toggleRanking}
 					>
+						<WandMagicSparklesOutline class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
 						{semanticRanking ? 'disable' : 'enable'} semantic search
-					</button>.
+					</button>
 				</Alert>
 			{/if}
 		</div>
