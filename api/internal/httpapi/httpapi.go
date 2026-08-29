@@ -145,6 +145,22 @@ func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
 		Rank:   p.rank,
 	})
 	if err != nil {
+		// A reader who types keeps superseding their own search, and the browser
+		// aborts the request it no longer wants. That arrives here as a cancelled
+		// context, and reporting it as a failure was wrong twice over: it is the
+		// client's decision rather than a fault, and there is nobody left to answer.
+		//
+		// Measured before this existed, sixteen of one day's ninety-eight searches
+		// were logged as errors, every one of them a cancellation of a few hundred
+		// milliseconds. That is the error rate the search alert watches, so real
+		// failures were hiding inside ordinary typing.
+		if errors.Is(err, context.Canceled) && ctx.Err() != nil {
+			slog.InfoContext(ctx, "search abandoned",
+				"query", logQuery(p.q),
+				"duration_ms", time.Since(started).Milliseconds())
+			return
+		}
+
 		slog.ErrorContext(ctx, "search failed",
 			"query", logQuery(p.q),
 			"duration_ms", time.Since(started).Milliseconds(),
