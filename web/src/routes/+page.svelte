@@ -95,9 +95,15 @@
 	// completion to arrive would undo the Escape that closed it.
 	let searchFocused = $state(false);
 	let dismissed = $state(false);
-	// Which row the keyboard is on, or -1 for none, in which case Enter searches for what
-	// was typed rather than for a suggestion.
-	let active = $state(-1);
+	// The highlighted row, held as the suggestion itself rather than as its position.
+	//
+	// Completions land while the reader is still typing, so the list is reordered under
+	// whatever they had arrowed onto. A remembered position would then point at a
+	// different row than the one they chose, and Enter would search for it. Holding the
+	// text means the highlight follows its row when the list changes around it and lets
+	// go when that row is gone, which is both the smoother behaviour and the safe one.
+	// Empty for no selection, in which case Enter searches for what was typed.
+	let selected = $state('');
 
 	let searchInput = $state<HTMLInputElement>();
 	// One element per visible result, so children[n] is result n.
@@ -219,18 +225,12 @@
 	// nothing to look through, so there is no reason to make the reader type a third
 	// letter before showing them their own history.
 	const options = $derived(
-		mergeSuggestions(recent.matching(term, MAX_RECENT), completions.current, MAX_SUGGESTIONS)
+		mergeSuggestions(recent.matching(term, MAX_RECENT), completions.current, term, MAX_SUGGESTIONS)
 	);
 	const suggestionsOpen = $derived(searchFocused && !dismissed && options.length > 0);
-
-	// The list changed under the cursor, so the row it was on is no longer the row it
-	// meant. Dropping the selection is the honest answer: completions arrive while the
-	// reader is still typing, and silently moving their highlight onto whatever took that
-	// position is how the wrong query gets searched for.
-	$effect(() => {
-		void options; // Read for the dependency, not for the value.
-		active = -1;
-	});
+	// Where the highlighted suggestion currently sits, or -1 once it is no longer offered.
+	// Derived rather than stored, so nothing has to be kept in step with the list.
+	const active = $derived(selected ? options.findIndex((o) => o.text === selected) : -1);
 
 	const controlsOnScreen = onScreen(() => controlsRow);
 	// Every card is the same width, so one row measurement sizes all of their descriptions.
@@ -445,7 +445,7 @@
 		accepted = option.text;
 		query = option.text;
 		dismissed = true;
-		active = -1;
+		selected = '';
 		// Taking a suggestion is committing to it, whichever list it came from. A
 		// remembered search moves back to the front for having been used again.
 		recent.record(option.text);
@@ -464,7 +464,7 @@
 			if (!suggestionsOpen) return;
 			event.preventDefault();
 			dismissed = true;
-			active = -1;
+			selected = '';
 			return;
 		}
 
@@ -474,12 +474,12 @@
 			case 'ArrowDown':
 				// Wrapping, and starting from the top on the first press.
 				event.preventDefault();
-				active = (active + 1) % options.length;
+				selected = options[(active + 1) % options.length].text;
 				break;
 			case 'ArrowUp':
 				// Up from nothing is the last row, which is what makes the two symmetrical.
 				event.preventDefault();
-				active = active <= 0 ? options.length - 1 : active - 1;
+				selected = options[active <= 0 ? options.length - 1 : active - 1].text;
 				break;
 			case 'Enter':
 				// Only when a row is chosen. Otherwise this is an ordinary submit of
@@ -606,8 +606,9 @@
 				id={LISTBOX_ID}
 				{options}
 				{active}
+				query={term}
 				onselect={acceptSuggestion}
-				onhover={(index) => (active = index)}
+				onhover={(index) => (selected = options[index].text)}
 			/>
 		{/if}
 	</form>
