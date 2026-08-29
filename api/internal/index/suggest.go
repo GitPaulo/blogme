@@ -362,15 +362,38 @@ func (i *Index) autocomplete(ctx context.Context, q string) ([]string, error) {
 	return out, nil
 }
 
+// completionMode picks how the service should finish the query.
+//
+// The two modes fail in opposite directions, and which one is safe depends entirely on
+// how many words have been typed.
+//
+// "twoTerms" finishes the last word and adds another after it. That extra word is only
+// ever a real pair when there is nothing in front of it: the service completes the last
+// term and echoes everything before it back **unchecked**. Ask it to complete "minecraft
+// world gen" and it answers "minecraft world gen z", "minecraft world generation rag" —
+// and it answers "zzzqqq world gen z" to the same shape, because "minecraft world"
+// constrained nothing. Those read as phrases somebody wrote and are not: "minecraft world
+// gen z" finds no results at all. A suggestion that leads nowhere is worse than none.
+//
+// "oneTermWithContext" finishes the last word and stops. The words in front of it are
+// still echoed, but they are the reader's own and nothing is invented after them — so
+// "minecraft world gen" completes to "minecraft world generation" and "minecraft world
+// generator", which is what a reader typing that was reaching for.
+//
+// So: one word means nothing to echo, and the pair is real — "zzzqqq" alone completes to
+// nothing at all, which is the proof. More than one and only the word being typed may be
+// finished.
+func completionMode(q string) string {
+	if len(strings.Fields(q)) > 1 {
+		return "oneTermWithContext"
+	}
+	return "twoTerms"
+}
+
 // rawCompletions asks the service for completions and returns them as they came, so
 // that what the filter above does can be measured against what it was given. See
 // TestSuggestionHarness.
 func (i *Index) rawCompletions(ctx context.Context, q string, top int) ([]string, error) {
-	// twoTerms completes to a phrase rather than a word, which is what makes the list
-	// worth reading: "kubernet" comes back as "kubernetes cluster" and "kubernetes
-	// deployments" rather than as "kubernetes" alone, so a reader learns what the
-	// corpus holds instead of only how the word ends.
-	//
 	// fuzzy stays off, and is not a caller's decision. The service documents it as
 	// slower and more resource-hungry, and it measured 323 ms against 86 ms for the
 	// same query. A typo is worth correcting in a search, where the reader has
@@ -379,7 +402,7 @@ func (i *Index) rawCompletions(ctx context.Context, q string, top int) ([]string
 	body := map[string]any{
 		"search":           q,
 		"suggesterName":    suggesterName,
-		"autocompleteMode": "twoTerms",
+		"autocompleteMode": completionMode(q),
 		"top":              top,
 	}
 
@@ -432,18 +455,33 @@ func phraseKey(completion string) string {
 // and the last of them is the one the suggester was asked to finish — "kubernet"
 // becoming "kubernetes" is the whole point, and is never in question here.
 func worthOffering(completion, query string) bool {
-	typed := strings.Fields(query)
-	words := strings.Fields(completion)
-	// Nothing was added, so there is nothing to offer: a row that puts back what is
-	// already in the box spends a place in a list of eight to say nothing.
-	if len(words) <= len(typed) {
+	// A row that puts back what is already in the box spends a place in a list of eight
+	// to say nothing. Compared as text rather than by counting words, because finishing
+	// the word being typed adds no word at all: "minecraft world gen" becoming
+	// "minecraft world generation" is the whole point of it.
+	if strings.EqualFold(strings.TrimSpace(completion), strings.TrimSpace(query)) {
 		return false
 	}
 
-	for _, word := range words[len(typed):] {
-		// Trimmed because the suggester returns the term as the title wrote it, and a
-		// title ends sentences: "and," is the same word as "and".
-		bare := strings.ToLower(strings.Trim(word, `.,:;!?()[]{}"'“”‘’`))
+	typed := strings.Fields(query)
+	words := strings.Fields(completion)
+	added := words[min(len(typed), len(words)):]
+
+	// Nothing whole was added, so this finished the word being typed — and finishing a
+	// function word is not a completion anybody is reaching for. "how to" came back as
+	// "how tokyo", "how topaz" and "how toxic"; "why is" as "why island" and "why iso".
+	// Somebody who typed "to" meant "to". A word with meaning of its own is the
+	// opposite case and the reason the mode exists: "minecraft world gen" becoming
+	// "minecraft world generation" is exactly right.
+	if len(added) == 0 && len(typed) > 0 {
+		if _, stop := stopWords[bareWord(typed[len(typed)-1])]; stop {
+			return false
+		}
+	}
+
+	// Only whole words beyond what was typed are judged.
+	for _, word := range added {
+		bare := bareWord(word)
 		if bare == "" {
 			return false
 		}
@@ -460,6 +498,13 @@ func worthOffering(completion, query string) bool {
 		}
 	}
 	return true
+}
+
+// bareWord is a word stripped of what a title wraps it in, ready to be looked up.
+// The suggester returns a term as the title wrote it, and titles end sentences: "and,"
+// is the same word as "and".
+func bareWord(word string) string {
+	return strings.ToLower(strings.Trim(word, `.,:;!?()[]{}"'“”‘’`))
 }
 
 func isNumber(word string) bool {

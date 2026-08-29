@@ -294,6 +294,26 @@ numbers, along with plurals of a completion already in the list. `make suggest-h
 prints the before and the after for a fixed set of prefixes, which is how that figure is
 arrived at and how a change to it can be judged.
 
+There is a second thing filtering could not fix, and it was worse than junk. The service
+finishes the last word of a query and **echoes everything before it back unchecked**, so
+asked to complete "minecraft world gen" it answered "minecraft world gen z" and "minecraft
+world generation rag" — and answered the same shape to "zzzqqq world gen", because
+"minecraft world" constrained nothing. Those read as phrases somebody wrote and are not:
+searching for "minecraft world gen z" finds nothing at all.
+
+So how the query is completed depends on how much of it there is. **One word** has nothing
+in front of it to echo, so the pair the service offers is a real one and it may add a whole
+word: "minecraft" becomes "minecraft server". **More than one** and only the word being
+typed may be finished — "minecraft world gen" becomes "minecraft world generation" and
+"minecraft world generator", never something invented after it. The proof the rule rests on
+is that "zzzqqq" alone completes to nothing, where "zzzqqq world gen" cheerfully completes
+to five things.
+
+Finishing a word is not always wanted either. Where the word being typed is a function
+word, growing it produces "how tokyo" from "how to" and "why island" from "why is";
+somebody who typed "to" meant "to". Those are dropped by the same list that stops a
+completion _adding_ a function word, and the query falls back to the titles beneath it.
+
 Filtering could not fix the ordering, though. The service returns completions
 alphabetically within a prefix rather than by how often a phrase occurs, so "go conc"
 offered "go concept art" and never "go concurrency" — and nothing downstream can rank

@@ -90,8 +90,9 @@ func TestAutocompleteFixesWhatTheRequestCosts(t *testing.T) {
 	if want := float64(maxSuggestions * suggestOverFetch); request["top"] != want {
 		t.Errorf("top = %v, want %v", request["top"], want)
 	}
-	if request["autocompleteMode"] != "twoTerms" {
-		t.Errorf("autocompleteMode = %v, want twoTerms", request["autocompleteMode"])
+	if request["autocompleteMode"] != completionMode("go gen") {
+		t.Errorf("autocompleteMode = %v, want the mode the query calls for",
+			request["autocompleteMode"])
 	}
 	if _, ok := request["fuzzy"]; ok {
 		t.Error("fuzzy was sent; it costs several times an exact completion and is never wanted")
@@ -377,5 +378,57 @@ func TestTitlesMatchTheWritingSystemOfTheQuery(t *testing.T) {
 	}
 	if len(other) != 3 {
 		t.Errorf("got %d titles for a non-Latin query, want all 3", len(other))
+	}
+}
+
+// The service echoes back everything before the last word without checking it, so an
+// added word is only a real one when there is nothing in front of it to echo. Asked to
+// complete "minecraft world gen" it offered "minecraft world gen z" — which finds
+// nothing — and offered the same shape for "zzzqqq world gen".
+func TestCompletionModeOnlyAddsAWordWhenNothingIsEchoed(t *testing.T) {
+	for _, tc := range []struct {
+		query string
+		want  string
+	}{
+		{"rust", "twoTerms"},
+		{"  kubernet  ", "twoTerms"},
+		{"go conc", "oneTermWithContext"},
+		{"minecraft world gen", "oneTermWithContext"},
+	} {
+		if got := completionMode(tc.query); got != tc.want {
+			t.Errorf("completionMode(%q) = %q, want %q", tc.query, got, tc.want)
+		}
+	}
+}
+
+// Finishing the word being typed adds no whole word, so counting words would throw the
+// completion away. Only a row identical to what is in the box says nothing.
+func TestAutocompleteKeepsACompletionThatFinishesTheLastWord(t *testing.T) {
+	idx, _, _ := suggesting(t,
+		"minecraft world generation", "minecraft world generator", "minecraft world gen")
+
+	terms := complete(t, idx, "minecraft world gen")
+
+	want := []string{"minecraft world generation", "minecraft world generator"}
+	if !slices.Equal(terms, want) {
+		t.Errorf("got %q, want %q", terms, want)
+	}
+}
+
+// Finishing the word being typed is the point of the contextual mode, but not when that
+// word is one a reader means literally: "how to" came back as "how tokyo" and "how
+// toxic", "why is" as "why island". A word with meaning of its own is the case the mode
+// exists for and is untouched.
+func TestAutocompleteDoesNotGrowAFunctionWord(t *testing.T) {
+	idx, _, _ := suggesting(t, "how tokyo", "how toxic", "how tos")
+	if terms := complete(t, idx, "how to"); len(terms) != 0 {
+		t.Errorf("got %q, want nothing: none of those finish what the reader meant", terms)
+	}
+
+	idx, _, _ = suggesting(t, "minecraft world generation", "minecraft world generator")
+	terms := complete(t, idx, "minecraft world gen")
+	want := []string{"minecraft world generation", "minecraft world generator"}
+	if !slices.Equal(terms, want) {
+		t.Errorf("got %q, want %q", terms, want)
 	}
 }
