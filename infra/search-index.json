@@ -46,6 +46,16 @@
       "facetable": true
     },
     {
+      "name": "authorText",
+      "type": "Edm.String",
+      "searchable": true,
+      "retrievable": false,
+      "filterable": false,
+      "sortable": false,
+      "facetable": false,
+      "analyzer": "en.microsoft"
+    },
+    {
       "name": "sourceId",
       "type": "Edm.String",
       "searchable": false,
@@ -174,10 +184,9 @@
       "text": {
         "weights": {
           "title": 4,
-          "author": 3,
+          "authorText": 3,
           "summary": 2,
-          "content": 1,
-          "topics": 1
+          "content": 1
         }
       }
     },
@@ -186,10 +195,9 @@
       "text": {
         "weights": {
           "title": 4,
-          "author": 3,
+          "authorText": 3,
           "summary": 2,
-          "content": 1,
-          "topics": 1
+          "content": 1
         }
       },
       "functions": [
@@ -210,10 +218,9 @@
       "text": {
         "weights": {
           "title": 4,
-          "author": 3,
+          "authorText": 3,
           "summary": 2,
-          "content": 1,
-          "topics": 1
+          "content": 1
         }
       },
       "functions": [
@@ -245,10 +252,9 @@
       "text": {
         "weights": {
           "title": 4,
-          "author": 1,
+          "authorText": 1,
           "summary": 2,
-          "content": 1,
-          "topics": 1
+          "content": 1
         }
       },
       "functions": [

@@ -210,23 +210,45 @@ wide once the cap has removed some, so a fixed stride steps over whatever was re
 skips it for good rather than deferring it. This is what makes "load more" reach every
 result exactly once.
 
-When nothing matches every word, the search asks again for any of them, and says so.
-That is a floor rather than a fix. The index does not analyse every field the same way —
-`title`, `summary` and `content` declare `en.microsoft` and discard English stopwords,
-while `author` and `topics` were created without an analyzer and keep them — so a word
-like "the" survives as a term only in the fields that kept it. Requiring it then asks for
-an article whose _author name_ contains it. "The World Generation of Minecraft" matched
-nothing at all while its own article sat first for the same words without "the" and "of".
+**A query is matched against named fields only**, listed in `searchFields`, and leaving
+that to the default was a real bug for a while. The default is every field marked
+searchable, and those fields are not analysed alike: `title`, `summary`, `content` and
+`authorText` declare `en.microsoft`, which discards English stopwords, while `author` and
+`topics` were created without an analyzer at all and keep them. So `a tour of go` reaches
+the first group as `[tour, go]` and the second as `[a, tour, of, go]`.
 
-The retry runs only on an empty page, so no search that works today is touched, and only
-on a query of more than one word, where "all" and "any" are different questions. A page
-that came back this way is flagged `broadened` and the result count says "nothing matched
-every word, so these match any of them" — the reader can see what they typed, and rows
-answering a looser question should not arrive unannounced. It is worth being clear about
-what this does not reach: a query that comes back with a handful of wrong rows rather than
-none never triggers it. "a tour of go" returns two dozen articles matched on author names
-containing "a" and "of", and looks like it worked. Only giving every searched field the
-same analyzer fixes that half.
+Under `searchMode: all` that is not a nuance, it is the query. Every term has to match
+somewhere, so "a" and "of" — held now only by the unanalysed fields — could be satisfied
+only by a document whose author name or topic slug contained them. Adding fields made the
+answer smaller and wrong:
+
+| query                      | all searchable fields                  | named fields                                       |
+| -------------------------- | -------------------------------------- | -------------------------------------------------- |
+| `a tour of go`             | 24, all bylines                        | 11,508, headed by "An interactive tour of Go 1.27" |
+| `the pragmatic programmer` | 32, headed by "The Healthy Programmer" | 819, headed by "The Pragmatic Programmer"          |
+| `history of the internet`  | 203, headed by "powerless trio"        | 10,180, headed by "Internet History: Next Steps"   |
+| `rust ownership`           | 1,275                                  | 1,180, same top row                                |
+
+Every query on record that contained an English function word was affected, and none that
+did not. The fix is to name only fields that analyse the query the same way. `author`
+cannot be given an analyzer — the service answers "Existing field 'author' cannot be
+changed", and rebuilding the index to fix a field would empty every quality score with it
+— so `authorText` is a copy of it under `en.microsoft`, in the same way and for a
+relatable reason to `titleSuggest`. Searching by name needs it: text alone finds 3 of one
+author's 258 posts, because the other 255 never print his name in the body. `topics` is
+left out rather than copied, being a closed vocabulary of slugs that `content` already
+carries; across the query set it added between 21 and 95 documents and never once changed
+a top three. `TestEverySearchableFieldDeclaresAnAnalyzer` is what keeps a third such field
+from arriving unnoticed.
+
+When nothing matches every word, the search asks again for any of them, and says so.
+What is left for it now is the query where every word is real and no single article
+carries them all — a long phrase, or a spelling the corpus writes another way. The retry
+runs only on an empty page, so no search that works is touched, and only on a query of
+more than one word, where "all" and "any" are different questions. A page that came back
+this way is flagged `broadened` and the result count says "nothing matched every word, so
+these match any of them" — the reader can see what they typed, and rows answering a
+looser question should not arrive unannounced.
 
 A search matches only documents containing **every** word of the query. Matching any of
 them was the original choice, meant to hand the reranker a wide field to sort out, and
@@ -246,8 +268,8 @@ scoring part-way down a scroll. Reranking is metered, so a query is downgraded t
 ranking when the throttle says the budget is spent, and retried without it if the service
 refuses anyway. Search degrades rather than failing, either way.
 
-The index also carries a scoring profile named `relevance`, weighting title above author
-above summary above content, and no query names it. It applies all the same: an index's
+The index also carries a scoring profile named `relevance`, weighting title above
+`authorText` above summary above content, and no query names it. It applies all the same: an index's
 `defaultScoringProfile` is used by every query that does not choose one, which is why
 naming it explicitly was measured against `claude`, `rust ownership`, `sean goedecke`,
 `github actions` and `python` and returned byte-identical results every time. Both arms of
@@ -385,10 +407,16 @@ alongside it costs about 0.8 KB per document, no downtime, and no rebuild.
 Discovery writes `titleSuggest` for everything it indexes from now on, so only the
 documents that predate the field need filling in. That is what
 [`infra/backfill-suggest.sh`](../infra/backfill-suggest.sh) does, and it keeps no cursor:
-a document leaves the set carrying no `suggestVersion` by being written, so reading the
-head of that set repeatedly walks the corpus and then stops. The run is interruptible and
-re-runnable for the same reason, and it never has to page past the `$skip` ceiling of
+a document leaves the set below the current `suggestVersion` by being written, so reading
+the head of that set repeatedly walks the corpus and then stops. The run is interruptible
+and re-runnable for the same reason, and it never has to page past the `$skip` ceiling of
 100,000.
+
+`authorText` rides the same machinery, which is what the version number is for: raising
+it makes every document eligible again, and one pass writes both copies. Version 1 wrote
+`titleSuggest` alone; version 2 adds `authorText`. Until a document is reached it is
+searchable by every word except its author's name, so the backfill wants running before
+the field set that depends on it ships.
 
 Typeahead is where an anonymous endpoint is easiest to abuse, so `q` is the only thing
 read from the request. How many completions come back, which suggester answers, and
@@ -512,21 +540,21 @@ job logs a line per source, which at 1,000 sources an hour is not something to l
 
 ## Where each stage lives
 
-| Stage                      | Code                                                                            |
-| -------------------------- | ------------------------------------------------------------------------------- |
-| Build the blog list        | [`sources/tools/`](../sources/tools/)                                           |
-| Publish the list           | [`infra/upload-sources.sh`](../infra/upload-sources.sh)                         |
-| Load and cache the list    | [`api/internal/sources`](../api/internal/sources)                               |
-| Batching and cursor        | [`api/internal/discovery/discovery.go`](../api/internal/discovery/discovery.go) |
-| Feeds, fetching, robots    | [`api/internal/discovery`](../api/internal/discovery)                           |
-| Sitemap fallback           | [`api/internal/discovery/sitemap.go`](../api/internal/discovery/sitemap.go)     |
-| Text extraction            | [`api/internal/discovery/extract.go`](../api/internal/discovery/extract.go)     |
-| Canonical storage          | [`api/internal/store`](../api/internal/store)                                   |
-| Index and query            | [`api/internal/index`](../api/internal/index)                                   |
-| Typeahead                  | [`api/internal/index/suggest.go`](../api/internal/index/suggest.go)             |
-| Backfilling `titleSuggest` | [`infra/backfill_suggest.py`](../infra/backfill_suggest.py)                     |
-| HTTP handlers              | [`api/internal/httpapi`](../api/internal/httpapi)                               |
-| Web UI                     | [`web/src`](../web/src)                                                         |
+| Stage                                       | Code                                                                            |
+| ------------------------------------------- | ------------------------------------------------------------------------------- |
+| Build the blog list                         | [`sources/tools/`](../sources/tools/)                                           |
+| Publish the list                            | [`infra/upload-sources.sh`](../infra/upload-sources.sh)                         |
+| Load and cache the list                     | [`api/internal/sources`](../api/internal/sources)                               |
+| Batching and cursor                         | [`api/internal/discovery/discovery.go`](../api/internal/discovery/discovery.go) |
+| Feeds, fetching, robots                     | [`api/internal/discovery`](../api/internal/discovery)                           |
+| Sitemap fallback                            | [`api/internal/discovery/sitemap.go`](../api/internal/discovery/sitemap.go)     |
+| Text extraction                             | [`api/internal/discovery/extract.go`](../api/internal/discovery/extract.go)     |
+| Canonical storage                           | [`api/internal/store`](../api/internal/store)                                   |
+| Index and query                             | [`api/internal/index`](../api/internal/index)                                   |
+| Typeahead                                   | [`api/internal/index/suggest.go`](../api/internal/index/suggest.go)             |
+| Backfilling `titleSuggest` and `authorText` | [`infra/backfill_suggest.py`](../infra/backfill_suggest.py)                     |
+| HTTP handlers                               | [`api/internal/httpapi`](../api/internal/httpapi)                               |
+| Web UI                                      | [`web/src`](../web/src)                                                         |
 
 ## Data at each stage
 

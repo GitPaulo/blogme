@@ -698,6 +698,39 @@ func TestQueryKeywordRequiresEveryWordOfTheQuery(t *testing.T) {
 	}
 }
 
+// Naming the fields is what keeps a query away from author and topics, which have no
+// analyzer and so keep the stopwords the rest of the index drops. Left unsent, the
+// service searches every searchable field and "a tour of go" comes back as two dozen
+// bylines. Asserted on both rankings and on the broadened retry, because the poison is
+// in the field set rather than in the mode: a request that dropped it anywhere would
+// answer that one from the wrong fields.
+func TestQueryNamesTheFieldsItMatchesOn(t *testing.T) {
+	var sent []map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		sent = append(sent, body)
+		// Empty, so the keyword branch also makes its broadened second ask.
+		_, _ = io.WriteString(w, `{"@odata.count":0,"value":[]}`)
+	}))
+	defer srv.Close()
+
+	idx := New(srv.URL, "articles", "test-key", "blogme-semantic")
+	query(t, idx, "a tour of go", QueryOptions{Limit: 20})
+	query(t, idx, "a tour of go", QueryOptions{Limit: 20, Rank: RankKeyword})
+
+	if len(sent) != 3 {
+		t.Fatalf("sent %d requests, want 3 (semantic, keyword, broadened)", len(sent))
+	}
+	for i, body := range sent {
+		if body["searchFields"] != searchFields {
+			t.Errorf("request %d searchFields = %v, want %q", i, body["searchFields"], searchFields)
+		}
+	}
+}
+
 // The index carries several scoring profiles that differ by one variable each, so
 // that a change to ranking can be measured rather than argued about. A profile has to
 // reach both rankings, or a comparison would only be testing one of them.
@@ -893,5 +926,49 @@ func TestQueryKeepsTheStrictAnswerWhenBroadeningFails(t *testing.T) {
 	}
 	if len(page.Results) != 0 || page.Broadened {
 		t.Error("got something other than the strict, empty answer")
+	}
+}
+
+// The derived copies are written by a struct literal, so nothing but a test notices
+// when one goes missing: an article indexed without authorText is not findable by its
+// author's name, and one without titleSuggest completes nothing — both silently, and
+// both only for the articles discovered after the omission.
+func TestUpsertWritesTheDerivedCopies(t *testing.T) {
+	var sent struct {
+		Value []struct {
+			Title          string `json:"title"`
+			TitleSuggest   string `json:"titleSuggest"`
+			Author         string `json:"author"`
+			AuthorText     string `json:"authorText"`
+			SuggestVersion int    `json:"suggestVersion"`
+		} `json:"value"`
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+	}))
+	defer srv.Close()
+
+	err := New(srv.URL, "articles", "test-key", "").Upsert(context.Background(),
+		[]article.Article{{ID: "a", URL: "https://example.com/a", Title: "A post", Author: "Ada"}})
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	if len(sent.Value) != 1 {
+		t.Fatalf("indexed %d documents, want 1", len(sent.Value))
+	}
+	doc := sent.Value[0]
+	if doc.TitleSuggest != doc.Title {
+		t.Errorf("titleSuggest = %q, want the title %q", doc.TitleSuggest, doc.Title)
+	}
+	if doc.AuthorText != doc.Author {
+		t.Errorf("authorText = %q, want the author %q", doc.AuthorText, doc.Author)
+	}
+	// Without it the backfill cannot tell a document it has finished from one it has
+	// never seen, so it would either redo the corpus or skip it.
+	if doc.SuggestVersion != suggestVersion {
+		t.Errorf("suggestVersion = %d, want %d", doc.SuggestVersion, suggestVersion)
 	}
 }

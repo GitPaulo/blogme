@@ -154,6 +154,39 @@ func (i *Index) Ready(ctx context.Context) error {
 	return i.do(ctx, http.MethodGet, "/docs/$count", nil, nil)
 }
 
+// searchFields is which fields a query is matched against.
+//
+// Named rather than left to the default, and the default is why. Omitting it searches
+// every field marked searchable, and those fields are not analysed alike: title,
+// summary, content and authorText declare en.microsoft, which discards English
+// stopwords, while author and topics were created without an analyzer and so keep
+// them. "a tour of go" reaches the first group as [tour, go] and the second as
+// [a, tour, of, go].
+//
+// With searchMode "all" that difference is not a nuance, it is the query. Every term
+// has to match somewhere, so "a" and "of" — terms only the unanalysed fields still
+// hold — can be satisfied only by a document whose author name or topic slug contains
+// them. Measured against the live index, "a tour of go" fell from 11,508 matches to
+// 24, and all 24 were somebody's byline: "Comment on Psychopathic Manipulation", "The
+// Healthy Programmer" for "the pragmatic programmer", "Fishing and football" for
+// "history of the internet". Adding fields made the answer smaller and wrong.
+//
+// So this names only fields that analyse the query the same way. authorText is a copy
+// of author under en.microsoft, which is what keeps searching by name working — text
+// alone finds 3 of Daniel Mangum's 258 posts, because the other 255 never print his
+// name in the body.
+//
+// topics is left out altogether rather than copied. It is a closed vocabulary of slugs
+// — "tech", "software-engineering" — that content already carries, and across the
+// query set it contributed between 21 and 95 extra documents without once changing a
+// top three. Its keyword weight in the scoring profiles went with it.
+//
+// titleSuggest is left out because it is not a field, it is the suggester's copy of
+// title. Searching it scored every title twice, once at the profile's weight of 4 and
+// once unweighted, which lifted the top score for "rust ownership" from 366 to 417 and
+// reordered the page.
+const searchFields = "title,summary,content,authorText"
+
 // Query runs a full-text search and returns one page of ranked results.
 func (i *Index) Query(ctx context.Context, q string, opts QueryOptions) (Page, error) {
 	// The caller's figure wins when it gives one, including when it is below Limit:
@@ -176,13 +209,14 @@ func (i *Index) Query(ctx context.Context, q string, opts QueryOptions) (Page, e
 	// Set on the shared body but true only of keyword ranking: the semantic branch
 	// below overrides it, and says why.
 	body := map[string]any{
-		"search":     q,
-		"top":        fetch,
-		"skip":       opts.Offset,
-		"count":      true,
-		"queryType":  "simple",
-		"searchMode": "all",
-		"select":     "url,title,author,origin,summary,topics,publishedAt,sourceId,framingDenied",
+		"search":       q,
+		"top":          fetch,
+		"skip":         opts.Offset,
+		"count":        true,
+		"queryType":    "simple",
+		"searchMode":   "all",
+		"searchFields": searchFields,
+		"select":       "url,title,author,origin,summary,topics,publishedAt,sourceId,framingDenied",
 	}
 
 	// Built from a fixed set rather than from the caller's string, so a filter can
@@ -237,17 +271,16 @@ func (i *Index) Query(ctx context.Context, q string, opts QueryOptions) (Page, e
 	//
 	// Requiring all of them is right and stays the first thing tried — it is what puts
 	// "How AI text watermarking works" above the 185,000 documents that merely say
-	// "text". But the index does not analyse every field the same way: title, summary
-	// and content discard English stopwords, while author and topics were created
-	// without an analyzer and keep them. So "the" and "of" survive as terms only in
-	// author and topics, and requiring them asks for an article whose author name
-	// contains them. "The World Generation of Minecraft" matched nothing at all, while
-	// its article sat first for the same words without "the" and "of".
+	// "text". What is left over is the query where every word is a real one and no
+	// single article happens to carry them all: a long phrase, or a spelling the corpus
+	// writes another way. Answering it with the articles that carry most of the words
+	// beats answering it with nothing.
 	//
-	// Broadening only when the strict query found nothing keeps that trade: no query
-	// that works today changes, and one that returned an empty page gets the answer it
-	// was looking for. It is a floor under the search rather than a fix for the index —
-	// a query that comes back with a handful of wrong rows never reaches here.
+	// This used to catch far more than that, and the reason it did was a fault rather
+	// than a feature: unanalysed fields kept the stopwords the rest of the index drops,
+	// so an ordinary sentence asked for an author whose name contained "the". See
+	// searchFields, which is where that is now fixed. Broadening is the floor under the
+	// remainder, and only ever when the strict query found nothing at all.
 	if worthBroadening(q, resp) {
 		broad := maps.Clone(body)
 		broad["searchMode"] = "any"
@@ -436,18 +469,27 @@ type document struct {
 	// meant dropping and rebuilding the index, which also empties every quality score.
 	// The copy costs about 295 bytes a document and no downtime at all.
 	TitleSuggest string `json:"titleSuggest,omitempty"`
-	// SuggestVersion records that TitleSuggest was written, so the backfill in
-	// infra/backfill_suggest.py can find the documents indexed before the field
-	// existed. Same idea as qualityVersion, and the script mirrors this number.
-	SuggestVersion int      `json:"suggestVersion,omitempty"`
-	Author         string   `json:"author,omitempty"`
-	SourceID       string   `json:"sourceId"`
-	Origin         string   `json:"origin,omitempty"`
-	Summary        string   `json:"summary,omitempty"`
-	Content        string   `json:"content,omitempty"`
-	Topics         []string `json:"topics,omitempty"`
-	Kind           []string `json:"kind,omitempty"`
-	PublishedAt    *string  `json:"publishedAt,omitempty"`
+	// SuggestVersion records which of the derived copies below have been written, so
+	// the backfill in infra/backfill_suggest.py can find the documents that predate
+	// them. Same idea as qualityVersion, and the script mirrors this number.
+	SuggestVersion int    `json:"suggestVersion,omitempty"`
+	Author         string `json:"author,omitempty"`
+	// AuthorText is the author again, analysed as English rather than as a keyword.
+	//
+	// Duplicated for the same reason TitleSuggest is: author was created without an
+	// analyzer and an existing field cannot be given one — the service answers
+	// "Existing field 'author' cannot be changed." Its terms therefore keep the
+	// stopwords every other searchable field discards, which is what made a query with
+	// "the" in it ask for an article by an author called "The" something. See
+	// searchFields. About 22 bytes of text a document, against title's 77.
+	AuthorText  string   `json:"authorText,omitempty"`
+	SourceID    string   `json:"sourceId"`
+	Origin      string   `json:"origin,omitempty"`
+	Summary     string   `json:"summary,omitempty"`
+	Content     string   `json:"content,omitempty"`
+	Topics      []string `json:"topics,omitempty"`
+	Kind        []string `json:"kind,omitempty"`
+	PublishedAt *string  `json:"publishedAt,omitempty"`
 	// A pointer because false and unknown are different answers, and only the first is
 	// worth writing. See article.Article.FramingDenied.
 	FramingDenied *bool `json:"framingDenied,omitempty"`
@@ -466,9 +508,11 @@ func (i *Index) Upsert(ctx context.Context, articles []article.Article) error {
 				URL:    a.URL,
 				Title:  a.Title,
 				// Written here so every article discovered from now on arrives
-				// suggestable, leaving the backfill only the documents indexed before
-				// the field existed. See document.TitleSuggest.
+				// suggestable and searchable by name, leaving the backfill only the
+				// documents indexed before the fields existed. See document.TitleSuggest
+				// and document.AuthorText.
 				TitleSuggest:   a.Title,
+				AuthorText:     a.Author,
 				SuggestVersion: suggestVersion,
 				Author:         a.Author,
 				SourceID:       a.SourceID,

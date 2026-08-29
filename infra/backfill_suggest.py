@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
-"""Fills titleSuggest on articles indexed before the field existed.
+"""Fills the derived text copies on articles indexed before they existed.
 
-Typeahead is served by a suggester, and a suggester can only be built over a field
-that is new to the index — Azure AI Search refuses to add an existing one, because
-prefixes are generated at indexing time and the existing field is already tokenised.
-So titleSuggest is a copy of title, and every document indexed before it existed
-carries a null.
+Two fields, both copies of one already in the document, and both copies for the same
+reason: Azure AI Search will not change a field once it exists.
+
+titleSuggest is title again, because a suggester can only be built over a field new to
+the index — prefixes are generated at indexing time and the existing field is already
+tokenised. authorText is author again under en.microsoft, because author was created
+with no analyzer at all and so keeps the English stopwords every other searchable field
+discards; searching it was matching "the pragmatic programmer" against bylines. See
+searchFields in api/internal/index/index.go.
+
+Every document indexed before a field existed carries a null for it.
 
 Discovery writes both fields from now on (see index.Upsert), which leaves exactly the
 documents already in the index for this script.
@@ -43,7 +49,10 @@ BATCH = 1000  # and an indexing batch at 1000 documents.
 
 # The value written to suggestVersion. Mirrors suggestVersion in
 # api/internal/index/suggest.go; raising it there means raising it here.
-VERSION = 1
+#
+# 1 wrote titleSuggest alone. 2 writes authorText beside it, which is why every
+# document is eligible again even though most already carry a titleSuggest.
+VERSION = 2
 
 # How long to wait when a pass reads back documents it has just written.
 #
@@ -84,16 +93,16 @@ class Search:
         return self._call("POST", "/docs/search",
                           {"search": "*", "filter": flt, "top": 0, "count": True})["@odata.count"]
 
-    def head(self, flt: str) -> list[tuple[str, str]]:
-        """The next page of documents matching the filter, as (id, title).
+    def head(self, flt: str) -> list[tuple[str, str, str]]:
+        """The next page of documents matching the filter, as (id, title, author).
 
         Always the head of the set rather than a page deeper into it: the documents
         read here leave the set as soon as they are written, so the next call returns
         the ones after them without any offset being tracked.
         """
-        body = {"search": "*", "filter": flt, "select": "id,title", "top": PAGE}
+        body = {"search": "*", "filter": flt, "select": "id,title,author", "top": PAGE}
         page = self._call("POST", "/docs/search", body).get("value", [])
-        return [(d["id"], d.get("title") or "") for d in page]
+        return [(d["id"], d.get("title") or "", d.get("author") or "") for d in page]
 
     def merge(self, docs: list[dict]) -> int:
         """Writes one batch, returning how many documents were accepted."""
@@ -110,7 +119,7 @@ class Search:
 
 
 def unwritten(since: str | None) -> str:
-    """The documents still needing titleSuggest.
+    """The documents still needing one or both copies.
 
     Built from a fixed shape and a date this script's own caller typed, never from
     anything a reader could reach.
@@ -122,6 +131,14 @@ def unwritten(since: str | None) -> str:
 
 
 def main() -> None:
+    # Titles and bylines are third-party text in every script the corpus covers, and
+    # printing one is how a run reports what it is about to write. A Windows console
+    # defaults to cp1252, where that raises UnicodeEncodeError and takes the whole run
+    # down mid-pass — a backfill stopped by its own progress line. Replace rather than
+    # fail: an unrenderable character in a preview costs nothing.
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8", errors="replace")
+
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--apply", action="store_true",
@@ -146,12 +163,12 @@ def main() -> None:
     flt = unwritten(args.since)
 
     before = client.count(flt)
-    print(f"documents without titleSuggest: {before:,}")
+    print(f"documents below suggestVersion {VERSION}: {before:,}")
     if args.since:
         print(f"scoped to articles published since {args.since}")
     if not args.apply:
-        for doc_id, title in client.head(flt)[:3]:
-            print(f"  would write {doc_id} -> {title[:60]!r}")
+        for doc_id, title, author in client.head(flt)[:3]:
+            print(f"  would write {doc_id} -> {title[:44]!r} by {author[:24]!r}")
         print("\ndry run; nothing was written. Add --apply to write.")
         return
 
@@ -167,7 +184,7 @@ def main() -> None:
         if not page:
             break
 
-        ids = {doc_id for doc_id, _ in page}
+        ids = {doc_id for doc_id, _, _ in page}
         if ids <= previous:
             # Every document here was written by the pass before; the index has not
             # caught up yet. Waiting is the whole fix.
@@ -182,8 +199,9 @@ def main() -> None:
 
         for start in range(0, len(page), BATCH):
             docs = [{"@search.action": "merge", "id": doc_id,
-                     "titleSuggest": title, "suggestVersion": VERSION}
-                    for doc_id, title in page[start:start + BATCH]]
+                     "titleSuggest": title, "authorText": author,
+                     "suggestVersion": VERSION}
+                    for doc_id, title, author in page[start:start + BATCH]]
             merged += client.merge(docs)
 
         print(f"  {merged:,} written, {(time.monotonic() - started) / 60:.1f} min elapsed",

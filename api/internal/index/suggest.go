@@ -19,14 +19,19 @@ import (
 // the tests catch.
 const suggesterName = "titles"
 
-// suggestVersion marks a document whose titleSuggest has been written.
+// suggestVersion marks a document whose derived text copies have been written.
 //
 // It exists so the backfill has a set to drain rather than a cursor to keep: a
 // document leaves that set by being written, so reading the head of it repeatedly
 // walks the whole corpus and then stops, the way quality scoring does. Raise it to
-// make every document eligible again, which is what a change to what titleSuggest
-// holds would need. infra/backfill_suggest.py carries the same number.
-const suggestVersion = 1
+// make every document eligible again, which is what a change to what those copies
+// hold needs. infra/backfill_suggest.py carries the same number.
+//
+// 1 wrote titleSuggest. 2 adds authorText, which is what lets a query be matched
+// against the author without the field's missing analyzer poisoning it — see
+// searchFields. Documents still at 1 are searchable by every word except the author's
+// name until the backfill reaches them.
+const suggestVersion = 2
 
 // maxSuggestions is how many completions one request may return.
 //
