@@ -177,6 +177,9 @@
 	// loud because a total that grows while you page through it otherwise reads as a bug.
 	const partialNote =
 		'Filters apply to the results loaded so far, not the whole index, so both numbers grow each time you load more.';
+	// Said in full for the reader who hovers or tabs to it: nothing matched every word
+	// of the query, so these rows match any of them instead.
+	const broadenedNote = 'Nothing matched every word of the search, so these results match any of the words instead.';
 	// The button's own label, which a screen reader reads and a tooltip cannot replace:
 	// it has to say what pressing it does, in one string, with no markup.
 	const rankLabel = $derived(
@@ -705,7 +708,7 @@
 					{#if semanticRanking}
 						<span class="mb-1 flex items-center gap-1.5 font-semibold">
 							<WandMagicSparklesOutline class="h-3.5 w-3.5" aria-hidden="true" />
-							Semantic — finds the idea
+							Semantic: finds the idea
 						</span>
 						<span class="block text-gray-300 dark:text-gray-400">
 							Reads the query as a sentence, so posts that never use your exact words can still come
@@ -720,7 +723,7 @@
 					{:else}
 						<span class="mb-1 flex items-center gap-1.5 font-semibold">
 							<SearchOutline class="h-3.5 w-3.5" aria-hidden="true" />
-							Keyword — matches your words
+							Keyword: matches your words
 						</span>
 						<span class="block text-gray-300 dark:text-gray-400">
 							Every word has to appear. Best for names, libraries and exact phrases, and it pages
@@ -838,9 +841,14 @@
 						{summary}
 					</P>
 					{#if broadened}
-						<P size="sm" class="text-gray-500 dark:text-gray-400">
-							&nbsp;· nothing matched every word, so these match any of them
-						</P>
+						<button
+							type="button"
+							class="cursor-help rounded-sm px-1 text-sm leading-none text-gray-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 dark:text-gray-400"
+							aria-label={broadenedNote}
+						>
+							&nbsp;· broadened
+						</button>
+						<Tooltip class="max-w-64 text-center">{broadenedNote}</Tooltip>
 					{/if}
 					{#if partial}
 						<button
