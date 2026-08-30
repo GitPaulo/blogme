@@ -687,7 +687,16 @@
 			onclick={goHome}
 			class="wordmark rounded-sm focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary-600"
 		>
-			blogme
+			<!-- The word twice: once solid, once as an outline of itself lying exactly on top.
+			Hovering wipes the first away from the left while the second is wiped in, so the
+			letters are redrawn as a stencil in the order they would be written.
+
+			A real element rather than a `::before`, because the second copy has to be hidden
+			from screen readers and `aria-hidden` is only honoured on real ones — generated
+			content is announced by several, which would have made this link read "blogme
+			blogme". -->
+			<span class="wordmark-fill">blogme</span>
+			<span class="wordmark-stencil" aria-hidden="true">blogme</span>
 		</a>
 	</Heading>
 	<P class="mb-8 text-gray-500 dark:text-gray-400">A search engine for tech blogs.</P>
@@ -1163,71 +1172,88 @@
 
 <style>
 	/* The wordmark is the only piece of brand on the page, so it gets the only flourish:
-	   a glint of the accent travelling across the letters on hover, and a small press
-	   under the pointer. Both are decoration. The link works with neither, which is the
-	   test each guard below is written to pass.
+	   hovering redraws it as a stencil of itself, left to right, as though the outline were
+	   being written. The two copies are stacked exactly, and one mask wipes the solid away
+	   while its inverse wipes the outline in — so at every moment of the sweep the word is
+	   whole, outlined on the left and solid on the right, never half missing.
 
-	   The gradient is mostly `currentColor`, so the word keeps whatever colour the heading
-	   already had in either theme and only a narrow band is tinted. That is also why the
-	   fill is cleared with `-webkit-text-fill-color` rather than `color`: `currentColor`
-	   has to go on resolving to the real colour, or the rest of the gradient would have
-	   nothing to be.
+	   `currentColor` throughout, so the stencil is white on the dark theme and near-black on
+	   the light one without either being named here.
 
-	   At rest the window onto the gradient sits past the glint, and at full hover it sits
-	   short of it, so the band is only ever seen crossing. Both ends look like plain text,
-	   which is what lets the pointer leave mid-sweep without anything appearing to break. */
+	   Everything is decoration and the link is not, which is what the guards are for. Under
+	   `prefers-reduced-motion` none of it applies and the word is simply solid. And the whole
+	   effect asks for masks and a text stroke together, because the fill is hidden by a mask
+	   and the outline is drawn by a stroke: a browser with one and not the other would wipe
+	   the word away and put nothing in its place. */
 	.wordmark {
+		position: relative;
 		display: inline-block;
 	}
 
+	/* Hidden until the support test below says the effect can be drawn at all, so a browser
+	   that cannot mask never stacks two solid copies of the word on top of each other. */
+	.wordmark-stencil {
+		display: none;
+	}
+
 	@media (prefers-reduced-motion: no-preference) {
+		@supports (
+			(
+					(mask-image: linear-gradient(#000, #000)) or
+						(-webkit-mask-image: linear-gradient(#000, #000))
+				)
+				and (-webkit-text-stroke: 1px red)
+		) {
+			.wordmark-fill,
+			.wordmark-stencil {
+				/* The gradient is a hard edge, twice the width of the word, so sliding it is a
+				   wipe rather than a fade. Repeated down the axis it does not vary in, because
+				   a mask covers only the element's own box and the tail of the "g" hangs below
+				   it — the first version of this clipped the descender clean off. */
+				-webkit-mask-repeat: repeat-y;
+				mask-repeat: repeat-y;
+				-webkit-mask-size: 200% 100%;
+				mask-size: 200% 100%;
+				-webkit-mask-position: 100% 0;
+				mask-position: 100% 0;
+				transition:
+					-webkit-mask-position 550ms ease-out,
+					mask-position 550ms ease-out;
+			}
+
+			.wordmark-fill {
+				-webkit-mask-image: linear-gradient(90deg, transparent 50%, #000 50%);
+				mask-image: linear-gradient(90deg, transparent 50%, #000 50%);
+			}
+
+			.wordmark-stencil {
+				display: block;
+				position: absolute;
+				top: 0;
+				left: 0;
+				-webkit-text-fill-color: transparent;
+				-webkit-text-stroke: 1.5px currentColor;
+				-webkit-mask-image: linear-gradient(90deg, #000 50%, transparent 50%);
+				mask-image: linear-gradient(90deg, #000 50%, transparent 50%);
+			}
+
+			/* Both halves move together, so the seam between solid and outline is a single
+			   edge travelling across the word rather than two that can drift apart. */
+			.wordmark:hover .wordmark-fill,
+			.wordmark:focus-visible .wordmark-fill,
+			.wordmark:hover .wordmark-stencil,
+			.wordmark:focus-visible .wordmark-stencil {
+				-webkit-mask-position: 0 0;
+				mask-position: 0 0;
+			}
+		}
+
 		.wordmark {
-			--glint: var(--color-primary-600);
-
-			background-image: linear-gradient(
-				100deg,
-				currentColor 40%,
-				var(--glint) 50%,
-				currentColor 60%
-			);
-			background-repeat: no-repeat;
-			background-size: 250% 100%;
-			background-position: 100% 0;
-			transition:
-				background-position 250ms ease-out,
-				transform 150ms ease-out;
-		}
-
-		:global(.dark) .wordmark {
-			/* A step lighter, because the accent that carries on white disappears into the
-			   navy the dark theme puts behind it. */
-			--glint: var(--color-primary-400);
-		}
-
-		/* Slower going in than coming out: the sweep is the point, the reset is not, and a
-		   reverse sweep on every mouse-out turns a flourish into a thing that follows you. */
-		.wordmark:hover,
-		.wordmark:focus-visible {
-			background-position: 0 0;
-			transition:
-				background-position 700ms ease-out,
-				transform 150ms ease-out;
+			transition: transform 150ms ease-out;
 		}
 
 		.wordmark:active {
 			transform: scale(0.97);
-		}
-
-		/* Last, and separately: clipping the background to the glyphs is what makes any of
-		   this visible, and a browser that cannot would paint transparent letters over
-		   nothing and lose the title altogether. Everything above survives being ignored;
-		   this does not, so it is the one thing asked for rather than assumed. */
-		@supports (background-clip: text) or (-webkit-background-clip: text) {
-			.wordmark {
-				background-clip: text;
-				-webkit-background-clip: text;
-				-webkit-text-fill-color: transparent;
-			}
 		}
 	}
 </style>
