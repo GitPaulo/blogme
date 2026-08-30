@@ -120,6 +120,33 @@ const SUGGEST_TIMEOUT_MS = 5_000;
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 
 /**
+ * The origin the API answers from, for the page to open a connection to before anyone
+ * searches. Empty where there is nothing to open early: in development the API shares
+ * this page's origin, so the connection already exists by the time the app has loaded.
+ *
+ * It is worth saying out loud because the two are not the same host in production — the
+ * page is served from GitHub Pages and the API from Azure — so the first search of a
+ * visit pays for a DNS lookup, a TCP handshake and a TLS handshake before it can even
+ * be sent. Measured against the live API that is 15 ms of TCP and 40 ms of TLS, plus a
+ * DNS lookup on a cold resolver, and all of it lands after the reader has pressed
+ * enter. Preconnecting spends it during page load instead, where there is nobody
+ * waiting on it.
+ *
+ * Read at build time, and the site is prerendered, so the resulting link tag is in the
+ * HTML the browser parses first rather than in the JavaScript it has yet to run.
+ */
+export const API_ORIGIN = (() => {
+	if (!API_BASE) return '';
+	try {
+		return new URL(API_BASE).origin;
+	} catch {
+		// A relative base is same-origin, and anything unparseable is a misconfiguration
+		// that should not also cost a bogus link tag in every page.
+		return '';
+	}
+})();
+
+/**
  * A refusal from the API, carrying the status so a caller can tell one apart from
  * another. Being throttled is the case that matters: it says try later, where every
  * other failure says something is wrong.

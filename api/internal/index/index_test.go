@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -340,6 +341,34 @@ func TestReadyAsksTheIndexForACount(t *testing.T) {
 	// A GET carrying "null" is a request the service is entitled to refuse.
 	if len(body) != 0 {
 		t.Errorf("got a request body %q, want none", body)
+	}
+}
+
+// Startup warms the connection to the search service, and it does so only where the
+// service actually runs: behind a managed identity. An index built with an API key is
+// a test or a laptop, and there the warm-up would be a request nobody asked for,
+// arriving at a stub server at a moment no test controls — which is a flake in every
+// test that counts what it was sent, not a slow first search avoided.
+//
+// See warm, and TestQuerySendsTheEscapedTextOnEveryRequest, which asserts a request
+// count this would otherwise raise by one.
+func TestAnAPIKeyedIndexDoesNotWarmOnItsOwn(t *testing.T) {
+	var requests atomic.Int64
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		_, _ = io.WriteString(w, "0")
+	}))
+	defer srv.Close()
+
+	New(srv.URL, "articles", "test-key", "")
+
+	// Warming is a goroutine, so an assertion made immediately would pass whether or
+	// not one was started. Long enough for a local round trip many times over.
+	time.Sleep(200 * time.Millisecond)
+
+	if n := requests.Load(); n != 0 {
+		t.Errorf("New made %d request(s) before anything was asked of it, want 0", n)
 	}
 }
 

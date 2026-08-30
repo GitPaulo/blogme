@@ -1,5 +1,6 @@
 <script lang="ts">
 	import './layout.css';
+	import { API_ORIGIN } from '$lib/api';
 	import favicon from '$lib/assets/favicon.svg';
 	import BookmarksPanel from '$lib/components/BookmarksPanel.svelte';
 	import GithubLink from '$lib/components/GithubLink.svelte';
@@ -15,7 +16,18 @@
 	$effect(() => visited.track());
 </script>
 
-<svelte:head><link rel="icon" href={favicon} /></svelte:head>
+<svelte:head>
+	<link rel="icon" href={favicon} />
+	<!--
+		Opened while the page is still loading, so the first search does not begin with a
+		handshake. crossorigin because the searches that will use it are cross-origin
+		fetches: a connection opened without it is opened in a different mode and the
+		fetch makes its own anyway, which is the whole cost this is here to avoid.
+	-->
+	{#if API_ORIGIN}
+		<link rel="preconnect" href={API_ORIGIN} crossorigin="anonymous" />
+	{/if}
+</svelte:head>
 <div class="fixed end-4 top-4 z-50 flex items-center gap-2">
 	<BookmarksPanel />
 	<GithubLink />

@@ -98,6 +98,21 @@ jobs:
         env:
           # Core Tools infers this from local.settings.json, which is not committed.
           FUNCTIONS_WORKER_RUNTIME: native
+          # Drop the symbol table from the worker: 25.1 MB of binary becomes 17.7 MB,
+          # and on Flex Consumption every cold start fetches the package from storage
+          # and loads it before the first request is served. Measured cold at 1.7s
+          # against 48 ms warm, so the whole of that is paid by a reader who arrives
+          # while nothing is running — which, at this traffic, is most of them.
+          #
+          # Nothing operational is lost. Go builds its own tables for tracebacks, so a
+          # panic still names every frame with its file and line; what goes is the
+          # symbol table a debugger would attach with, and nothing here attaches one.
+          #
+          # Set through GOFLAGS because Core Tools runs the build itself and takes no
+          # flags of its own. One token, no spaces: GOFLAGS splits on them and has no
+          # quoting, so "-ldflags=-s -w" would be read as a second flag that does not
+          # exist. -s alone measured the same size as -s -w.
+          GOFLAGS: -ldflags=-s
         run: func azure functionapp publish ${{ vars.AZURE_FUNCTIONAPP_NAME }}
 
       # Retries cover the cold start; a failure here means the published app is

@@ -90,31 +90,46 @@ func New(endpoint, name, apiKey, semantic string) *Index {
 	return idx
 }
 
-// warm fetches a token before any request needs one.
+// warm makes one whole request before any reader needs one, so that what only the
+// first request pays for is paid where nobody is waiting.
 //
-// Managed identity means the first token comes from a round trip to the instance
-// metadata service, and without this that round trip happens inside whichever request
-// arrives first, under that request's deadline. Search can usually absorb it inside
-// five seconds. Suggest cannot: its budget is 1.5 seconds because a completion that
-// arrives late is worth less than none, and both halves of a suggestion share it — so
-// a cold instance answered a reader's first keystroke with a 500.
+// There are two such costs and this covers both, which is why it is a request rather
+// than a token fetch.
 //
-// Worse than the one failure, a fetch cancelled by that deadline never finishes, so it
-// never populates the credential's cache and the next keystroke pays the same cost
-// again. Suggest could stay broken on an instance where the token takes between its
-// budget and search's. Fetching once up here ends both.
+// The token is the first. Managed identity means it comes from a round trip to the
+// instance metadata service, and without this that round trip happens inside whichever
+// request arrives first, under that request's deadline. Search can usually absorb it
+// inside five seconds. Suggest cannot: its budget is 1.5 seconds because a completion
+// that arrives late is worth less than none, and both halves of a suggestion share it
+// — so a cold instance answered a reader's first keystroke with a 500. Worse than the
+// one failure, a fetch cancelled by that deadline never finishes, so it never populates
+// the credential's cache and the next keystroke pays the same cost again.
 //
-// Failure is logged and otherwise dropped. Every request still fetches its own token if
-// the cache is empty, so a failed warm-up costs a slow first request rather than a
-// broken instance — and a credential that is genuinely misconfigured fails the health
-// check, which is where anyone would look.
+// The connection is the second, and it is the larger of the two in the ordinary case.
+// The first call to the search service resolves its name, opens a socket and completes
+// a TLS handshake, and only then asks the question. Measured against the live service
+// with the token taken out of it — an API key, so nothing is fetched — the first query
+// on a fresh process ran 92 to 142 ms slower than the ones after it, and with a request
+// made up here first that fell to between 4 and 20 ms. Production says the same from
+// the other end: across a fortnight the first search on an instance took 447 ms at the
+// median against 32 ms for every search after it, and one search in eight is a first.
+//
+// Ready is what it asks, because it is the cheapest thing the service answers and it is
+// already the health check's question. Counting is not semantic, so this spends nothing
+// from the metered reranking quota, and the connection it leaves behind is pooled on
+// the client every later request shares.
+//
+// Failure is logged and otherwise dropped. Every request still fetches its own token
+// and opens its own connection when there is none, so a failed warm-up costs a slow
+// first request rather than a broken instance — and a credential that is genuinely
+// misconfigured fails the health check, which is where anyone would look.
 func (i *Index) warm() {
 	ctx, cancel := context.WithTimeout(context.Background(), warmTimeout)
 	defer cancel()
 
-	if _, err := i.cred.GetToken(ctx, policy.TokenRequestOptions{Scopes: searchScope}); err != nil {
-		slog.WarnContext(ctx, "could not fetch a search token at startup, "+
-			"so the first request will pay for it", "error", err)
+	if err := i.Ready(ctx); err != nil {
+		slog.WarnContext(ctx, "could not reach the search index at startup, "+
+			"so the first request will pay for the token and the connection", "error", err)
 	}
 }
 
