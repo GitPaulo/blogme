@@ -10,6 +10,7 @@
 	import { fade } from 'svelte/transition';
 	import { browser } from '$app/environment';
 	import { replaceState } from '$app/navigation';
+	import { base } from '$app/paths';
 	import BookmarkButton from '$lib/components/BookmarkButton.svelte';
 	import FilterBar from '$lib/components/FilterBar.svelte';
 	import SearchSuggestions from '$lib/components/SearchSuggestions.svelte';
@@ -592,6 +593,29 @@
 		searchInput?.focus();
 	}
 
+	// The wordmark is the way back to an empty page. Here that means clearing the search
+	// rather than loading anything: this is one route, and the effect that watches the
+	// query already puts the results, the filters, the error and the address bar back as
+	// they were the moment the box is empty.
+	//
+	// It is a real link rather than a button so that the browser's own ways of opening one
+	// — middle click, ctrl or cmd, "open in new tab" — keep working and still land on a
+	// bare page. Only a plain left click is handled here; everything else is left alone,
+	// including a click something else has already answered.
+	function goHome(event: MouseEvent) {
+		if (event.defaultPrevented || event.button !== 0) return;
+		if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+		event.preventDefault();
+		query = '';
+		// The ranking mode is left as it was, because emptying the box by hand does not
+		// turn it off either and a reader who chose semantic did not ask to be put back.
+		//
+		// Focused but not opened: `dismissed` is still set from the search being cleared,
+		// so the caret lands in the box without a list of suggestions arriving over a page
+		// the reader has just asked to be empty.
+		searchInput?.focus();
+	}
+
 	// Submitting skips the pending debounce rather than queueing a second request.
 	function onsubmit(event: SubmitEvent) {
 		event.preventDefault();
@@ -654,7 +678,18 @@
 </svelte:head>
 
 <main class="mx-auto max-w-3xl px-6 py-16">
-	<Heading tag="h1" class="mb-2">blogme</Heading>
+	<Heading tag="h1" class="mb-2">
+		<!-- The visible word is the whole accessible name, so no aria-label: a link labelled
+		differently from what it reads as is the one thing WCAG's "label in name" asks not to
+		do, and "blogme" linking to a bare page is already the pattern every reader knows. -->
+		<a
+			href={base || '/'}
+			onclick={goHome}
+			class="wordmark rounded-sm focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary-600"
+		>
+			blogme
+		</a>
+	</Heading>
 	<P class="mb-8 text-gray-500 dark:text-gray-400">A search engine for tech blogs.</P>
 
 	<!-- The suggestion list sits below the box as part of this form, so opening it makes
@@ -1125,3 +1160,74 @@
 		</div>
 	{/if}
 </main>
+
+<style>
+	/* The wordmark is the only piece of brand on the page, so it gets the only flourish:
+	   a glint of the accent travelling across the letters on hover, and a small press
+	   under the pointer. Both are decoration. The link works with neither, which is the
+	   test each guard below is written to pass.
+
+	   The gradient is mostly `currentColor`, so the word keeps whatever colour the heading
+	   already had in either theme and only a narrow band is tinted. That is also why the
+	   fill is cleared with `-webkit-text-fill-color` rather than `color`: `currentColor`
+	   has to go on resolving to the real colour, or the rest of the gradient would have
+	   nothing to be.
+
+	   At rest the window onto the gradient sits past the glint, and at full hover it sits
+	   short of it, so the band is only ever seen crossing. Both ends look like plain text,
+	   which is what lets the pointer leave mid-sweep without anything appearing to break. */
+	.wordmark {
+		display: inline-block;
+	}
+
+	@media (prefers-reduced-motion: no-preference) {
+		.wordmark {
+			--glint: var(--color-primary-600);
+
+			background-image: linear-gradient(
+				100deg,
+				currentColor 40%,
+				var(--glint) 50%,
+				currentColor 60%
+			);
+			background-repeat: no-repeat;
+			background-size: 250% 100%;
+			background-position: 100% 0;
+			transition:
+				background-position 250ms ease-out,
+				transform 150ms ease-out;
+		}
+
+		:global(.dark) .wordmark {
+			/* A step lighter, because the accent that carries on white disappears into the
+			   navy the dark theme puts behind it. */
+			--glint: var(--color-primary-400);
+		}
+
+		/* Slower going in than coming out: the sweep is the point, the reset is not, and a
+		   reverse sweep on every mouse-out turns a flourish into a thing that follows you. */
+		.wordmark:hover,
+		.wordmark:focus-visible {
+			background-position: 0 0;
+			transition:
+				background-position 700ms ease-out,
+				transform 150ms ease-out;
+		}
+
+		.wordmark:active {
+			transform: scale(0.97);
+		}
+
+		/* Last, and separately: clipping the background to the glyphs is what makes any of
+		   this visible, and a browser that cannot would paint transparent letters over
+		   nothing and lose the title altogether. Everything above survives being ignored;
+		   this does not, so it is the one thing asked for rather than assumed. */
+		@supports (background-clip: text) or (-webkit-background-clip: text) {
+			.wordmark {
+				background-clip: text;
+				-webkit-background-clip: text;
+				-webkit-text-fill-color: transparent;
+			}
+		}
+	}
+</style>
