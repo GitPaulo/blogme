@@ -214,8 +214,8 @@
 	// empty list with pages still to come is a prompt rather than a dead end.
 	const noMatchMessage = $derived(
 		hasMore
-			? 'No loaded results match these filters. Try loading more.'
-			: 'No loaded results match these filters.'
+			? 'Filters only narrow the results already loaded. Load more to widen what they can reach.'
+			: 'Clear or widen a filter to see the rest of what came back.'
 	);
 
 	// The bookmarked filter needs the saved keys, which the drawer would otherwise only
@@ -919,11 +919,19 @@
 				<FilterBar {results} bind:filters />
 
 				{#if shown === 0}
-					<!-- Same darkening as the empty state below, for the same reason: the grey
-					Alert's own gray-500 is 4.39:1 on the gray-100 it paints. -->
-					<Alert color="gray" class="mt-4 text-gray-600 dark:text-gray-300">
-						{noMatchMessage}
-					</Alert>
+					<!-- The same card the results are in, because it stands where a result would.
+					Red Alerts are kept for the one thing that is an alert — a search that failed —
+					so a page with nothing on it is not dressed as a page with something wrong.
+
+					The way out is already on screen: Load more sits directly below, and the
+					filters that emptied the list are directly above. A third copy of either here
+					would be a second place to look for the same control. -->
+					<Card class="mt-4 max-w-none flex-col items-start gap-1 p-4" role="status">
+						<p class="font-medium text-gray-900 dark:text-white">
+							No loaded results match these filters
+						</p>
+						<p class="text-sm text-gray-600 dark:text-gray-400">{noMatchMessage}</p>
+					</Card>
 				{/if}
 
 				<!-- A replaced set of results is faded through rather than cut to: the rows on
@@ -1114,57 +1122,50 @@
 					</div>
 				{/if}
 			{:else if status === 'done'}
-				<!-- The same grey Alert the filter's no-match uses and the red one an error uses,
-				because this is the same kind of thing: the page reporting on itself, in the one
-				place the page does that. A state that invents its own container for the sake of
-				looking calmer is a second design language, and the reader has to learn where to
-				look twice.
+				<!-- The same card a result comes in: same border, same radius, same surface, in
+				the same column and at the same width. An empty search is still the page
+				answering, so it answers in the shape the reader has been reading all along. The
+				grey Alert it used to sit in was a second surface with no border and its own
+				muted type; red Alerts stay where they belong, on errors.
 
-				What changed is inside it. The offer to switch ranking modes was a filled pill
-				set into the middle of the sentence, which is the shape this page uses for tags
-				— a label, not a control — so it read as decoration on the one line that wanted
-				a click. It is now an ordinary `alternative` button on its own line, the same
-				one that loads more results and returns to the top, under a sentence that says
-				what the other mode would do differently rather than only naming it.
+				Inside, the type is the card's — gray-900 to lead, gray-600 at `text-sm` under
+				it — both already checked against white and gray-800 for the result rows.
 
-				Left-aligned and `text-sm` like its siblings. `xs` on the button because the
-				Alert sets `text-sm` around it, and a button that outsizes its own container
-				reads as the point of the box rather than the way out of it.
+				The offer to switch ranking modes is an ordinary `alternative` button at the
+				size Load more uses, so it hovers, focuses and depresses like every other button
+				here and is a 42px target under a thumb. It was a filled pill set into the
+				middle of the sentence, which is the shape this page uses for tags: a label, not
+				a control.
 
 				The icon is the mode being offered, not the mode in use — the inverse of the
 				toggle in the search box. Both carry a word beside the picture, so the wand is
-				never left to mean two things a few centimetres apart. -->
-				<Alert color="gray" class="mt-4">
-					<div class="flex flex-col items-start gap-3">
-						<div>
-							<!-- Darker than the Alert's own text, which is tuned for one muted line and
-							leaves a heading inside it too faint to lead. Checked against both of the
-							backgrounds the grey Alert paints: gray-100 light, gray-700 dark. -->
-							<p class="font-medium text-gray-700 dark:text-gray-100">No results found</p>
-							<!-- gray-600 rather than the Alert's own gray-500, which lands at 4.39:1 on
-							the gray-100 it paints in light mode and so misses AA by a hair. gray-600
-							is 6.87:1 there; the dark side already passed at 7.0:1 and is left alone. -->
-							<p class="mt-0.5 text-gray-600 dark:text-gray-300">
-								{#if semanticRanking}
-									Nothing came back close enough. Keyword search matches your words exactly, and
-									pages deeper.
-								{:else}
-									Keyword search needs every word to appear. Semantic search reads the query as a
-									sentence instead.
-								{/if}
-							</p>
-						</div>
-						<Button color="alternative" size="xs" class="gap-2" onclick={toggleRanking}>
+				never left to mean two things a few centimetres apart.
+
+				No role of its own: the live region above already reads emptyMessage, which
+				names this same button, and a box that announced itself would say it twice. -->
+				<Card class="mt-4 max-w-none flex-col items-start gap-3 p-4">
+					<div>
+						<p class="font-medium text-gray-900 dark:text-white">No results found</p>
+						<p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
 							{#if semanticRanking}
-								<SearchOutline class="h-4 w-4" aria-hidden="true" />
-								Try keyword search
+								Nothing came back close enough. Keyword search matches your words exactly, and pages
+								deeper.
 							{:else}
-								<WandMagicSparklesOutline class="h-4 w-4" aria-hidden="true" />
-								Try semantic search
+								Keyword search needs every word to appear. Semantic search reads the query as a
+								sentence instead.
 							{/if}
-						</Button>
+						</p>
 					</div>
-				</Alert>
+					<Button color="alternative" class="gap-2" onclick={toggleRanking}>
+						{#if semanticRanking}
+							<SearchOutline class="h-4 w-4" aria-hidden="true" />
+							Try keyword search
+						{:else}
+							<WandMagicSparklesOutline class="h-4 w-4" aria-hidden="true" />
+							Try semantic search
+						{/if}
+					</Button>
+				</Card>
 			{/if}
 		</div>
 	{/if}
@@ -1207,9 +1208,8 @@
 			.wordmark-fill,
 			.wordmark-stencil {
 				/* The gradient is a hard edge, twice the width of the word, so sliding it is a
-				   wipe rather than a fade. Repeated down the axis it does not vary in, because
-				   a mask covers only the element's own box and the tail of the "g" hangs below
-				   it — the first version of this clipped the descender clean off. */
+				   wipe rather than a fade. Repeated down the axis it does not vary in, so a box
+				   shorter than the ink inside it still gets a mask everywhere. */
 				-webkit-mask-repeat: repeat-y;
 				mask-repeat: repeat-y;
 				-webkit-mask-size: 200% 100%;
@@ -1231,6 +1231,13 @@
 				position: absolute;
 				top: 0;
 				left: 0;
+				/* A mask paints nothing outside the box it is clipped to, however far it
+				   repeats, and the tail of the "g" hangs below a block box one line high — so
+				   the box is grown to hold it. Padding rather than height, so it follows the
+				   type size, and on an out-of-flow element it moves nothing. The solid copy
+				   needs none of this: an inline box is already as deep as the font's descent.
+				   Absent it, the descender is cut clean off for the length of the sweep. */
+				padding-bottom: 0.25em;
 				-webkit-text-fill-color: transparent;
 				-webkit-text-stroke: 1.5px currentColor;
 				-webkit-mask-image: linear-gradient(90deg, #000 50%, transparent 50%);

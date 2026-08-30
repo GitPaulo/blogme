@@ -66,9 +66,15 @@ that made the select taller pulled it further out of line. -->
 		<!-- Takes the width the buttons leave rather than a fixed one: a wrapping row
 			breaks on each item's natural size, so any width wide enough to push the last
 			button onto a second line would do so before the select ever gave any back. -->
+		<!-- Flowbite hangs its list a whole rem below the box, which reads as a panel that
+			belongs to the page rather than to the control that opened it. Four pixels, the
+			same as the suggestion list under the search box, and a shadow to say which of the
+			two is on top. Scrolls only when there are more tags than fit, rather than
+			reserving a track for a list of three. -->
 		<MultiSelect
 			size="sm"
 			class="w-full min-w-0 sm:w-auto sm:flex-1"
+			classes={{ dropdown: 'top-[calc(100%+0.25rem)] overflow-y-auto shadow-lg' }}
 			items={tagItems}
 			bind:value={filters.tags}
 			placeholder="All tags"

@@ -160,30 +160,40 @@
 </Button>
 <Tooltip>Bookmarks</Tooltip>
 
-<Drawer bind:open placement="right" dismissable={false} class="w-full sm:w-96">
+<!-- Flush to the inline end of the viewport: the auto margin on the other side is what
+puts it there, and the edges it shares with the screen carry neither border nor corner,
+so the panel reads as the side of the window rather than as a card floating near it.
+Full-width below `sm`, where a 24rem panel would leave a strip of page too narrow to use
+but wide enough to invite a tap that only closes it. -->
+<Drawer
+	bind:open
+	placement="right"
+	dismissable={false}
+	class="ms-auto me-0 flex h-full w-full max-w-full flex-col gap-3 rounded-none border-y-0 border-e-0 sm:w-96"
+>
 	<Drawerhead onclick={() => (open = false)} class="shrink-0">
 		<Heading tag="h2" class="text-lg font-semibold">Bookmarks</Heading>
 	</Drawerhead>
 
 	{#if bookmarks.error}
-		<Alert color="red" class="mt-3 shrink-0">{bookmarks.error}</Alert>
+		<Alert color="red" class="shrink-0">{bookmarks.error}</Alert>
 	{/if}
 
 	{#if notice}
-		<Alert color="red" class="mt-3 shrink-0">{notice}</Alert>
+		<Alert color="red" class="shrink-0">{notice}</Alert>
 	{/if}
 
 	<!-- flex-1 on the two states that have no list to grow: it is what holds the action
 	bar below on the bottom edge of the drawer rather than up under the message. -->
 	{#if loading}
-		<P class="mt-3 flex-1 text-sm text-gray-500 dark:text-gray-400">Loading your bookmarks.</P>
+		<P class="flex-1 text-sm text-gray-500 dark:text-gray-400">Loading your bookmarks.</P>
 	{:else if items.length === 0}
-		<P class="mt-3 flex-1 text-sm text-gray-500 dark:text-gray-400">
+		<P class="flex-1 text-sm text-gray-500 dark:text-gray-400">
 			No bookmarks yet. Save a result to find it here later, or import an export.
 		</P>
 	{:else}
 		<!-- Nothing to narrow until something is saved, so the field only exists alongside a list. -->
-		<div class="mt-3 shrink-0">
+		<div class="shrink-0">
 			<Input
 				type="search"
 				bind:value={filter}
@@ -199,10 +209,12 @@
 		</div>
 
 		{#if visible.length === 0}
-			<P class="mt-3 text-sm text-gray-500 dark:text-gray-400">No saved posts match that filter.</P>
+			<P class="flex-1 text-sm text-gray-500 dark:text-gray-400"
+				>No saved posts match that filter.</P
+			>
 		{:else}
 			<!-- The list takes the leftover space so the action bar can sit on the bottom edge. -->
-			<div class="mt-3 min-h-0 flex-1" bind:clientHeight={listHeight}>
+			<div class="min-h-0 flex-1" bind:clientHeight={listHeight}>
 				<VirtualList items={visible} height={listHeight} minItemHeight={ROW_HEIGHT} contained>
 					{#snippet children(item: Bookmark)}
 						{@const published = formatDate(item.publishedAt)}
@@ -258,9 +270,12 @@
 
 	<!-- Outside the branch above, because importing is how a browser with none of its own
 	gets any: the bar is the one part of the drawer that has to be there when the list is
-	not. What it acts on is disabled instead. -->
+	not. What it acts on is disabled instead.
+
+	Wraps, because the drawer is as narrow as the screen below `sm` and three controls plus
+	a count do not always fit one line there. -->
 	<div
-		class="mt-3 flex shrink-0 items-center gap-2 border-t border-gray-200 pt-3 dark:border-gray-700"
+		class="flex shrink-0 flex-wrap items-center gap-2 border-t border-gray-200 pt-3 dark:border-gray-700"
 	>
 		<span class="text-xs text-gray-500 tabular-nums dark:text-gray-400" aria-live="polite">
 			{savedLabel}
