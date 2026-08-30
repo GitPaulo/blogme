@@ -13,7 +13,7 @@ on a timer; the **read path** answers a user's query. They meet only at the sear
 ```mermaid
 flowchart LR
     subgraph Git["Repository"]
-        Y["blogs.yml<br/>47,102 blogs"]
+        Y["blogs.yml<br/>46,083 blogs"]
     end
 
     subgraph Azure["Azure"]
@@ -54,8 +54,8 @@ flowchart TD
     R -->|no| SKIP["Skip"]
     R -->|yes| P{"Has a feed?"}
 
-    P -->|"yes — 38,956 blogs"| F["Fetch RSS/Atom feed"]
-    P -->|"no — 8,146 blogs"| M["Find sitemap<br/>robots.txt, then common paths"]
+    P -->|"yes — 38,403 blogs"| F["Fetch RSS/Atom feed"]
+    P -->|"no — 7,680 blogs"| M["Find sitemap<br/>robots.txt, then common paths"]
 
     F --> ITEMS["Parse entries<br/>title, link, date, content"]
     ITEMS --> FULL{"Feed content<br/>200+ words?"}
@@ -79,7 +79,7 @@ flowchart TD
 
 A feed describes its own posts, so it is both cheaper and more accurate: one request
 usually yields every recent post, with a title, a link and a date already attached. The
-sitemap path exists for the third of the corpus that publishes no feed. It is slower by
+sitemap path exists for the sixth of the corpus that publishes no feed. It is slower by
 design — a sitemap lists every page a site has, so each candidate must be fetched before
 it can be judged, and the word count is what separates a post from a landing page. Which
 path found an article is recorded on it as its **origin**, because sitemap metadata is
@@ -157,6 +157,8 @@ API offers — `origin`, which narrows results to feed or sitemap discoveries �
 from a fixed set of expressions rather than from the caller's string, so no filter can be
 injected through the query.
 
+### Rate limits
+
 The endpoint is anonymous, so there is no key to revoke and a **rate limit** is what
 stands between a script and the bill. Callers are identified by the address Azure appends
 to `X-Forwarded-For`, and a throttled request is answered with `429`, `Retry-After` and
@@ -189,6 +191,8 @@ rather than enforce a budget: they turn "burn the month's reranking in a minute"
 what bound a flood, because traffic spread over many addresses is polite at every one
 of them; the instance ceiling on the plan is what turns that bound into a number.
 
+### At most three results from one blog
+
 A page carries at most three results from any one blog. Three posts from one site is
 rarely what a reader wanted, and it means a source that stuffs its posts with popular
 terms takes three rows rather than the page.
@@ -209,6 +213,8 @@ instead of adding their own page size. A page of twenty rows is not twenty docum
 wide once the cap has removed some, so a fixed stride steps over whatever was removed and
 skips it for good rather than deferring it. This is what makes "load more" reach every
 result exactly once.
+
+### A query is text, not grammar
 
 **What a reader types is treated as text, not as grammar.** Azure parses the search
 string before any analyzer sees it, and the punctuation in the names of things collides
@@ -242,6 +248,8 @@ quote is an apostrophe or a typo rather than an instruction, so it is escaped wi
 everything else. Nothing else is preserved: a leading `-` excluded a word and `c*` matched
 a million documents, and neither is something this search box offers or explains.
 
+### Which fields a query reaches
+
 **A query is matched against named fields only**, listed in `searchFields`, and leaving
 that to the default was a real bug for a while. The default is every field marked
 searchable, and those fields are not analysed alike: `title`, `summary`, `content` and
@@ -273,14 +281,7 @@ carries; across the query set it added between 21 and 95 documents and never onc
 a top three. `TestEverySearchableFieldDeclaresAnAnalyzer` is what keeps a third such field
 from arriving unnoticed.
 
-When nothing matches every word, the search asks again for any of them, and says so.
-What is left for it now is the query where every word is real and no single article
-carries them all — a long phrase, or a spelling the corpus writes another way. The retry
-runs only on an empty page, so no search that works is touched, and only on a query of
-more than one word, where "all" and "any" are different questions. A page that came back
-this way is flagged `broadened` and the result count says "nothing matched every word, so
-these match any of them" — the reader can see what they typed, and rows answering a
-looser question should not arrive unannounced.
+### Every word, then any of them
 
 A search matches only documents containing **every** word of the query. Matching any of
 them was the original choice, meant to hand the reranker a wide field to sort out, and
@@ -291,6 +292,17 @@ moved a search for "sean goedecke" from rank 39 to 14 among his own posts, while
 the top of "github actions" — the most searched query here — untouched. Every query on
 record still returns something.
 
+When nothing matches every word, the search asks again for any of them, and says so.
+What is left for that retry is the query where every word is real and no single article
+carries them all — a long phrase, or a spelling the corpus writes another way. It runs
+only on an empty page, so no search that works is touched, and only on a query of more
+than one word, where "all" and "any" are different questions. A page that came back this
+way is flagged `broadened` and the result count says "nothing matched every word, so
+these match any of them" — the reader can see what they typed, and rows answering a
+looser question should not arrive unannounced.
+
+### Ranking
+
 Ranking happens in two stages. Keyword scoring picks the candidates, weighted towards the
 title, and then Azure AI Search's **semantic ranker** reorders them with a language model
 — which is what makes a query phrased as a sentence work rather than only a bag of
@@ -300,19 +312,19 @@ scoring part-way down a scroll. Reranking is metered, so a query is downgraded t
 ranking when the throttle says the budget is spent, and retried without it if the service
 refuses anyway. Search degrades rather than failing, either way.
 
-The index also carries a scoring profile named `relevance`, weighting title above
-`authorText` above summary above content, and no query names it. It applies all the same: an index's
-`defaultScoringProfile` is used by every query that does not choose one, which is why
-naming it explicitly was measured against `claude`, `rust ownership`, `sean goedecke`,
-`github actions` and `python` and returned byte-identical results every time. Both arms of
-that comparison were running the same profile.
+No query names a scoring profile, and one applies anyway: an index's
+`defaultScoringProfile` is used by every query that does not choose one. Naming it
+explicitly was measured against `claude`, `rust ownership`, `sean goedecke`,
+`github actions` and `python` and returned byte-identical results every time — both arms
+of that comparison were already running the same profile.
 
-That matters now, because it is the hook the whole of
-[quality-scoring.md](quality-scoring.md) hangs on: a scoring **function** added to the
-default profile reaches every query without a line of code changing. The index carries
-three further profiles that each differ from `relevance` by one variable, so which of
-them should be the default is a question `make harness` can answer rather than one to
-argue about.
+That is the hook the whole of [quality-scoring.md](quality-scoring.md) hangs on: a
+scoring **function** added to the default profile reaches every query without a line of
+code changing. The index carries four profiles differing from each other by one variable
+at a time — `relevance-quality` is the current default — so which should apply is a
+question `make harness` can answer rather than one to argue about.
+
+### Choosing a mode
 
 Two ranking modes is one more than most search boxes have, so the toggle teaches rather
 than labels: hovering it says what that mode matches on, what it is good for, and two
@@ -327,6 +339,8 @@ a trailing question mark, or an opening pair like "why is", "how do", "can i". B
 of the pair are required, and that is the whole design — "how" alone opens "how I built my
 blog", which is a title a keyword search finds exactly. An offer that appears over
 ordinary searches is worse than none, because it teaches people to ignore it.
+
+### The search lives in the URL
 
 A search lives in the address bar. The query and the ranking mode — everything the server
 was asked for — are written back as `?q=` and `?mode=`, so a search can be shared,
@@ -343,6 +357,8 @@ results they came for, offering completions for a query they never typed. The li
 when they go to the box, which is when they have asked for it. A link with other
 parameters and no `q` still focuses, because there is nothing to read yet.
 
+### Caching and compression
+
 An answer is cacheable for two minutes, so a reload or a shared link opened twice costs
 neither an execution nor an index query. Discovery runs hourly, so anything well inside
 that cycle serves the corpus the index would have answered from anyway; a minute was
@@ -358,6 +374,8 @@ happens in the worker or not at all. Bodies below 1 KB are sent as they are, bec
 costs eighteen bytes of header and footer before any content and every error here is one
 sentence. `Vary: Accept-Encoding` rides on both forms, since they share a URL and the
 answer is cacheable and public.
+
+### Typeahead
 
 `/api/suggest` completes the query being typed. It is the **autocomplete** half of Azure
 AI Search's typeahead rather than the **suggest** half, which returns documents: the page
@@ -512,12 +530,50 @@ letter; what keeps that honest is that a completion is dropped as soon as it no 
 matches what is in the box. Without it, a request that failed or timed out would leave the
 last query's completions on screen for good, under a box that has since moved on.
 
+### Health
+
 `/api/health` asks the index for a document count rather than reporting that the process
 is up. The deploy workflow gates on it, and the failures worth catching all authenticate
 correctly — a role assignment that was never granted still issues a token, and a
 misspelled index name is a valid request to somewhere that is not there. Both would ship
 green and then fail every search. Counting is not a semantic query, so the check spends
 nothing from the reranking quota.
+
+## In the browser
+
+Everything past the result list is the reader's own, kept on their device and never sent
+anywhere. There is no account, so there is nothing to sign into and nothing to lose when
+the API is down.
+
+| Feature          | Kept in                  | Notes                                           |
+| ---------------- | ------------------------ | ----------------------------------------------- |
+| Bookmarks        | IndexedDB, keyed by URL  | Exported and imported as JSON, capped at 5,000  |
+| Visited marks    | IndexedDB, keyed by hash | Capped at 250,000, trimmed oldest-first         |
+| Recent searches  | `localStorage`           | 25 queries, forgotten after a month             |
+| Theme            | `localStorage`           | Falls back to `prefers-color-scheme`            |
+| Preview geometry | `localStorage`           | Where the reader last dragged the preview panel |
+
+The filter bar — tags, date range, bookmarked-only, visited-only — reads from the first
+two. Those two also need more explanation than a table cell holds.
+
+**A visit is stored under a hash of the URL, a bookmark under the URL itself**, and the
+difference is what a collision would cost. The URL is first reduced to the page it names
+— fragment dropped, tracking parameters removed, remaining ones sorted, scheme and `www.`
+and a trailing slash ignored — then hashed to eight bytes, which is what keeps a history
+of hundreds of thousands of reads small enough for a phone and off disk in readable form.
+cyrb53 collides about once in 300,000 histories at the cap, and the damage when it does
+is one link wearing a mark it did not earn. A bookmark cannot afford that, so it is keyed
+by its URL. Only the links currently on screen are ever looked up: a render asks about
+the handful in front of the reader, and one microtask serves them all from one
+transaction.
+
+**Hovering a result opens the page itself in a panel**, after a dwell long enough that
+running the pointer down the list never starts one. The frame is sandboxed and sent with
+no referrer. Many sites refuse to be framed at all, and the crawler already knows which:
+`framingDenied` is read from the page's own headers at discovery time and travels with
+the result, so a refusal is a one-line message rather than a blank box that spends a load
+finding out. A page nobody has checked is still tried — that is what every link did
+before any of this existed.
 
 ## Logging
 
@@ -572,21 +628,23 @@ job logs a line per source, which at 1,000 sources an hour is not something to l
 
 ## Where each stage lives
 
-| Stage                                       | Code                                                                            |
-| ------------------------------------------- | ------------------------------------------------------------------------------- |
-| Build the blog list                         | [`sources/tools/`](../sources/tools/)                                           |
-| Publish the list                            | [`infra/upload-sources.sh`](../infra/upload-sources.sh)                         |
-| Load and cache the list                     | [`api/internal/sources`](../api/internal/sources)                               |
-| Batching and cursor                         | [`api/internal/discovery/discovery.go`](../api/internal/discovery/discovery.go) |
-| Feeds, fetching, robots                     | [`api/internal/discovery`](../api/internal/discovery)                           |
-| Sitemap fallback                            | [`api/internal/discovery/sitemap.go`](../api/internal/discovery/sitemap.go)     |
-| Text extraction                             | [`api/internal/discovery/extract.go`](../api/internal/discovery/extract.go)     |
-| Canonical storage                           | [`api/internal/store`](../api/internal/store)                                   |
-| Index and query                             | [`api/internal/index`](../api/internal/index)                                   |
-| Typeahead                                   | [`api/internal/index/suggest.go`](../api/internal/index/suggest.go)             |
-| Backfilling `titleSuggest` and `authorText` | [`infra/backfill_suggest.py`](../infra/backfill_suggest.py)                     |
-| HTTP handlers                               | [`api/internal/httpapi`](../api/internal/httpapi)                               |
-| Web UI                                      | [`web/src`](../web/src)                                                         |
+| Stage                                       | Code                                                                                                 |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Build the blog list                         | [`sources/tools/`](../sources/tools/)                                                                |
+| Publish the list                            | [`infra/upload-sources.sh`](../infra/upload-sources.sh)                                              |
+| Load and cache the list                     | [`api/internal/sources`](../api/internal/sources)                                                    |
+| Batching and cursor                         | [`api/internal/discovery/discovery.go`](../api/internal/discovery/discovery.go)                      |
+| Feeds, fetching, robots                     | [`api/internal/discovery`](../api/internal/discovery)                                                |
+| Sitemap fallback                            | [`api/internal/discovery/sitemap.go`](../api/internal/discovery/sitemap.go)                          |
+| Text extraction                             | [`api/internal/discovery/extract.go`](../api/internal/discovery/extract.go)                          |
+| Canonical storage                           | [`api/internal/store`](../api/internal/store)                                                        |
+| Index and query                             | [`api/internal/index`](../api/internal/index)                                                        |
+| Typeahead                                   | [`api/internal/index/suggest.go`](../api/internal/index/suggest.go)                                  |
+| Backfilling `titleSuggest` and `authorText` | [`infra/backfill-suggest.sh`](../infra/backfill-suggest.sh)                                          |
+| HTTP handlers                               | [`api/internal/httpapi`](../api/internal/httpapi)                                                    |
+| Web UI                                      | [`web/src`](../web/src)                                                                              |
+| Bookmarks and visited marks                 | [`web/src/lib/bookmarks`](../web/src/lib/bookmarks), [`web/src/lib/visited`](../web/src/lib/visited) |
+| Link preview                                | [`web/src/lib/components/LinkPreview.svelte`](../web/src/lib/components/LinkPreview.svelte)          |
 
 ## Data at each stage
 

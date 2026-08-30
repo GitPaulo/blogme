@@ -1,6 +1,7 @@
 # System Design
 
-> **Goal:** simplest practical architecture that can grow without requiring an early redesign.
+> **Goal:** the simplest architecture that can grow without an early redesign.
+> Companion to [tech-stack.md](tech-stack.md), which decides what it is written in.
 
 ## Architecture
 
@@ -11,11 +12,12 @@ GitHub Repository
       │   Static frontend            │
       │                              ▼
       └── Azure Functions ─────> Azure AI Search
-          Search API                 Search index
-          Discovery job
-                │
-                ▼
-          Azure Storage
+          HTTP: search, suggest,     Search index
+                health              ▲
+          Timers: discover, score   │
+                │                   │
+                ▼                   │
+          Azure Storage ────────────┘
           Canonical article data
 ```
 
@@ -23,99 +25,86 @@ GitHub Repository
 
 ### GitHub Pages
 
-Hosts the static search website.
-
-- UI only.
-- Calls the Azure Functions search API.
-- Deployed from GitHub.
+Hosts the static search website. UI only: it calls the Functions HTTP API and holds no
+Azure credentials.
 
 ### Azure Functions — Flex Consumption
 
-Single backend application containing:
+One backend application, five functions:
 
-- **Search API** — HTTP-triggered endpoint used by the frontend.
-- **Discovery job** — timer-triggered job that finds and processes new articles.
+| Function   | Trigger | What it does                                       |
+| ---------- | ------- | -------------------------------------------------- |
+| `search`   | HTTP    | Answers a query from the index                     |
+| `suggest`  | HTTP    | Completes the query being typed                    |
+| `health`   | HTTP    | Asks the index for a document count                |
+| `discover` | Timer   | Crawls a slice of the source list for new articles |
+| `score`    | Timer   | Judges indexed articles for quality                |
 
-Use **Flex Consumption**. It is Microsoft's recommended serverless Azure Functions hosting plan for new applications and supports automatic event-driven scaling.
+Flex Consumption is Microsoft's recommended serverless plan for new applications, and
+the only one first-class Go support runs on. Timers registered separately so either can
+be turned off alone.
 
 ### Azure Storage
 
-Stores the canonical article data, for example cleaned article JSON.
-
-It can also use the same general-purpose storage account required by the Function App initially, with separate containers.
-
-The search index is treated as rebuildable; Azure Storage remains the source of truth.
+Holds the canonical article JSON and the discovery cursor, in containers on the same
+general-purpose account the Function App already requires. It is the source of truth.
 
 ### Azure AI Search
 
-Stores the searchable representation of articles.
+Holds the searchable projection of those articles. The index is treated as
+**rebuildable** from storage, which is what makes changing tier or schema cheap. Tier
+choice and its history are in [tech-stack.md](tech-stack.md#data-and-search).
 
-Start with **Dedicated Basic**:
-
-- Full-text search initially.
-- Add vector/hybrid search when needed.
-- Scale replicas for query load and partitions for index capacity.
-- Move to Standard only when workload requires it.
-
-Do **not** depend on the new Serverless Developer tier initially. As of August 2026 it is still Preview, has no SLA, and Microsoft does not recommend it for production workloads.
-
-## Data Flow
-
-### Discovery
+## Data flow
 
 ```text
-Timer
-  ↓
-Azure Function
-  ↓
-Discover + process article
-  ↓
-Azure Storage
-  ↓
-Azure AI Search
+Discovery                      Search
+  Timer                          User
+    ↓                              ↓
+  Azure Function                 GitHub Pages
+    ↓                              ↓
+  Discover + process article     Azure Function
+    ↓                              ↓
+  Azure Storage                  Azure AI Search
+    ↓                              ↓
+  Azure AI Search                Results
 ```
 
-### Search
-
-```text
-User
-  ↓
-GitHub Pages
-  ↓
-Azure Function
-  ↓
-Azure AI Search
-  ↓
-Results
-```
+Step by step, see [how-it-works.md](how-it-works.md).
 
 ## Authentication
 
-Use a **Managed Identity** for the Function App to access Azure Storage and Azure AI Search.
+The Function App uses a **managed identity** to reach Azure Storage and Azure AI Search.
+No Azure credential reaches the GitHub Pages frontend, and the deploy workflows
+authenticate with OIDC federation rather than a stored secret.
 
-No Azure credentials should be exposed to the GitHub Pages frontend.
+## Source configuration
 
-## Source Configuration
-
-Keep the approved blog/source list in Git initially.
+The approved blog list lives in Git, so every change goes through normal review and no
+database or admin service is needed:
 
 ```text
 sources/
-  blogs.yml
+  blogs.yml            generated, the approved list
+  blogs-overrides.yml  corrections kept by hand, re-applied on every rebuild
 ```
 
-Changes go through the normal Git workflow and require no additional database or admin service.
+Publishing the list is separate from deploying the code — see
+[sources/README.md](../sources/README.md#publishing).
 
-## Scaling Path
+## Scaling path
 
-Only add infrastructure when a real limit appears:
+Add infrastructure only when a real limit appears:
 
-1. **More search traffic/data** → scale Azure AI Search.
+1. **More search traffic or data** → scale Azure AI Search.
 2. **Discovery becomes heavy** → separate the discovery worker from the API.
 3. **Discovery needs parallel processing** → introduce a queue and workers.
 4. **GitHub Pages becomes limiting** → migrate only the frontend hosting.
 
-No Cosmos DB, Service Bus, API Management, Kubernetes, or separate microservices initially.
+The trigger for step 3 is spelled out in
+[discovery-cadence.md](discovery-cadence.md#when-batching-stops-being-enough).
+
+No Cosmos DB, Service Bus, API Management, Kubernetes or separate microservices.
 
 ## References
 
@@ -128,8 +117,6 @@ Validated against official documentation on **16 August 2026**.
 - [Azure Functions storage considerations](https://learn.microsoft.com/en-us/azure/azure-functions/storage-considerations)
 - [Azure Blob Storage](https://learn.microsoft.com/en-us/azure/storage/blobs/storage-blobs-introduction)
 - [Azure AI Search](https://learn.microsoft.com/en-us/azure/search/search-what-is-azure-search)
-- [Azure AI Search hybrid search](https://learn.microsoft.com/en-us/azure/search/hybrid-search-overview)
 - [Azure AI Search tiers](https://learn.microsoft.com/en-us/azure/search/search-sku-tier)
-- [Azure AI Search scaling](https://learn.microsoft.com/en-us/azure/search/search-create-service-portal)
 - [Azure AI Search RBAC](https://learn.microsoft.com/en-us/azure/search/search-security-rbac)
 - [GitHub Pages](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages)

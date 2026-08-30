@@ -131,40 +131,45 @@ clients. We are deliberately not introducing interfaces for them until a second 
 
 ```bash
 make dev     # azurite + func start (api) + vite dev (web)
-make check   # golangci-lint, go test ./..., svelte-check, prettier
+make check   # gofmt, go vet, golangci-lint, go test, svelte-check, prettier, vitest
 make build   # func pack (linux/amd64) + static web build
 ```
 
 ## Infrastructure
 
-Four bash scripts under [`infra/`](../infra/), each safe to re-run because every step checks for the
-resource before creating it:
+Shell scripts under [`infra/`](../infra/), each safe to re-run: resources are created
+only when absent, and settings are written unconditionally so a re-run also restores
+anything changed by hand in the portal.
 
-| Script                   | What it does                                                                           |
-| ------------------------ | -------------------------------------------------------------------------------------- |
-| `provision.sh`           | Storage account, search service, Flex Consumption function app, role assignments, CORS |
-| `create-search-index.sh` | Applies [`search-index.json`](../infra/search-index.json) to the search service        |
-| `github-oidc.sh`         | The Entra ID app and federated credential the deploy workflows authenticate with       |
-| `upload-sources.sh`      | Publishes `blogs.yml` to blob storage                                                  |
+| Script                                     | What it does                                                                                     |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| `provision.sh`                             | Storage account, search service, function app, role assignments, CORS, application settings      |
+| `create-search-index.sh`                   | Applies [`search-index.json`](../infra/search-index.json) to the search service                  |
+| `github-oidc.sh`                           | The Entra ID app and federated credential the deploy workflows authenticate with                 |
+| `alerts.sh`                                | The alert rules and the action group they notify — see [alerting](discovery-cadence.md#alerting) |
+| `upload-sources.sh`                        | Publishes `blogs.yml` to blob storage                                                            |
+| `kill-switch.sh`                           | Stops the app or just its timers, and puts either back                                           |
+| `backfill-suggest.sh`                      | Fills `titleSuggest` and `authorText` on documents indexed before those fields existed           |
+| `repair-authors.sh`, `repair-summaries.sh` | One-off repairs of fields the crawler got wrong, kept for the next time                          |
 
-One setting the scripts apply that is easy to miss, because it looks like a default and
-is not: `httpsOnly` — a Function App answers plain HTTP until told otherwise.
-`http20Enabled` is deliberately **off**, required by the Go preview. There is no
+The backfill and the two repairs each wrap a Python file beside them, which is where
+their logic lives.
+
+Three settings are easy to miss, because they look like defaults and are not.
+`httpsOnly` is on — a Function App answers plain HTTP until told otherwise.
+`http20Enabled` is deliberately **off**, required by the Go preview. And there is no
 `healthCheckPath`: the platform would ping it every minute, which on Flex Consumption
 keeps an instance warm and defeats scale-to-zero for a workload that is idle between
-hourly runs. Alerting is set up separately; see
-[discovery-cadence.md](discovery-cadence.md#alerting).
+hourly runs.
 
 `maximumInstanceCount` is pinned to **10**, down from the default of 100, and it is the
 only hard limit on what the app can cost. Flex Consumption bills each instance for its
 memory for as long as it is up, so a saturated pool of 100 runs to roughly $640 a day —
 against a bill that is otherwise around $86 a month. Ten is five times the busiest hour
 ever recorded and well past what the Basic search tier behind it can answer, so it bounds
-the loss without bounding real traffic. `blogme-instances-scaling-out` (sev 2) says when
-more than five are running, which normal operation has never needed; the observed peak is
-two. A budget alert cannot do that job, because budgets evaluate every 8–24 hours and
-notify rather than cap. It reads the fifteen-minute average rather than the peak, so a deploy or a
-cold-start burst does not trip it.
+the loss without bounding real traffic. A budget alert cannot do that job: budgets
+evaluate every 8–24 hours and notify rather than cap, so `blogme-instances-scaling-out`
+watches the instance count instead.
 
 Not Bicep, and not `azd`. Go on Functions is in public preview and only its Azure CLI path is
 documented, so a declarative template would have to be reverse-engineered from CLI behaviour that is

@@ -40,8 +40,8 @@ visits sites that passed through this list and a human review. See
 [system design](../docs/system-design.md) for the services involved.
 
 The `feed` field is what the discovery job consumes directly. Sources without one fall
-back to a sitemap walk, which is slower and less accurate: 38,956 of 47,102 entries
-carry a feed.
+back to a sitemap walk, which is slower and less accurate: 38,403 of 46,083 entries
+carry a feed, measured on 30 August 2026.
 
 ## The list
 

@@ -234,10 +234,10 @@ Switching profile is one edit to `defaultScoringProfile` in
 [create-search-index.sh](../infra/create-search-index.sh). No redeploy, no reindex,
 and reverting is the same edit backwards.
 
-> **Order of operations.** A scoring function cannot read a null field, so an article
-> with no score gets no boost. While the corpus is still draining, scored articles are
-> boosted and unscored ones are not — which is a relative demotion of everything not
-> yet reached. Let the drain finish before making `relevance-quality` the default.
+> **Order of operations,** which is what the wait before switching was for. A scoring
+> function cannot read a null field, so an article with no score gets no boost: turning
+> the profile on mid-drain relatively demotes everything not yet reached. Raising
+> `quality.Version` puts the corpus back in that state, so the same wait applies again.
 
 ## Measuring it
 
@@ -272,19 +272,20 @@ after the next one had started. The deployed value is set by
 the portal is one the next provision run will undo.
 
 ```bash
-infra/kill-switch.sh scoring off
+infra/kill-switch.sh jobs off score
 ```
 
-Stops the timer without touching anything else. Search keeps using the scores already
-written; they simply stop being brought up to date. The stronger revert is to move
-`defaultScoringProfile` back to `relevance-fresh`, which leaves the figures in place and stops
-them affecting order at all.
+Stops the scoring timer without touching discovery or the site. Search keeps using the
+scores already written; they simply stop being brought up to date. The stronger revert is
+to move `defaultScoringProfile` back to `relevance-fresh`, which leaves the figures in
+place and stops them affecting order at all.
 
 ## Cost
 
-Four new fields on ~600,000 documents is about 20 MB against a 3.24 GB index. One extra
-timer of a few minutes a night is roughly **$1–2 a month** of Flex Consumption, against
-discovery's ~$15. Hacker News and the storage the popularity map needs are free. There
+Five numeric fields cost about 32 bytes a document — some 40 MB across the 1.3M
+documents indexed by 30 August, against an index of roughly 8 GB. The extra hourly timer
+is around **11% of the app's compute**, or $1–2 a month of Flex Consumption against
+discovery's ~$15. Hacker News and the blob the popularity map lives in are free. There
 is no one-off spend and no new service.
 
 ## What was deliberately left out
@@ -299,6 +300,6 @@ is no one-off spend and no new service.
   already remove them, and suppressing rows by title would hide the many blogs that
   honestly publish "Weekly update" every week.
 - **A source-level prior.** It exists to cover articles a budget would never reach.
-  Scoring everything nightly for nothing makes cold start one night at most.
+  Scoring everything on a timer makes cold start a few passes at most.
 - **`kind` as a signal.** Company blogs skew promotional, but the engineering blogs in
   that category are among the best writing in the corpus.

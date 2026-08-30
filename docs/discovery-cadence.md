@@ -3,8 +3,8 @@
 > How often discovery runs, how much it does per run, and how to change it.
 > Companion to [system-design.md](system-design.md).
 
-Sized against the source list on **20 August 2026**: 47,102 sources, 38,956 with a feed
-and 8,146 without.
+Sized against the source list on **30 August 2026**: 46,083 sources, 38,403 with a feed
+and 7,680 without.
 
 ## Summary
 
@@ -47,18 +47,18 @@ Coverage is simply how many sources a day the schedule gets through:
 
 ```text
 sources/day = (24 / schedule_hours) x batch_size
-full pass   = 47,102 / sources per day
+full pass   = 46,083 / sources per day
 ```
 
 | Batch     | Schedule   | Sources/day | Full pass    |
 | --------- | ---------- | ----------- | ------------ |
-| 200       | every 6h   | 800         | 59 days      |
-| 500       | hourly     | 12,000      | 3.9 days     |
-| **1,000** | **hourly** | **24,000**  | **2.0 days** |
+| 200       | every 6h   | 800         | 58 days      |
+| 500       | hourly     | 12,000      | 3.8 days     |
+| **1,000** | **hourly** | **24,000**  | **1.9 days** |
 | 2,000     | hourly     | 48,000      | 1.0 days     |
 
 The code defaults are deliberately conservative and are **not** a recommendation for
-production. At 59 days per pass a blog's new post could take two months to become
+production. At 58 days per pass a blog's new post could take two months to become
 searchable, which defeats the goal in the
 [high-level plan](blog-discovery-search-high-level-plan.md) that new posts appear
 automatically.
@@ -109,7 +109,7 @@ question:
   stub. Doing this is what makes a faster cadence cheap rather than merely possible.
 
 **Feeds and sitemaps cost differently.** 83% of sources publish a feed, which is one cheap
-request. The remaining 8,146 need a sitemap walk, which is heavier and is what pushes a
+request. The remaining 7,680 need a sitemap walk, which is heavier and is what pushes a
 run towards the ceiling. If cadence becomes expensive, checking feed-backed sources more
 often than sitemap-only ones is the obvious split, but it is not worth the complexity
 until measurements justify it. Finding more feeds when the source list is built is the
@@ -158,14 +158,14 @@ before raising it. Truncating articles to 1,000 words is what keeps a document t
 cadence for freshness both spend the same budget.
 
 Typeahead added about **0.8 KB** to that figure, measured on a 20,000-title probe: 295
-bytes for `titleSuggest`, which is a copy of the title because Azure AI Search will not
-build a suggester over a field that already exists, and 500 for the prefixes generated
-from it. That is roughly 12% on top of what a document already costs, and it is spent for
-good — a field cannot be deleted from an index without a rebuild. The lever is
-`--since` on [`backfill-suggest.sh`](../infra/backfill-suggest.sh): completing only from
-articles published since a given date scales the cost with the fraction of the corpus
-that qualifies, and arguably improves the completions by keeping a decade-old vocabulary
-out of them.
+bytes for `titleSuggest` and 500 for the prefixes generated from it, roughly 12% on top
+of what a document already costs. `authorText` added a further 213 bytes. Both are spent
+for good, because a field cannot be deleted from an index without a rebuild — see
+[how it works](how-it-works.md) for why each is a copy of a field already there. The
+lever is `--since` on [`backfill-suggest.sh`](../infra/backfill-suggest.sh): completing
+only from articles published since a given date scales the cost with the fraction of the
+corpus that qualifies, and arguably improves the completions by keeping a decade-old
+vocabulary out of them.
 
 Raising the window to 30 did exactly what the paragraph above warns of, and the figures
 are the reason to take that warning seriously:
@@ -176,20 +176,22 @@ are the reason to take that warning seriously:
 | Index storage           | 2.4 GB      | 3.24 GB (20% of quota) |
 | Articles found per pass | ~9,500      | ~13,800                |
 
-Index storage grew about 0.89 GB a day over that period, which puts Basic's 15 GiB quota
-roughly **two weeks out** if the rate holds. It should not hold — a full sweep of the
-source list takes 47 hours, so the step change from a wider window works through the
-corpus and then flattens as passes start revisiting posts already indexed. Watch it
-rather than assume it: `blogme-index-storage-high` fires at 60% of quota, and indexing
-fails outright at 100%, so the alert is the last comfortable moment to choose between
-pruning the corpus and changing tier.
+Index storage grew about 0.89 GB a day over that period, which put Basic's 15 GiB quota
+roughly two weeks out. The reasoning against taking that seriously was that it should
+flatten: a full sweep takes about two days, so a wider window works through the corpus
+once and then meets posts it has already indexed. **It flattened later and higher than
+that argued.** By 28 August the index held 1,197,546 documents at 7.4–8.4 GB — about
+half the quota — still gaining some 95,000 documents a day. A projection is a thing to
+watch, not a thing to reason away: `blogme-index-storage-high` fires at 60% of quota and
+indexing fails outright at 100%, which makes that alert the last comfortable moment to
+choose between pruning the corpus and changing tier.
 
-Two counts disagree and it is worth knowing which to trust. `/servicestats` reports
-531,757 documents while a match-all through the public API reports 432,325. Service
-statistics are documented as approximate and this index is written to every hour, so the
-gap is most likely ingestion lag — but it has not been run down. `storageSize` from the
-same endpoint is the number the quota is enforced against, so size decisions should use
-that and not either document count.
+Two traps sit in the way of watching it. Counts disagree — `/servicestats` reported
+531,757 documents against a match-all's 432,325 — because service statistics are
+documented as approximate and this index is written to every hour. And `storageSize`
+moves by around a gigabyte between readings an hour apart, as segments merge, so read
+the trend and not the point. It is still the number quota is enforced against, so size
+decisions use it rather than either document count.
 
 **Compute is the cheap part.** The plan is Flex Consumption with 2 GB instances, billed at
 $0.000037 per GB-second beyond a monthly grant of 100,000 GB-seconds. At batch 500 the
@@ -258,20 +260,25 @@ az monitor log-analytics query -w <WORKSPACE_GUID> --analytics-query   "AppTrace
 
 Nothing watches a run except these rules, and the reason they exist is that on
 17 August 2026 twelve of fourteen passes died at the 30-minute ceiling for half a day
-and nothing said so. All of them notify the `ag-blogme-ops` action group.
+and nothing said so. They are created by [`alerts.sh`](../infra/alerts.sh) and all
+notify the `ag-blogme-ops` action group.
 
-| Rule                              | Fires when                                             | Sev | Needs  |
-| --------------------------------- | ------------------------------------------------------ | --- | ------ |
-| `blogme-job-run-failed`           | a pass fails or is killed at the ceiling               | 1   | 2 of 3 |
-| `blogme-discovery-cursor-stalled` | 2+ passes complete in 4h without advancing the cursor  | 1   | 1 of 1 |
-| `blogme-discovery-not-running`    | no pass completes at all in 12h                        | 1   | 1 of 1 |
-| `blogme-job-slow`                 | a pass exceeds 15 minutes, half the ceiling            | 2   | 2 of 3 |
-| `blogme-index-storage-high`       | index storage passes 60% of Basic's 15 GiB quota       | 2   | 6h avg |
-| `blogme-search-failing`           | searches return errors                                 | 2   | 2 of 3 |
+| Rule                              | Fires when                                            | Sev | Needs   |
+| --------------------------------- | ----------------------------------------------------- | --- | ------- |
+| `blogme-job-run-failed`           | a pass fails or is killed at the ceiling              | 1   | 2 of 3  |
+| `blogme-discovery-cursor-stalled` | 2+ passes complete in 4h without advancing the cursor | 1   | 1 of 1  |
+| `blogme-discovery-not-running`    | no pass completes at all in 12h                       | 1   | 1 of 1  |
+| `blogme-job-slow`                 | a pass exceeds 15 minutes, half the ceiling           | 2   | 2 of 3  |
+| `blogme-index-storage-high`       | index storage passes 60% of Basic's 15 GiB quota      | 2   | 6h avg  |
+| `blogme-search-failing`           | searches return errors                                | 2   | 2 of 3  |
+| `blogme-instances-scaling-out`    | more than 5 instances are running                     | 2   | 15m avg |
 
-The first four watch whether a pass ran, the fifth watches what the passes have been
-accumulating — which no amount of run-level success would ever reveal — and the last
-watches the read path the corpus exists to serve.
+The first four watch whether a pass ran. `blogme-index-storage-high` watches what the
+passes have been accumulating, which no amount of run-level success would ever reveal.
+`blogme-search-failing` watches the read path the corpus exists to serve. And
+`blogme-instances-scaling-out` watches the bill: instances are what the app is charged
+for, normal operation has never needed more than two, and a budget alert would notice a
+runaway a day late (see [tech-stack.md](tech-stack.md#infrastructure)).
 
 **The "needs" column is what keeps them quiet.** A single failed pass is not an incident:
 the cursor only advances on success, so a pass killed by a deploy simply re-runs the
@@ -309,7 +316,7 @@ lost seven consecutive hours of those lines, and the fewest in any 12h window ac
 three days was still five.
 
 The lesson generalises to every rule here. Alerts built on logs inherit the reliability
-of the log pipeline, so any rule that treats *no rows* as *bad news* is really watching
+of the log pipeline, so any rule that treats _no rows_ as _bad news_ is really watching
 Azure Monitor rather than blogme. When a rule fires and the app looks healthy, check
 ingestion lag before believing it:
 
