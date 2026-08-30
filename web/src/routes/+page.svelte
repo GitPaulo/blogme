@@ -826,8 +826,12 @@
 		{/if}
 	</p>
 
+	<!-- Flowbite's red Alert is the weakest text on the page and says the most: red-500 on
+	red-100 is 3.08:1, and its dark variant 3.34:1, against the 4.50:1 AA wants. Darkened to
+	red-800, which clears it on both of the backgrounds the component paints (6.80:1 and
+	5.74:1) without changing that the box is red. -->
 	{#if error}
-		<Alert color="red" class="mt-6">{error}</Alert>
+		<Alert color="red" class="mt-6 text-red-800 dark:text-red-800">{error}</Alert>
 	{/if}
 
 	{#if searchable}
@@ -871,7 +875,11 @@
 				<FilterBar {results} bind:filters />
 
 				{#if shown === 0}
-					<Alert color="gray" class="mt-4">{noMatchMessage}</Alert>
+					<!-- Same darkening as the empty state below, for the same reason: the grey
+					Alert's own gray-500 is 4.39:1 on the gray-100 it paints. -->
+					<Alert color="gray" class="mt-4 text-gray-600 dark:text-gray-300">
+						{noMatchMessage}
+					</Alert>
 				{/if}
 
 				<!-- A replaced set of results is faded through rather than cut to: the rows on
@@ -1062,41 +1070,57 @@
 					</div>
 				{/if}
 			{:else if status === 'done'}
-				<!-- An empty result set is where a reader is likeliest to give up, so this says
-				what to try next rather than only what happened, and it is given the room to say
-				it: a page with nothing on it can afford to be quiet and centred, where the
-				boxed alert this replaced announced the failure at the same weight as an error.
+				<!-- The same grey Alert the filter's no-match uses and the red one an error uses,
+				because this is the same kind of thing: the page reporting on itself, in the one
+				place the page does that. A state that invents its own container for the sake of
+				looking calmer is a second design language, and the reader has to learn where to
+				look twice.
 
-				The other mode is offered as an ordinary button in the page's own vocabulary —
-				the same `alternative` button that loads more results and returns to the top.
-				It was a filled pill wedged mid-sentence before, which read as a tag rather
-				than a control and was the one thing on the page shaped like nothing else.
+				What changed is inside it. The offer to switch ranking modes was a filled pill
+				set into the middle of the sentence, which is the shape this page uses for tags
+				— a label, not a control — so it read as decoration on the one line that wanted
+				a click. It is now an ordinary `alternative` button on its own line, the same
+				one that loads more results and returns to the top, under a sentence that says
+				what the other mode would do differently rather than only naming it.
 
-				What it offers is the mode the reader is *not* in, so the icon is the one they
-				would be switching to. That inverts the toggle in the search box, which shows
-				the mode already in use, and the labels say which is which so the two are never
-				read as the same picture meaning two things. -->
-				<div class="mt-10 flex flex-col items-center gap-3 px-4 text-center">
-					<p class="font-medium text-gray-700 dark:text-gray-300">No results found</p>
-					<p class="max-w-sm text-sm text-gray-500 dark:text-gray-400">
-						{#if semanticRanking}
-							Nothing came back close enough. Keyword search matches your words exactly, and pages
-							deeper.
-						{:else}
-							Keyword search needs every word to appear. Semantic search reads the query as a
-							sentence instead.
-						{/if}
-					</p>
-					<Button color="alternative" size="sm" class="mt-1 gap-2" onclick={toggleRanking}>
-						{#if semanticRanking}
-							<SearchOutline class="h-4 w-4" aria-hidden="true" />
-							Try keyword search
-						{:else}
-							<WandMagicSparklesOutline class="h-4 w-4" aria-hidden="true" />
-							Try semantic search
-						{/if}
-					</Button>
-				</div>
+				Left-aligned and `text-sm` like its siblings. `xs` on the button because the
+				Alert sets `text-sm` around it, and a button that outsizes its own container
+				reads as the point of the box rather than the way out of it.
+
+				The icon is the mode being offered, not the mode in use — the inverse of the
+				toggle in the search box. Both carry a word beside the picture, so the wand is
+				never left to mean two things a few centimetres apart. -->
+				<Alert color="gray" class="mt-4">
+					<div class="flex flex-col items-start gap-3">
+						<div>
+							<!-- Darker than the Alert's own text, which is tuned for one muted line and
+							leaves a heading inside it too faint to lead. Checked against both of the
+							backgrounds the grey Alert paints: gray-100 light, gray-700 dark. -->
+							<p class="font-medium text-gray-700 dark:text-gray-100">No results found</p>
+							<!-- gray-600 rather than the Alert's own gray-500, which lands at 4.39:1 on
+							the gray-100 it paints in light mode and so misses AA by a hair. gray-600
+							is 6.87:1 there; the dark side already passed at 7.0:1 and is left alone. -->
+							<p class="mt-0.5 text-gray-600 dark:text-gray-300">
+								{#if semanticRanking}
+									Nothing came back close enough. Keyword search matches your words exactly, and
+									pages deeper.
+								{:else}
+									Keyword search needs every word to appear. Semantic search reads the query as a
+									sentence instead.
+								{/if}
+							</p>
+						</div>
+						<Button color="alternative" size="xs" class="gap-2" onclick={toggleRanking}>
+							{#if semanticRanking}
+								<SearchOutline class="h-4 w-4" aria-hidden="true" />
+								Try keyword search
+							{:else}
+								<WandMagicSparklesOutline class="h-4 w-4" aria-hidden="true" />
+								Try semantic search
+							{/if}
+						</Button>
+					</div>
+				</Alert>
 			{/if}
 		</div>
 	{/if}
