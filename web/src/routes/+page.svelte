@@ -13,6 +13,7 @@
 	import BookmarkButton from '$lib/components/BookmarkButton.svelte';
 	import FilterBar from '$lib/components/FilterBar.svelte';
 	import SearchSuggestions from '$lib/components/SearchSuggestions.svelte';
+	import SiteIcon from '$lib/components/SiteIcon.svelte';
 	import {
 		clampQuery,
 		MAX_QUERY_LENGTH,
@@ -31,6 +32,7 @@
 	import { onScreen } from '$lib/onScreen.svelte';
 	import { looksLikeAQuestion } from '$lib/query';
 	import { recent } from '$lib/recent.svelte';
+	import { hostOf } from '$lib/site';
 	import { snippet, snippetBudget } from '$lib/snippet';
 	import { merge as mergeSuggestions, suggestions, type Suggestion } from '$lib/suggestions.svelte';
 	import { visited } from '$lib/visited/store.svelte';
@@ -883,10 +885,46 @@
 					{#each filtered as result (result.url)}
 						{@const published = formatDate(result.publishedAt)}
 						{@const opened = visited.has(result.url)}
+						{@const host = hostOf(result.url)}
 						<Card class="max-w-none p-4">
 							<div class="flex items-start gap-3">
 								<div class="min-w-0 flex-1">
-									<Heading tag="h2" class="text-lg font-semibold">
+									<!-- Where the post came from leads, above the title rather than under it.
+									This is a search engine for blogs, so which blog wrote a thing is half of
+									what the reader is choosing between: on a page of twenty results the site
+									is what tells "another framework post" apart from "another framework post,
+									by the people who wrote the framework".
+
+									Everything on this line is derived from the url and the row the index
+									already returns. Nothing here costs the index a byte. See lib/site.ts.
+
+									Undefined host is a url that is not an http page, which the index should
+									not hold and which is not worth a broken row if it ever does: the line
+									falls back to whatever else it has, and to nothing at all if it has
+									neither an author nor a date. -->
+									{#if host || result.author || published}
+										<div class="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
+											{#if host}
+												<SiteIcon {host} class="h-4 w-4" />
+												<span class="min-w-0 truncate">{host}</span>
+											{/if}
+											{#if host && result.author}
+												<span aria-hidden="true">&middot;</span>
+											{/if}
+											{#if result.author}
+												<span class="min-w-0 truncate">{result.author}</span>
+											{/if}
+											{#if (host || result.author) && published}
+												<span aria-hidden="true">&middot;</span>
+											{/if}
+											{#if published}
+												<time datetime={result.publishedAt} class="shrink-0 tabular-nums">
+													{published}
+												</time>
+											{/if}
+										</div>
+									{/if}
+									<Heading tag="h2" class="mt-1 text-lg font-semibold">
 										<!-- data-preview opens the shared hover panel, and carries what the crawler
 										found out about framing so the panel knows whether to try; data-visit tells the
 										shared tracker that following this link counts as reading the article.
@@ -911,21 +949,6 @@
 											{result.title}
 										</a>
 									</Heading>
-									{#if result.author || published}
-										<div class="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
-											{#if result.author}
-												<span class="truncate">{result.author}</span>
-											{/if}
-											{#if result.author && published}
-												<span aria-hidden="true">&middot;</span>
-											{/if}
-											{#if published}
-												<time datetime={result.publishedAt} class="shrink-0 tabular-nums">
-													{published}
-												</time>
-											{/if}
-										</div>
-									{/if}
 								</div>
 								<BookmarkButton {result} />
 							</div>

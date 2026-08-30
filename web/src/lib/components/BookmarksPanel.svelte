@@ -22,6 +22,8 @@
 	import { download } from '$lib/bookmarks/export';
 	import { readFile } from '$lib/bookmarks/import';
 	import { safeHttpUrl } from '$lib/api';
+	import { hostOf } from '$lib/site';
+	import SiteIcon from '$lib/components/SiteIcon.svelte';
 	import { formatDate } from '$lib/date';
 	import type { Bookmark } from '$lib/bookmarks/db';
 
@@ -121,13 +123,10 @@
 
 	const plural = (n: number) => `${n} bookmark${n === 1 ? '' : 's'}`;
 
-	function host(url: string) {
-		try {
-			return new URL(url).hostname.replace(/^www\./, '');
-		} catch {
-			return url;
-		}
-	}
+	// The shared derivation, with the raw url kept as the label for anything it refuses to
+	// name. A saved row is the reader's own and predates whatever the index holds today, so
+	// a drawer that showed nothing for one would be hiding a bookmark rather than tidying.
+	const host = (url: string) => hostOf(url) ?? url;
 
 	const label = $derived(
 		bookmarks.count === 1 ? 'Bookmarks, 1 saved' : `Bookmarks, ${bookmarks.count} saved`
@@ -207,6 +206,7 @@
 				<VirtualList items={visible} height={listHeight} minItemHeight={ROW_HEIGHT} contained>
 					{#snippet children(item: Bookmark)}
 						{@const published = formatDate(item.publishedAt)}
+						{@const site = hostOf(item.url)}
 						<!-- pe-3 keeps the remove button clear of the scrollbar, which overlays the
 						content rather than reserving a gutter of its own. -->
 						<div
@@ -227,7 +227,13 @@
 								<span
 									class="mt-1 flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400"
 								>
-									<span class="truncate">{host(item.url)}</span>
+									<!-- Same icon and the same failure registry as a result card, so a blog
+									whose favicon is missing is asked for it once per session rather than
+									once per surface. -->
+									{#if site}
+										<SiteIcon host={site} class="h-3.5 w-3.5" />
+									{/if}
+									<span class="truncate">{site ?? item.url}</span>
 									{#if published}
 										<span aria-hidden="true">&middot;</span>
 										<time datetime={item.publishedAt} class="shrink-0">{published}</time>

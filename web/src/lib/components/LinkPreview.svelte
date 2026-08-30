@@ -4,6 +4,7 @@
 	import { prefersReducedMotion } from 'svelte/motion';
 	import { fade } from 'svelte/transition';
 	import { safeHttpUrl } from '$lib/api';
+	import { hostOf } from '$lib/site';
 	import {
 		clampPosition,
 		clampSize,
@@ -19,6 +20,7 @@
 		storedPosition,
 		writeGeometry
 	} from '$lib/previewGeometry';
+	import SiteIcon from '$lib/components/SiteIcon.svelte';
 	import { visited } from '$lib/visited/store.svelte';
 
 	// One panel for the whole app: anchors opt in with a `data-preview` attribute and the
@@ -166,7 +168,7 @@
 			loading = framing !== 'denied';
 			target = {
 				url,
-				host: new URL(url).hostname.replace(/^www\./, ''),
+				host: hostOf(url) ?? new URL(url).hostname,
 				framing,
 				placed: chosen !== undefined,
 				home,
@@ -377,9 +379,7 @@
 		transition:fade={{ duration: prefersReducedMotion.current ? 0 : 120 }}
 	>
 		<!-- Keyed so every target gets a fresh frame: assigning src to a live iframe pushes
-		a session history entry, which would turn the back button into frame navigation. The
-		header is inside it too, so a favicon that failed to load for one host is not still
-		missing for the next. -->
+		a session history entry, which would turn the back button into frame navigation. -->
 		{#key target.url}
 			<!-- The header doubles as the handle, because it is the one strip of the panel
 			that is neither the framed page nor a control, and a window dragged by its title
@@ -398,13 +398,12 @@
 				onpointercancel={endDrag}
 				onlostpointercapture={endDrag}
 			>
-				<img
-					src="https://{target.host}/favicon.ico"
-					alt=""
-					class="h-4 w-4 shrink-0 rounded-xs"
-					draggable="false"
-					onerror={(event) => event.currentTarget.remove()}
-				/>
+				<!-- The same icon the result cards use, which shares their record of which hosts
+				have no favicon: hovering a card whose icon already fell back does not send the
+				panel off to ask for the same missing file again. A host with no icon now keeps
+				its place in the row as a lettered tile rather than leaving a gap, so the header
+				no longer reflows the moment a request fails. -->
+				<SiteIcon host={target.host} class="h-4 w-4" />
 				<span class="truncate text-gray-500 dark:text-gray-400">{target.host}</span>
 				<!-- Beside the host rather than on the result card: this row is the one line
 				that describes the destination, and having been here before is a fact about the
