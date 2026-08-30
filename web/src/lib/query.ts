@@ -13,7 +13,16 @@
  */
 const OPENERS = new Set(['why', 'how', 'what', 'when', 'where', 'who', 'whom', 'whose', 'which']);
 
-/** What an opener has to be followed by for the phrase to be a question rather than a title. */
+/**
+ * What an opener has to be followed by for the phrase to be a question rather than a title.
+ *
+ * "to" is deliberately absent, and it is the one worth explaining. It reads like a member
+ * of this set — "how to", "what to", "when to" — but every one of those opens a tutorial
+ * rather than a question. "how to write a compiler" is a title somebody wrote, and a
+ * keyword search finds it exactly; offering to re-rank it is the offer appearing over an
+ * ordinary search, which is the failure this whole file is shaped to avoid. It is also not
+ * a rare shape: "how to" is among the most common prefixes typed into this box.
+ */
 const FOLLOWERS = new Set([
 	'is',
 	"isn't",
@@ -36,8 +45,7 @@ const FOLLOWERS = new Set([
 	'has',
 	'have',
 	'had',
-	'am',
-	'to'
+	'am'
 ]);
 
 /**

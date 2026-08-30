@@ -63,9 +63,10 @@ check-api: ## Vet, lint and test the Go API
 	cd api && golangci-lint run ./...
 	cd api && go test ./...
 
-check-web: ## Type-check and lint the web app
+check-web: ## Type-check, lint and test the web app
 	cd web && pnpm run check
 	cd web && pnpm run lint
+	cd web && pnpm run test
 
 build: build-api build-web ## Build deployable artefacts for both apps
 
