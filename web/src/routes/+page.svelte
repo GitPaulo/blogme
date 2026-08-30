@@ -912,7 +912,11 @@
 											<span class="truncate">{host}</span>
 										</div>
 									{/if}
-									<Heading tag="h2" class="text-lg font-semibold {host ? 'mt-1' : ''}">
+									<!-- Twice the gap above the title that the byline gets below it. Proximity
+									is what says the byline belongs to the title and the site line does not:
+									both rows are the same size, weight and colour, so spacing is carrying the
+									grouping on its own, and it cannot do that if it is equal on both sides. -->
+									<Heading tag="h2" class="text-lg font-semibold {host ? 'mt-2' : ''}">
 										<!-- data-preview opens the shared hover panel, and carries what the crawler
 										found out about framing so the panel knows whether to try; data-visit tells the
 										shared tracker that following this link counts as reading the article.
@@ -948,18 +952,25 @@
 									card four sizes for three jobs, and put the reader's name a step below the
 									host, which is not the order of interest.
 
-									So weight and position separate the two rows instead of size. A serif and
-									then small caps were both tried here first: anything that changes the
-									letterforms reads as lifted from another document, and none of it was
-									needed. What has to carry at a glance is only that this row is neither the
-									site line above nor the first words of the description below.
+									So position separates the two rows rather than any change of face, and it
+									is the only thing that needs to: they are two halves of the same rank, and
+									a card that dressed them differently would be claiming an order between
+									them that does not exist. Everything tried in place of this was too much —
+									a serif, then small caps, then a heavier weight, then a lighter one.
+									Changing the letterforms reads as lifted from another document; changing
+									the weight reads as emphasis this row is not asking for.
+
+									Four pixels below the title and eight below the site line, both on the same
+									grid as the rest of the card. Grey 500 rather than the 400 that would sit
+									quieter: 400 on white is 3:1, which is under AA for text this size, and a
+									byline is text.
 
 									The date is set with the byline, tabular figures aside: those pick
 									different numerals of the same face, so a column of dates still lines up
 									down the page. -->
 									{#if result.author || published}
 										<div
-											class="mt-1 flex items-baseline gap-1.5 text-sm font-medium text-gray-500 dark:text-gray-400"
+											class="mt-1 flex items-baseline gap-1.5 text-sm text-gray-500 dark:text-gray-400"
 										>
 											{#if result.author}
 												<span class="truncate">{result.author}</span>
