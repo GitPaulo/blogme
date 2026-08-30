@@ -158,37 +158,76 @@ which means **turning this on is one line of schema and no code at all**.
 Each profile differs from the one above by a single variable, so a change can be
 measured rather than argued about:
 
-| Profile                         | Text weights                                | Functions           |
-| ------------------------------- | ------------------------------------------- | ------------------- |
-| `relevance`                     | title 4, authorText 3, summary 2, content 1 | none                |
-| `relevance-fresh` **(default)** | same                                        | freshness           |
-| `relevance-quality`             | same                                        | freshness + quality |
-| `relevance-authorlight`         | authorText dropped to 1                     | freshness + quality |
+| Profile                           | Text weights                                | Functions           |
+| --------------------------------- | ------------------------------------------- | ------------------- |
+| `relevance`                       | title 4, authorText 3, summary 2, content 1 | none                |
+| `relevance-fresh`                 | same                                        | freshness           |
+| `relevance-quality` **(default)** | same                                        | freshness + quality |
+| `relevance-authorlight`           | authorText dropped to 1                     | freshness + quality |
 
 The weights name `authorText` rather than `author`, and no longer name `topics`, because
 those are the fields a query is actually matched against — see `searchFields` in
 [index.go](../api/internal/index/index.go). A weight on a field outside that set is never
 applied, which `TestScoringProfilesWeightOnlyTheFieldsSearched` now fails over.
 
-**The author weight is a cause, not a coincidence — measured 2026-08-30.** `author` holds
-the _blog's_ name, not a person's. It is weighted 3 on a two-word field, and BM25
-normalises by field length, so a blog whose name contains the query term scores enormously
-on it. Running the same queries through `relevance-quality` and `relevance-authorlight`,
-counting how much of each top ten is a blog named after the query:
+### The author weight is doing useful work — leave it at 3
 
-| Query shape                                        | authorText 3 | authorText 1 |
-| -------------------------------------------------- | ------------ | ------------ |
-| single word (`python`, `rust`, `linux`, …)         | **74%**      | 24%          |
-| multi-word (`rust ownership`, `github actions`, …) | 0%           | 0%           |
+It is easy to conclude otherwise, and this section exists because an earlier pass did.
 
-`python` and `linux` go from 100% to 10%. Multi-word queries are untouched either way, so
-dropping the weight costs nothing where search already works and only changes the case
-that was wrong. What it surfaces instead is individual writers, which is what a search
-engine for tech blogs is for.
+`author` holds the _blog's_ name, not a person's. It is weighted 3 on a two- or
+three-word field, and BM25 normalises by field length, so a blog named after the query
+term scores enormously on it. Count how much of a top ten is a blog named after the query
+and the weight is plainly the cause — 5% at weight 0.1 against 51% at weight 3, across 30
+single-word queries.
 
-This was masked until 2026-08-30: `titleSuggest` was accidentally inside the searched set,
-scoring every title a second time and counterweighting the author boost. Removing it
-restored the profile's stated weights, and this is what they actually do.
+**That count is not a measure of harm, and optimising it makes search worse.** The author
+field is what holds back documents whose entire title is the query word. Measured over a
+ten-point weight grid, 142 queries and 1,300 result pages:
+
+| authorText weight                 | 0.1 | 1   | **3 (shipped)** |
+| --------------------------------- | --- | --- | --------------- |
+| top-10 that are blogs named so    | 5%  | 35% | 51%             |
+| top-10 whose title is ≤ 2 words   | 48% | 39% | **30%**         |
+| top-10 titled _exactly_ the query | 21% | 15% | **7%**          |
+
+The two move in opposite directions. At weight 0.1 a search for `python` returns four
+posts titled "Python" and nothing else; at weight 3 it returns Planet Python, the Python
+documentation and Talk Python Training. Common-word personal names break at low weight for
+the same reason — `David Stark` returns "Celebrating St David's Day" and "Robert Stark
+Central to FBI Probe", because the author field is the only thing that disambiguates a
+name made of ordinary words.
+
+Two structural facts make this trade sharper than it looks. Matching is decided by field
+_membership_, not weight: `authorText` being in `searchFields` is what makes an author's
+posts match at all, and author recall is 100% at every weight tested and 57% when the
+field is removed. And the weight was masked until 2026-08-30, when `titleSuggest` was
+found inside the searched set scoring every title twice; removing it restored the stated
+weights.
+
+`relevance-authorlight` was built to settle this and has now settled it: the answer is
+that dropping the weight is worse. It is kept as the evidence, not as a candidate.
+
+### What did help: the quality boost, made the default 2026-08-30
+
+Stub posts are the real defect behind a poor single-word page, and the quality score is
+the lever built for them. Switching the default from `relevance-fresh` to
+`relevance-quality`, over the same query sets:
+
+| Measure over single-word queries | `relevance-fresh` | `relevance-quality` |
+| -------------------------------- | ----------------- | ------------------- |
+| top-10 whose title is ≤ 2 words  | 18%               | **12%**             |
+| median words in a result         | 640               | **1,000**           |
+| personal-name search, top-1      | 12/20             | **14/20**           |
+| personal-name search, top-3      | 17/20             | **19/20**           |
+
+Multi-word, stopword-heavy and rare queries are neutral to slightly better. Author queries
+look worse on a naive count — 80% to 71% top-1 — but every one of the nine that changed is
+a job board or a careers page being demoted: `Scale AI` under the old default returned
+"Engagement Manager | Careers", and under the new one returns articles. On real personal
+names the profile is strictly better.
+
+The order-of-operations warning below no longer bites: the corpus is 90% scored, and no
+unscored document appeared in any measured top ten under either profile.
 
 Switching profile is one edit to `defaultScoringProfile` in
 [search-index.json](../infra/search-index.json) and a re-run of

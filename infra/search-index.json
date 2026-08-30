@@ -282,7 +282,7 @@
       "functionAggregation": "sum"
     }
   ],
-  "defaultScoringProfile": "relevance-fresh",
+  "defaultScoringProfile": "relevance-quality",
   "semantic": {
     "defaultConfiguration": "blogme-semantic",
     "configurations": [
