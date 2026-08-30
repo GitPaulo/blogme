@@ -254,13 +254,14 @@ and nothing said so. All of them notify the `ag-blogme-ops` action group.
 
 | Rule                              | Fires when                                             | Sev | Needs  |
 | --------------------------------- | ------------------------------------------------------ | --- | ------ |
-| `blogme-discovery-run-failed`     | a pass fails or is killed at the ceiling               | 1   | 2 of 3 |
-| `blogme-discovery-cursor-stalled` | fewer than 2 distinct cursors in 4h, or no pass at all | 1   | 1 of 1 |
-| `blogme-discovery-pass-slow`      | a pass exceeds 15 minutes, half the ceiling            | 2   | 2 of 3 |
+| `blogme-job-run-failed`           | a pass fails or is killed at the ceiling               | 1   | 2 of 3 |
+| `blogme-discovery-cursor-stalled` | 2+ passes complete in 4h without advancing the cursor  | 1   | 1 of 1 |
+| `blogme-discovery-not-running`    | no pass completes at all in 12h                        | 1   | 1 of 1 |
+| `blogme-job-slow`                 | a pass exceeds 15 minutes, half the ceiling            | 2   | 2 of 3 |
 | `blogme-index-storage-high`       | index storage passes 60% of Basic's 15 GiB quota       | 2   | 6h avg |
 | `blogme-search-failing`           | searches return errors                                 | 2   | 2 of 3 |
 
-The first three watch whether a pass ran, the fourth watches what the passes have been
+The first four watch whether a pass ran, the fifth watches what the passes have been
 accumulating — which no amount of run-level success would ever reveal — and the last
 watches the read path the corpus exists to serve.
 
@@ -281,8 +282,37 @@ small numbers rather than large percentages.
 
 The cursor rule is the one that matters most, because it is the only end-to-end check:
 a pass can succeed, log cheerfully and still advance nothing, and the cursor is the only
-place that shows it. It is written to fire on an empty window too, so the alert covers
-the timer not firing as well as the timer failing.
+place that shows it.
+
+**Why that is two rules and not one.** It began as one, firing on an empty window so that
+it covered the timer not firing as well as the timer failing. That looked like thrift and
+was a bug: a log query cannot distinguish a stalled job from a job whose log lines have
+not arrived, and an empty window is exactly what a late one looks like. On 30 August 2026
+an Azure ingestion stall delayed an afternoon of telemetry by up to six hours — dropping
+some of it for good — and the rule paged at severity 1 while discovery was advancing its
+cursor every hour, as the cursor blob itself showed throughout.
+
+So each half now asks something a delayed pipeline cannot fake. The stall rule requires
+two observed passes before it will call a cursor frozen, because a genuine freeze still
+reports four passes in four hours while late telemetry reports fewer. The absence rule
+takes a twelve-hour window instead of four, wide enough that a lost afternoon is not a
+death: discovery completes a pass every hour without exception, the worst delay yet seen
+lost seven consecutive hours of those lines, and the fewest in any 12h window across
+three days was still five.
+
+The lesson generalises to every rule here. Alerts built on logs inherit the reliability
+of the log pipeline, so any rule that treats *no rows* as *bad news* is really watching
+Azure Monitor rather than blogme. When a rule fires and the app looks healthy, check
+ingestion lag before believing it:
+
+```bash
+az monitor log-analytics query -w <WORKSPACE_GUID> --analytics-query   "AppTraces | where TimeGenerated > ago(6h) | extend LagMin = (ingestion_time() - TimeGenerated) / 1m | summarize p50 = percentile(LagMin, 50), max = max(LagMin)"
+```
+
+Normal here is under a minute. The blob timestamps settle it outright, since they depend
+on nothing Azure Monitor does: `sources/discovery-cursor` is rewritten on every
+successful pass, and `azure-webjobs-hosts/timers/<host-id>/Host.Functions.discover/status`
+holds the host's own record of when the timer last fired and when it fires next.
 
 ## When batching stops being enough
 

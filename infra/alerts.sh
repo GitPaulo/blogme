@@ -148,11 +148,34 @@ query_alert blogme-search-failing 2 15m 15m "$PERSISTENT" \
 	"AppRequests | where Name == 'search' and Success == false" \
 	"Searches are failing. Counts actual failed requests rather than a percentage, because at this query volume a single throttled query is 100 percent of a minute. Requires two of three consecutive periods, so a brief self-healing burst stays quiet."
 
-# One period rather than two: the window is already four hours, so a second would mean
-# waiting most of a day to hear that discovery has stopped.
+# Discovery gets two rules because it has two ways to fail, and asking one query about
+# both is what made it cry wolf. A log query cannot tell a stalled job from a job whose
+# log lines have not arrived yet, and `summarize` without a `by` clause answers even over
+# no rows at all — so the single rule that used to live here read an empty window as a
+# dead cursor and paged at severity 1. It did exactly that on 2026-08-30 at 15:33, while
+# discovery was in fact advancing every hour: an Azure ingestion stall delayed that
+# afternoon's telemetry by up to six hours and dropped some of it outright.
+#
+# Both rules keep one period rather than two. The windows are already long, and a second
+# period would mean waiting most of a day to hear that discovery had stopped.
+
+# Requiring two observed passes is what makes this one safe. A cursor that is genuinely
+# frozen still reports four passes in four hours, all on the same cursor; telemetry that
+# is merely late reports fewer passes, and this now reads that as silence rather than as
+# evidence of a stall.
 query_alert blogme-discovery-cursor-stalled 1 1h 4h "" \
-	"AppTraces | where Message has 'discovery pass complete' | extend c = extract('next_cursor=([A-Za-z0-9._-]+)',1,Message) | summarize n = dcount(c) | where n < 2" \
-	"Discovery advanced fewer than 2 distinct cursors in 4h, or did not run at all."
+	"AppTraces | where Message has 'discovery pass complete' | extend c = extract('next_cursor=([A-Za-z0-9._-]+)',1,Message) | summarize passes = count(), cursors = dcount(c) | where passes >= 2 and cursors < 2" \
+	"Discovery ran at least twice in 4h without advancing its cursor. Requires two observed passes, so that late telemetry reads as silence rather than as a stall."
+
+# The other half of what the old rule claimed to cover: discovery not running at all.
+# Twelve hours rather than four because this is the one that has to outlast a late log
+# pipeline. Discovery completes a pass every hour without exception, so any 12h window
+# should hold twelve; the worst ingestion delay yet seen lost seven consecutive hours of
+# these lines, and the fewest in any 12h window over three days was five. Against a
+# threshold of none, that is margin enough to mean what it says.
+query_alert blogme-discovery-not-running 1 1h 12h "" \
+	"AppTraces | where Message has 'discovery pass complete' | summarize passes = count() | where passes == 0" \
+	"Discovery has not completed a pass in 12 hours. It runs hourly, so this is a dead timer rather than a slow one."
 
 log "Metric alerts"
 
