@@ -203,8 +203,11 @@
 			// looking. Two nudges towards the same button is one too many.
 			(status === 'loading' || loaded > 0)
 	);
+	// Announced rather than shown, so it carries in a sentence what the empty state below
+	// lays out in three parts. It names the same destination as that button, because a
+	// reader who hears one thing and tabs to another has been told about two controls.
 	const emptyMessage = $derived(
-		`No results found. Try a different search or ${semanticRanking ? 'disable' : 'enable'} semantic search.`
+		`No results found. Try different words, or switch to ${semanticRanking ? 'keyword' : 'semantic'} search.`
 	);
 	// Filters narrow the rows already fetched rather than the query behind them, so an
 	// empty list with pages still to come is a prompt rather than a dead end.
@@ -1059,20 +1062,41 @@
 					</div>
 				{/if}
 			{:else if status === 'done'}
-				<Alert color="gray" class="mt-4">
-					No results found. Try a different search or
-					<!-- A control rather than a link: it changes how the page searches, and does not
-					go anywhere. Carries the same wand the ranking toggle in the box wears, so the
-					two are recognisably the same switch offered twice. -->
-					<button
-						type="button"
-						class="mx-0.5 inline-flex items-center gap-1.5 rounded-full border border-primary-200 bg-primary-50 px-2.5 py-0.5 align-baseline font-medium text-primary-700 transition-colors hover:border-primary-300 hover:bg-primary-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 dark:border-primary-800 dark:bg-primary-900/40 dark:text-primary-300 dark:hover:border-primary-700 dark:hover:bg-primary-900/70"
-						onclick={toggleRanking}
-					>
-						<WandMagicSparklesOutline class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-						{semanticRanking ? 'disable' : 'enable'} semantic search
-					</button>
-				</Alert>
+				<!-- An empty result set is where a reader is likeliest to give up, so this says
+				what to try next rather than only what happened, and it is given the room to say
+				it: a page with nothing on it can afford to be quiet and centred, where the
+				boxed alert this replaced announced the failure at the same weight as an error.
+
+				The other mode is offered as an ordinary button in the page's own vocabulary —
+				the same `alternative` button that loads more results and returns to the top.
+				It was a filled pill wedged mid-sentence before, which read as a tag rather
+				than a control and was the one thing on the page shaped like nothing else.
+
+				What it offers is the mode the reader is *not* in, so the icon is the one they
+				would be switching to. That inverts the toggle in the search box, which shows
+				the mode already in use, and the labels say which is which so the two are never
+				read as the same picture meaning two things. -->
+				<div class="mt-10 flex flex-col items-center gap-3 px-4 text-center">
+					<p class="font-medium text-gray-700 dark:text-gray-300">No results found</p>
+					<p class="max-w-sm text-sm text-gray-500 dark:text-gray-400">
+						{#if semanticRanking}
+							Nothing came back close enough. Keyword search matches your words exactly, and pages
+							deeper.
+						{:else}
+							Keyword search needs every word to appear. Semantic search reads the query as a
+							sentence instead.
+						{/if}
+					</p>
+					<Button color="alternative" size="sm" class="mt-1 gap-2" onclick={toggleRanking}>
+						{#if semanticRanking}
+							<SearchOutline class="h-4 w-4" aria-hidden="true" />
+							Try keyword search
+						{:else}
+							<WandMagicSparklesOutline class="h-4 w-4" aria-hidden="true" />
+							Try semantic search
+						{/if}
+					</Button>
+				</div>
 			{/if}
 		</div>
 	{/if}
