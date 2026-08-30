@@ -926,7 +926,14 @@
 					The way out is already on screen: Load more sits directly below, and the
 					filters that emptied the list are directly above. A third copy of either here
 					would be a second place to look for the same control. -->
-					<Card class="mt-4 max-w-none flex-col items-start gap-1 p-4" role="status">
+					<!-- Grey rather than the white a result card is, and flat rather than lifted:
+					the card outline says a row belongs here, and the recessed surface inside it says
+					none arrived. In dark mode that means dropping to the page's own gray-900, which
+					leaves an outlined well where the lifted gray-800 of a result would be. -->
+					<Card
+						class="mt-4 max-w-none flex-col items-start gap-1 bg-gray-50 p-4 shadow-none dark:bg-gray-900"
+						role="status"
+					>
 						<p class="font-medium text-gray-900 dark:text-white">
 							No loaded results match these filters
 						</p>
@@ -949,7 +956,10 @@
 						{@const published = formatDate(result.publishedAt)}
 						{@const opened = visited.has(result.url)}
 						{@const host = hostOf(result.url)}
-						<Card class="max-w-none p-4">
+						<!-- One step of elevation for everything in this column, empty states included:
+						a list of twenty cards at Flowbite's default reads as twenty things lifted off
+						the page rather than as one list on it. -->
+						<Card class="max-w-none p-4" shadow="sm">
 							<div class="flex items-start gap-3">
 								<div class="min-w-0 flex-1">
 									<!-- Where the post came from leads, above the title rather than under it.
@@ -1122,14 +1132,19 @@
 					</div>
 				{/if}
 			{:else if status === 'done'}
-				<!-- The same card a result comes in: same border, same radius, same surface, in
-				the same column and at the same width. An empty search is still the page
-				answering, so it answers in the shape the reader has been reading all along. The
-				grey Alert it used to sit in was a second surface with no border and its own
-				muted type; red Alerts stay where they belong, on errors.
+				<!-- The card a result comes in: same border, same radius, same column, same
+				width. An empty search is still the page answering, so it answers in the shape
+				the reader has been reading all along. The grey Alert it used to sit in was a
+				second surface with no border and its own muted type; red Alerts stay where they
+				belong, on errors.
+
+				The one thing not carried over is the fill. Grey where a result is white, the
+				page's own gray-900 where a result is the lifted gray-800, and no shadow at all,
+				so the outline says a row belongs here and the flat recess inside it says none
+				came.
 
 				Inside, the type is the card's — gray-900 to lead, gray-600 at `text-sm` under
-				it — both already checked against white and gray-800 for the result rows.
+				it — both still past AA on the greys they now sit on.
 
 				The offer to switch ranking modes is an ordinary `alternative` button at the
 				size Load more uses, so it hovers, focuses and depresses like every other button
@@ -1143,7 +1158,9 @@
 
 				No role of its own: the live region above already reads emptyMessage, which
 				names this same button, and a box that announced itself would say it twice. -->
-				<Card class="mt-4 max-w-none flex-col items-start gap-3 p-4">
+				<Card
+					class="mt-4 max-w-none flex-col items-start gap-3 bg-gray-50 p-4 shadow-none dark:bg-gray-900"
+				>
 					<div>
 						<p class="font-medium text-gray-900 dark:text-white">No results found</p>
 						<p class="mt-1 text-sm text-gray-600 dark:text-gray-400">

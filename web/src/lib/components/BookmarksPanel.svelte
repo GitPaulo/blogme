@@ -171,7 +171,15 @@ but wide enough to invite a tap that only closes it. -->
 	dismissable={false}
 	class="ms-auto me-0 flex h-full w-full max-w-full flex-col gap-3 rounded-none border-y-0 border-e-0 sm:w-96"
 >
-	<Drawerhead onclick={() => (open = false)} class="shrink-0">
+	<!-- The close button is pulled out by its own optical inset, so the glyph inside it
+	lines up with the drawer's gutter rather than the button's edge doing so — an icon
+	button flush to a padded container always reads as further in than the text above it.
+	40px square, because it is the one control here a thumb has to find. -->
+	<Drawerhead
+		onclick={() => (open = false)}
+		class="shrink-0"
+		classes={{ button: '-me-3 h-10 w-10' }}
+	>
 		<Heading tag="h2" class="text-lg font-semibold">Bookmarks</Heading>
 	</Drawerhead>
 
@@ -219,11 +227,7 @@ but wide enough to invite a tap that only closes it. -->
 					{#snippet children(item: Bookmark)}
 						{@const published = formatDate(item.publishedAt)}
 						{@const site = hostOf(item.url)}
-						<!-- pe-3 keeps the remove button clear of the scrollbar, which overlays the
-						content rather than reserving a gutter of its own. -->
-						<div
-							class="flex h-22 items-center gap-2 border-b border-gray-200 pe-3 dark:border-gray-700"
-						>
+						<div class="flex h-22 items-center gap-2 border-b border-gray-200 dark:border-gray-700">
 							<div class="min-w-0 flex-1">
 								<!-- Opened from here or from a result, it is the same article and the same
 								visit; the drawer just has nowhere to show the mark. -->
