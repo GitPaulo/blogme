@@ -32,6 +32,15 @@ SEARCH_INDEX="${SEARCH_INDEX:-articles}"
 # deployed origins need allowing.
 WEB_ORIGINS="${WEB_ORIGINS:-https://gitpaulo.github.io https://gitpaulo.moe}"
 
+# The tuned operating point, deliberately above the conservative fallbacks in
+# api/config.go: those exist so the app starts without configuration, these are what it
+# is actually meant to run at. Reasoning and the measurements behind each number are in
+# docs/discovery-cadence.md and docs/quality-scoring.md; change them there too.
+DISCOVERY_SCHEDULE="${DISCOVERY_SCHEDULE:-0 0 * * * *}"
+DISCOVERY_BATCH="${DISCOVERY_BATCH:-1000}"
+MAX_POSTS_PER_SOURCE="${MAX_POSTS_PER_SOURCE:-30}"
+QUALITY_SCORE_BATCH="${QUALITY_SCORE_BATCH:-20000}"
+
 log() { printf '\n\033[36m==> %s\033[0m\n' "$1"; }
 
 log "Plan"
@@ -197,6 +206,17 @@ for c in "$SOURCES_CONTAINER" "$ARTICLES_CONTAINER"; do
 done
 
 log "Application settings"
+# The second group are the tuned ones, and they are here because leaving them out made
+# this script quietly lie. Every one of them was set by hand in the portal and written up
+# as the deployed value in docs/discovery-cadence.md and docs/quality-scoring.md, but a
+# provision run never applied any of them — so a rebuilt environment came up on the code
+# defaults and looked provisioned, while discovering six times less often in batches a
+# fifth the size. That is not a difference anything alerts on; it just fills the corpus
+# some thirty times slower than the environment it was supposed to reproduce.
+#
+# They are set unconditionally, like the settings above them. A value tuned in the portal
+# and not recorded here is a value this script is entitled to overwrite — that is what
+# declaring it means, and the alternative is the drift that made this comment necessary.
 az functionapp config appsettings set \
 	--name "$FUNCTION_APP" \
 	--resource-group "$RESOURCE_GROUP" \
@@ -208,6 +228,10 @@ az functionapp config appsettings set \
 	"BLOGME_SOURCES_CONTAINER=${SOURCES_CONTAINER}" \
 	"BLOGME_SOURCES_BLOB=blogs.yml" \
 	"BLOGME_STORAGE_ACCOUNT=${STORAGE_ACCOUNT}" \
+	"BLOGME_DISCOVERY_SCHEDULE=${DISCOVERY_SCHEDULE}" \
+	"BLOGME_DISCOVERY_BATCH=${DISCOVERY_BATCH}" \
+	"BLOGME_MAX_POSTS_PER_SOURCE=${MAX_POSTS_PER_SOURCE}" \
+	"BLOGME_QUALITY_SCORE_BATCH=${QUALITY_SCORE_BATCH}" \
 	--output none
 echo "ok"
 

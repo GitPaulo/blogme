@@ -263,6 +263,14 @@ an endpoint it skips, so CI never runs it.
 | `BLOGME_QUALITY_SWEEP_BATCH` | `2000`            | Sites asked about per pass. `0` turns popularity off                                            |
 | `BLOGME_POPULARITY_BLOB`     | `popularity.json` | Where site standing is kept, in the sources container                                           |
 
+`BLOGME_QUALITY_SCORE_BATCH` is deployed at **20,000** rather than its default; the rest
+run on the defaults above. Against the 1.3M documents indexed as of 30 August, an hourly
+pass at 20,000 works through the corpus in about **2.7 days**, where the 5,000 default
+would take eleven — long enough that a scoring change would reach most of the index only
+after the next one had started. The deployed value is set by
+[provision.sh](../infra/provision.sh), which is where to change it: a value edited only in
+the portal is one the next provision run will undo.
+
 ```bash
 infra/kill-switch.sh scoring off
 ```

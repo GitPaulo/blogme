@@ -14,9 +14,13 @@ and 8,146 without.
 | `BLOGME_DISCOVERY_BATCH`      | `1000`        | `200`           | Sources examined per run     |
 | `BLOGME_MAX_POSTS_PER_SOURCE` | `30`          | `15`            | Newest posts read per source |
 
-Both are Function App application settings, so changing cadence is a configuration change
-and needs **no redeploy**. The deployed values override the code defaults in
+All three are Function App application settings, so changing cadence is a configuration
+change and needs **no redeploy**. The deployed values override the code defaults in
 [config.go](../api/config.go); the fallbacks apply only when a setting is absent.
+
+They are applied by [provision.sh](../infra/provision.sh), so a rebuilt environment comes
+up at the deployed cadence rather than the code defaults. Change them there rather than in
+the portal alone — the portal value is the one a provision run overwrites.
 
 ## Why discovery is batched
 
@@ -201,6 +205,10 @@ az functionapp config appsettings set \
   --name <FUNCTION_APP> --resource-group <RESOURCE_GROUP> \
   --settings BLOGME_DISCOVERY_BATCH=1000 BLOGME_DISCOVERY_SCHEDULE="0 0 * * * *"
 ```
+
+Record the new number in [provision.sh](../infra/provision.sh) too. These settings are
+declared there, so a value changed only by the command above survives until the next
+provision run and is then silently put back.
 
 Applying this restarts the app, so confirm `/api/health` returns `200` afterwards — it
 reads the index, so a `200` means search works rather than only that the app came back.
