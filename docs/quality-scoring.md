@@ -45,14 +45,14 @@ amount of vocabulary should argue it back up the page. None of them is ever zero
 because each is a heuristic and a heuristic that fires wrongly on a good article should
 cost it rank rather than bury it.
 
-| Term | What it reads | Why |
-| --- | --- | --- |
-| `is_article` | URL is a site root or a bare version segment; title is the blog's own name; title is an issue, archive or page number; the text opens by introducing a site | Every landing page in the failing top tens is at least one of these |
-| `long_enough` | Under 60 words scores nothing, 400 scores full | Only the short end counts. The crawler truncates content at 1,000 words, so anything reading length at the top would be measuring the truncation |
-| `english` | Share of the commonest English words in the first 200 | The index is analysed with an English analyser and the interface is English. Kept at 0.25 rather than 0: this index holds no other copy of that post |
-| `richness` | Distinct words as a share of the first 200 | Stands in for prose quality. Keyword stuffing, generated filler and navigation boilerplate all say the same few words repeatedly |
-| `provenance` | Feed beats sitemap | A feed entry is described by its author. Sitemap walking is what pulled the landing pages in |
-| `qPopularity` | Hacker News points for the site | See below |
+| Term          | What it reads                                                                                                                                               | Why                                                                                                                                                  |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `is_article`  | URL is a site root or a bare version segment; title is the blog's own name; title is an issue, archive or page number; the text opens by introducing a site | Every landing page in the failing top tens is at least one of these                                                                                  |
+| `long_enough` | Under 60 words scores nothing, 400 scores full                                                                                                              | Only the short end counts. The crawler truncates content at 1,000 words, so anything reading length at the top would be measuring the truncation     |
+| `english`     | Share of the commonest English words in the first 200                                                                                                       | The index is analysed with an English analyser and the interface is English. Kept at 0.25 rather than 0: this index holds no other copy of that post |
+| `richness`    | Distinct words as a share of the first 200                                                                                                                  | Stands in for prose quality. Keyword stuffing, generated filler and navigation boilerplate all say the same few words repeatedly                     |
+| `provenance`  | Feed beats sitemap                                                                                                                                          | A feed entry is described by its author. Sitemap walking is what pulled the landing pages in                                                         |
+| `qPopularity` | Hacker News points for the site                                                                                                                             | See below                                                                                                                                            |
 
 Measured against the documents that actually failed: real articles score **0.85–1.00**,
 landing pages and archives **0.007–0.13**, a post too thin to rank **0.00**.
@@ -158,19 +158,37 @@ which means **turning this on is one line of schema and no code at all**.
 Each profile differs from the one above by a single variable, so a change can be
 measured rather than argued about:
 
-| Profile | Text weights | Functions |
-| --- | --- | --- |
-| `relevance` **(default)** | title 4, author 3, summary 2, content 1, topics 1 | none |
-| `relevance-fresh` | same | freshness |
-| `relevance-quality` | same | freshness + quality |
-| `relevance-authorlight` | author dropped to 1 | freshness + quality |
+| Profile                         | Text weights                                | Functions           |
+| ------------------------------- | ------------------------------------------- | ------------------- |
+| `relevance`                     | title 4, authorText 3, summary 2, content 1 | none                |
+| `relevance-fresh` **(default)** | same                                        | freshness           |
+| `relevance-quality`             | same                                        | freshness + quality |
+| `relevance-authorlight`         | authorText dropped to 1                     | freshness + quality |
 
-`author` holds the *blog's* name, not a person's. It is weighted 3 on a two-word field,
-and BM25 normalises by field length — so a blog whose name contains the query term
-scores enormously on it. For `python`, `security` and `rust`, **ten of ten** live top
-results had the term in the author field; for `golang`, where no blog is named that,
-none did and the results were clean. `relevance-authorlight` exists to settle whether
-that weight is a cause or a coincidence.
+The weights name `authorText` rather than `author`, and no longer name `topics`, because
+those are the fields a query is actually matched against — see `searchFields` in
+[index.go](../api/internal/index/index.go). A weight on a field outside that set is never
+applied, which `TestScoringProfilesWeightOnlyTheFieldsSearched` now fails over.
+
+**The author weight is a cause, not a coincidence — measured 2026-08-30.** `author` holds
+the _blog's_ name, not a person's. It is weighted 3 on a two-word field, and BM25
+normalises by field length, so a blog whose name contains the query term scores enormously
+on it. Running the same queries through `relevance-quality` and `relevance-authorlight`,
+counting how much of each top ten is a blog named after the query:
+
+| Query shape                                        | authorText 3 | authorText 1 |
+| -------------------------------------------------- | ------------ | ------------ |
+| single word (`python`, `rust`, `linux`, …)         | **74%**      | 24%          |
+| multi-word (`rust ownership`, `github actions`, …) | 0%           | 0%           |
+
+`python` and `linux` go from 100% to 10%. Multi-word queries are untouched either way, so
+dropping the weight costs nothing where search already works and only changes the case
+that was wrong. What it surfaces instead is individual writers, which is what a search
+engine for tech blogs is for.
+
+This was masked until 2026-08-30: `titleSuggest` was accidentally inside the searched set,
+scoring every title a second time and counterweighting the author boost. Removing it
+restored the profile's stated weights, and this is what they actually do.
 
 Switching profile is one edit to `defaultScoringProfile` in
 [search-index.json](../infra/search-index.json) and a re-run of
@@ -199,12 +217,12 @@ an endpoint it skips, so CI never runs it.
 
 ## Operating it
 
-| Setting | Default | Meaning |
-| --- | --- | --- |
-| `BLOGME_QUALITY_SCHEDULE` | `0 30 * * * *` | Timer cron. Half past the hour, so scoring and discovery are not writing the same index at once |
-| `BLOGME_QUALITY_SCORE_BATCH` | `5000` | Articles judged per pass |
-| `BLOGME_QUALITY_SWEEP_BATCH` | `2000` | Sites asked about per pass. `0` turns popularity off |
-| `BLOGME_POPULARITY_BLOB` | `popularity.json` | Where site standing is kept, in the sources container |
+| Setting                      | Default           | Meaning                                                                                         |
+| ---------------------------- | ----------------- | ----------------------------------------------------------------------------------------------- |
+| `BLOGME_QUALITY_SCHEDULE`    | `0 30 * * * *`    | Timer cron. Half past the hour, so scoring and discovery are not writing the same index at once |
+| `BLOGME_QUALITY_SCORE_BATCH` | `5000`            | Articles judged per pass                                                                        |
+| `BLOGME_QUALITY_SWEEP_BATCH` | `2000`            | Sites asked about per pass. `0` turns popularity off                                            |
+| `BLOGME_POPULARITY_BLOB`     | `popularity.json` | Where site standing is kept, in the sources container                                           |
 
 ```bash
 infra/kill-switch.sh scoring off
@@ -212,7 +230,7 @@ infra/kill-switch.sh scoring off
 
 Stops the timer without touching anything else. Search keeps using the scores already
 written; they simply stop being brought up to date. The stronger revert is to move
-`defaultScoringProfile` back to `relevance`, which leaves the figures in place and stops
+`defaultScoringProfile` back to `relevance-fresh`, which leaves the figures in place and stops
 them affecting order at all.
 
 ## Cost

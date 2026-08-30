@@ -65,16 +65,23 @@ SETTLE_SECONDS = 2
 # How much of the tier's storage quota a run may take the index to before it stops.
 #
 # A merge is a delete and a reinsert, so writing one field rewrites the whole document —
-# content included — and the superseded copy sits there until a background merge collects
-# it. Measured on this corpus, a pass over 84,233 documents grew the index by 1.2 GiB,
-# about 15 KB for each one, against a field holding 22 bytes of text. Reclamation catches
-# up afterwards; it does not keep pace during a run.
+# content included — and the superseded copy waits for a background merge to collect it.
+# A run therefore costs far more while it is running than it does when it is done, and
+# the gap is wide enough to be alarming if it is read as a projection. Writing authorText
+# over this corpus went 7.6 GiB -> 10.2 GiB at its peak and settled back to 8.0, for a
+# field that cost 213 bytes a document in the end.
 #
-# A Basic service has one partition and a hard 15 GiB ceiling, and an index that reaches
-# it stops accepting writes — which would take discovery down as the price of a backfill
-# nobody had to run today. So the run watches its own cost and stops short, leaving a set
-# that is smaller than it found and a message saying to come back later. 0.85 of 15 GiB
-# leaves better than 2 GiB of room for the writes already in flight.
+# So this is a backstop and not a schedule. Reclamation did keep pace with a full pass of
+# 1.17 million documents and the ceiling was never reached; the first, slower pass looked
+# like it would need 26 GiB, which is what a mid-run reading is worth. Believe the settled
+# figure and let this catch the case where reclamation falls behind anyway.
+#
+# It has to be caught, because a Basic service has one partition and a hard 15 GiB
+# ceiling, and an index that reaches it stops accepting writes — which would take
+# discovery down as the price of a backfill nobody had to run today. Stopping leaves a
+# set smaller than it found and a message saying to come back, and costs nothing: the set
+# only ever holds what has not been written. 0.85 of 15 GiB leaves better than 2 GiB for
+# the writes already in flight.
 DEFAULT_STORAGE_CEILING = 0.85
 
 # How many passes in a row may come back with nothing new before giving up.
