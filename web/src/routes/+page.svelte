@@ -939,18 +939,27 @@
 									</Heading>
 									<!-- Who wrote it and when, under the title where a byline goes.
 
-									Set in the serif the rest of the app never uses, which is doing the work
-									the dots used to: at a glance this is a byline rather than another piece of
-									the site line above or the first words of the description below, and it
-									reads that way before any of it has actually been read. A system serif, so
-									it costs no font to download.
+									Set in the page's own typeface, at the size the site line above it uses
+									and a shade heavier.
 
-									The date is part of the byline and is set with it, tabular figures aside:
-									those pick different numerals of the same face, so a column of dates still
-									lines up down the page. -->
+									The card runs on three steps — 18 for the title, 16 for the description, 14
+									for everything that describes the post rather than being it — and both
+									metadata rows belong to that last step. Dropping this one to 12 gave the
+									card four sizes for three jobs, and put the reader's name a step below the
+									host, which is not the order of interest.
+
+									So weight and position separate the two rows instead of size. A serif and
+									then small caps were both tried here first: anything that changes the
+									letterforms reads as lifted from another document, and none of it was
+									needed. What has to carry at a glance is only that this row is neither the
+									site line above nor the first words of the description below.
+
+									The date is set with the byline, tabular figures aside: those pick
+									different numerals of the same face, so a column of dates still lines up
+									down the page. -->
 									{#if result.author || published}
 										<div
-											class="mt-1 flex items-baseline gap-1.5 font-serif text-sm text-gray-500 dark:text-gray-400"
+											class="mt-1 flex items-baseline gap-1.5 text-sm font-medium text-gray-500 dark:text-gray-400"
 										>
 											{#if result.author}
 												<span class="truncate">{result.author}</span>
