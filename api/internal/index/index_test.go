@@ -972,3 +972,46 @@ func TestUpsertWritesTheDerivedCopies(t *testing.T) {
 		t.Errorf("suggestVersion = %d, want %d", doc.SuggestVersion, suggestVersion)
 	}
 }
+
+// A key and managed identity are alternatives, and which one is in play decides whether
+// a request can reach the network before it has a token.
+//
+// Worth pinning both halves. The key path must not build a credential: doing so would
+// start the startup fetch in every test and on every developer's machine, where there
+// is no instance metadata service to answer and the only result is a delay and a log
+// line. And the key has to actually be sent, or every request is anonymous.
+func TestCredentialIsOnlyUsedWithoutAKey(t *testing.T) {
+	keyed := New("https://example.search.windows.net", "articles", "test-key", "")
+	if keyed.cred != nil {
+		t.Error("a key was given and a managed identity credential was built anyway, " +
+			"which starts a token fetch nothing is waiting for")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, "https://example.search.windows.net", nil)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	if err := keyed.authorize(context.Background(), req); err != nil {
+		t.Fatalf("authorize: %v", err)
+	}
+	if got := req.Header.Get("api-key"); got != "test-key" {
+		t.Errorf("api-key = %q, want the configured key", got)
+	}
+	if got := req.Header.Get("Authorization"); got != "" {
+		t.Errorf("Authorization = %q, want none when a key is configured", got)
+	}
+}
+
+// Without a key and without a credential there is nothing to sign a request with, and
+// saying so beats sending an anonymous request for the service to refuse.
+func TestAuthorizeRefusesWithNothingToSignWith(t *testing.T) {
+	idx := &Index{endpoint: "https://example.search.windows.net", name: "articles"}
+
+	req, err := http.NewRequest(http.MethodGet, idx.endpoint, nil)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	if err := idx.authorize(context.Background(), req); err == nil {
+		t.Error("authorize accepted a request it had no way to sign")
+	}
+}

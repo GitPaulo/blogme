@@ -47,6 +47,17 @@ const (
 // A variable only so the tests can shorten it; nothing in the service reassigns it.
 var queryTimeout = 5 * time.Second
 
+// searchScope is what a token for the search service is asked for.
+var searchScope = []string{"https://search.azure.com/.default"}
+
+// warmTimeout bounds the token fetched at startup.
+//
+// Generous, because nothing is waiting on it: it runs before the first request and the
+// only cost of it being slow is that the first request fetches its own. Short enough
+// that a credential which will never work is reported while the instance is young
+// rather than sitting in a goroutine for the life of it.
+const warmTimeout = 30 * time.Second
+
 type Index struct {
 	endpoint string
 	name     string
@@ -72,10 +83,39 @@ func New(endpoint, name, apiKey, semantic string) *Index {
 			slog.Error("search credential unavailable", "error", err)
 		} else {
 			idx.cred = cred
+			go idx.warm()
 		}
 	}
 
 	return idx
+}
+
+// warm fetches a token before any request needs one.
+//
+// Managed identity means the first token comes from a round trip to the instance
+// metadata service, and without this that round trip happens inside whichever request
+// arrives first, under that request's deadline. Search can usually absorb it inside
+// five seconds. Suggest cannot: its budget is 1.5 seconds because a completion that
+// arrives late is worth less than none, and both halves of a suggestion share it — so
+// a cold instance answered a reader's first keystroke with a 500.
+//
+// Worse than the one failure, a fetch cancelled by that deadline never finishes, so it
+// never populates the credential's cache and the next keystroke pays the same cost
+// again. Suggest could stay broken on an instance where the token takes between its
+// budget and search's. Fetching once up here ends both.
+//
+// Failure is logged and otherwise dropped. Every request still fetches its own token if
+// the cache is empty, so a failed warm-up costs a slow first request rather than a
+// broken instance — and a credential that is genuinely misconfigured fails the health
+// check, which is where anyone would look.
+func (i *Index) warm() {
+	ctx, cancel := context.WithTimeout(context.Background(), warmTimeout)
+	defer cancel()
+
+	if _, err := i.cred.GetToken(ctx, policy.TokenRequestOptions{Scopes: searchScope}); err != nil {
+		slog.WarnContext(ctx, "could not fetch a search token at startup, "+
+			"so the first request will pay for it", "error", err)
+	}
 }
 
 // Ranking modes. Semantic reranks the top keyword matches with a language model,
@@ -598,9 +638,7 @@ func (i *Index) authorize(ctx context.Context, req *http.Request) error {
 		return errors.New("no search credential configured")
 	}
 
-	token, err := i.cred.GetToken(ctx, policy.TokenRequestOptions{
-		Scopes: []string{"https://search.azure.com/.default"},
-	})
+	token, err := i.cred.GetToken(ctx, policy.TokenRequestOptions{Scopes: searchScope})
 	if err != nil {
 		return fmt.Errorf("acquire search token: %w", err)
 	}
