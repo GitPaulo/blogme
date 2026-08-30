@@ -210,6 +210,38 @@ wide once the cap has removed some, so a fixed stride steps over whatever was re
 skips it for good rather than deferring it. This is what makes "load more" reach every
 result exactly once.
 
+**What a reader types is treated as text, not as grammar.** Azure parses the search
+string before any analyzer sees it, and the punctuation in the names of things collides
+with that grammar: `+` is the AND operator, so `c++` is the letter c followed by two
+operators, and c alone analyses to nothing.
+
+It did not look broken, which is what made it worth finding. The parser dropped the term
+and searched for whatever was left, and the result count stayed high enough to read as a
+healthy search:
+
+| you type        | you used to get                                         | you now get                                                        |
+| --------------- | ------------------------------------------------------- | ------------------------------------------------------------------ |
+| `c++`           | nothing, of 21,562 documents                            | 21,562, led by "C++ String Conversion: `std::from_chars`"          |
+| `c++ templates` | 50,337, led by "Free Templates and Themes by WrapPixel" | 1,906, led by "C++ Templates: How to Iterate through `std::tuple`" |
+| `modern c++`    | 94,512, led by "Modern Mythology \| RPGs"               | 3,162, led by "A long article about modern C++"                    |
+| `google+`       | 128,138 about Google                                    | 2,353 about Google+                                                |
+| `c*`            | 1,244,794 — every term starting with c                  | 0, which is what the literal string matches                        |
+
+`escapeQuery` in [query.go](../api/internal/index/query.go) escapes every operator, and
+the set it escapes is wider than the simple query type needs — the extra characters belong
+to the full Lucene syntax this package does not use yet. Escaping a character the parser
+ignores costs nothing, measured across 28 queries carrying punctuation from `c#` and
+`node.js` to `127.0.0.1` and `ci/cd pipelines`, all of which returned identical counts
+either way. A rule that only holds for the current `queryType` is a trap for whoever
+changes it.
+
+One piece of grammar survives: a **balanced pair of double quotes**. Wrapping words to
+mean "these words, in this order" is a convention people arrive already knowing, and the
+service honours it — `"rust ownership"` returns 161 results against 1,192 loose. A lone
+quote is an apostrophe or a typo rather than an instruction, so it is escaped with
+everything else. Nothing else is preserved: a leading `-` excluded a word and `c*` matched
+a million documents, and neither is something this search box offers or explains.
+
 **A query is matched against named fields only**, listed in `searchFields`, and leaving
 that to the default was a real bug for a while. The default is every field marked
 searchable, and those fields are not analysed alike: `title`, `summary`, `content` and

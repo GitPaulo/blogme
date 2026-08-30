@@ -249,7 +249,9 @@ func (i *Index) Query(ctx context.Context, q string, opts QueryOptions) (Page, e
 	// Set on the shared body but true only of keyword ranking: the semantic branch
 	// below overrides it, and says why.
 	body := map[string]any{
-		"search":       q,
+		// Escaped, because the parser reads punctuation before any analyzer does and
+		// "c++" is otherwise a letter and two operators. See escapeQuery.
+		"search":       escapeQuery(q),
 		"top":          fetch,
 		"skip":         opts.Offset,
 		"count":        true,
