@@ -895,36 +895,24 @@
 									is what tells "another framework post" apart from "another framework post,
 									by the people who wrote the framework".
 
-									Everything on this line is derived from the url and the row the index
-									already returns. Nothing here costs the index a byte. See lib/site.ts.
+									The site gets this line to itself. It shared it with the author and the
+									date at first, and three facts of equal weight separated by dots read as a
+									list to be parsed rather than as one thing to be recognised — and the two
+									that truncate were competing for the same width.
+
+									Everything here is derived from the url and the row the index already
+									returns. Nothing costs the index a byte. See lib/site.ts.
 
 									Undefined host is a url that is not an http page, which the index should
-									not hold and which is not worth a broken row if it ever does: the line
-									falls back to whatever else it has, and to nothing at all if it has
-									neither an author nor a date. -->
-									{#if host || result.author || published}
+									not hold and which is not worth a broken row if it ever does: the line is
+									simply absent, and the title takes the top of the card. -->
+									{#if host}
 										<div class="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
-											{#if host}
-												<SiteIcon {host} class="h-4 w-4" />
-												<span class="min-w-0 truncate">{host}</span>
-											{/if}
-											{#if host && result.author}
-												<span aria-hidden="true">&middot;</span>
-											{/if}
-											{#if result.author}
-												<span class="min-w-0 truncate">{result.author}</span>
-											{/if}
-											{#if (host || result.author) && published}
-												<span aria-hidden="true">&middot;</span>
-											{/if}
-											{#if published}
-												<time datetime={result.publishedAt} class="shrink-0 tabular-nums">
-													{published}
-												</time>
-											{/if}
+											<SiteIcon {host} class="h-4 w-4" />
+											<span class="truncate">{host}</span>
 										</div>
 									{/if}
-									<Heading tag="h2" class="mt-1 text-lg font-semibold">
+									<Heading tag="h2" class="text-lg font-semibold {host ? 'mt-1' : ''}">
 										<!-- data-preview opens the shared hover panel, and carries what the crawler
 										found out about framing so the panel knows whether to try; data-visit tells the
 										shared tracker that following this link counts as reading the article.
@@ -949,6 +937,34 @@
 											{result.title}
 										</a>
 									</Heading>
+									<!-- Who wrote it and when, under the title where a byline goes.
+
+									Set in the serif the rest of the app never uses, which is doing the work
+									the dots used to: at a glance this is a byline rather than another piece of
+									the site line above or the first words of the description below, and it
+									reads that way before any of it has actually been read. A system serif, so
+									it costs no font to download.
+
+									The date is part of the byline and is set with it, tabular figures aside:
+									those pick different numerals of the same face, so a column of dates still
+									lines up down the page. -->
+									{#if result.author || published}
+										<div
+											class="mt-1 flex items-baseline gap-1.5 font-serif text-sm text-gray-500 dark:text-gray-400"
+										>
+											{#if result.author}
+												<span class="truncate">{result.author}</span>
+											{/if}
+											{#if result.author && published}
+												<span aria-hidden="true">&middot;</span>
+											{/if}
+											{#if published}
+												<time datetime={result.publishedAt} class="shrink-0 tabular-nums">
+													{published}
+												</time>
+											{/if}
+										</div>
+									{/if}
 								</div>
 								<BookmarkButton {result} />
 							</div>
