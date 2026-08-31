@@ -169,18 +169,26 @@ but wide enough to invite a tap that only closes it. -->
 	bind:open
 	placement="right"
 	dismissable={false}
+	aria-labelledby="bookmarks-drawer-title"
 	class="ms-auto me-0 flex h-full w-full max-w-full flex-col gap-3 rounded-none border-y-0 border-e-0 sm:w-96"
 >
 	<!-- The close button is pulled out by its own optical inset, so the glyph inside it
 	lines up with the drawer's gutter rather than the button's edge doing so — an icon
 	button flush to a padded container always reads as further in than the text above it.
-	40px square, because it is the one control here a thumb has to find. -->
+	40px square, because it is the one control here a thumb has to find.
+
+	The focus ring is spelled out because Flowbite's drawer head styles none, which left the
+	button wearing the browser's own gold ring instead of the outline every other focusable
+	thing on the page uses. -->
 	<Drawerhead
 		onclick={() => (open = false)}
 		class="shrink-0"
-		classes={{ button: '-me-3 h-10 w-10' }}
+		classes={{
+			button:
+				'-me-3 h-10 w-10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600'
+		}}
 	>
-		<Heading tag="h2" class="text-lg font-semibold">Bookmarks</Heading>
+		<Heading id="bookmarks-drawer-title" tag="h2" class="text-lg font-semibold">Bookmarks</Heading>
 	</Drawerhead>
 
 	{#if bookmarks.error}
@@ -194,7 +202,9 @@ but wide enough to invite a tap that only closes it. -->
 	<!-- flex-1 on the two states that have no list to grow: it is what holds the action
 	bar below on the bottom edge of the drawer rather than up under the message. -->
 	{#if loading}
-		<P class="flex-1 text-sm text-gray-500 dark:text-gray-400">Loading your bookmarks.</P>
+		<P role="status" class="flex-1 text-sm text-gray-500 dark:text-gray-400">
+			Loading your bookmarks.
+		</P>
 	{:else if items.length === 0}
 		<P class="flex-1 text-sm text-gray-500 dark:text-gray-400">
 			No bookmarks yet. Save a result to find it here later, or import an export.
@@ -216,10 +226,12 @@ but wide enough to invite a tap that only closes it. -->
 			</Input>
 		</div>
 
+		<!-- Not announced here: the counter in the bar below is already live, and reports
+		"0 of N shown" for the same keystroke. -->
 		{#if visible.length === 0}
-			<P class="flex-1 text-sm text-gray-500 dark:text-gray-400"
-				>No saved posts match that filter.</P
-			>
+			<P class="flex-1 text-sm text-gray-500 dark:text-gray-400">
+				No saved posts match that filter.
+			</P>
 		{:else}
 			<!-- The list takes the leftover space so the action bar can sit on the bottom edge. -->
 			<div class="min-h-0 flex-1" bind:clientHeight={listHeight}>

@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { Alert, Badge, Button, Card, Heading, Input, P, Spinner, Tooltip } from 'flowbite-svelte';
+	import { Badge, Button, Card, Heading, Input, P, Spinner, Tooltip } from 'flowbite-svelte';
 	import {
 		ChevronDoubleUpOutline,
+		ExclamationCircleOutline,
 		SearchOutline,
 		WandMagicSparklesOutline
 	} from 'flowbite-svelte-icons';
@@ -184,6 +185,11 @@
 	// of the query, so these rows match any of them instead.
 	const broadenedNote =
 		'Nothing matched every word of the search, so these results match any of the words instead.';
+	// What each mode does, hoverable wherever its name appears in prose rather than
+	// only on the icon that switches between them.
+	const keywordModeNote = 'Every word has to appear. Best for names, libraries and exact phrases.';
+	const semanticModeNote =
+		'Reads the query as a sentence, so posts that never use your exact words can still come back.';
 	// The button's own label, which a screen reader reads and a tooltip cannot replace:
 	// it has to say what pressing it does, in one string, with no markup.
 	const rankLabel = $derived(
@@ -767,26 +773,20 @@
 						<span class="mt-1.5 block font-mono text-xs text-gray-200 dark:text-gray-300">
 							why is my postgres slow<br />essays about leaving big tech
 						</span>
-						<span class="mt-1.5 block text-gray-400 dark:text-gray-500">
-							Ranks the first 50 matches only, so it cannot page as deep.
-						</span>
 					{:else}
 						<span class="mb-1 flex items-center gap-1.5 font-semibold">
 							<SearchOutline class="h-3.5 w-3.5" aria-hidden="true" />
 							Keyword: matches your words
 						</span>
 						<span class="block text-gray-300 dark:text-gray-400">
-							Every word has to appear. Best for names, libraries and exact phrases, and it pages
-							through the whole result set.
+							Every word has to appear. Best for names, libraries and exact phrases.
 						</span>
 						<span class="mt-1.5 block font-mono text-xs text-gray-200 dark:text-gray-300">
 							sean goedecke<br />rust ownership
 						</span>
 					{/if}
-					<span
-						class="mt-1.5 block border-t border-gray-600 pt-1.5 text-gray-400 dark:text-gray-500"
-					>
-						Click to switch.
+					<span class="mt-1.5 block text-gray-400 dark:text-gray-500">
+						Click to switch to {semanticRanking ? 'keyword' : 'semantic'} search.
 					</span>
 				</Tooltip>
 			{/snippet}
@@ -870,12 +870,24 @@
 		{/if}
 	</p>
 
-	<!-- Flowbite's red Alert is the weakest text on the page and says the most: red-500 on
-	red-100 is 3.08:1, and its dark variant 3.34:1, against the 4.50:1 AA wants. Darkened to
-	red-800, which clears it on both of the backgrounds the component paints (6.80:1 and
-	5.74:1) without changing that the box is red. -->
+	<!-- Same card as the empty-state below it, so an error reads as another answer
+	the page has for you rather than a system message interrupting it. Only the text
+	carries red, not the box: red-500 (Flowbite's default) on this card's gray-50 is
+	3.99:1 and its dark variant on gray-900 is 3.79:1, both short of the 4.50:1 AA
+	wants, so it's darkened to red-800, which clears both (8.85:1 and 5.98:1). -->
 	{#if error}
-		<Alert color="red" class="mt-6 text-red-800 dark:text-red-800">{error}</Alert>
+		<Card
+			class="mt-6 max-w-none flex-row items-start gap-3 bg-gray-50 p-4 shadow-none dark:bg-gray-900"
+		>
+			<ExclamationCircleOutline
+				class="mt-0.5 h-5 w-5 shrink-0 text-red-800 dark:text-red-800"
+				aria-hidden="true"
+			/>
+			<div>
+				<p class="font-medium text-red-800 dark:text-red-800">Search failed</p>
+				<p class="mt-1 text-sm text-red-800 dark:text-red-800">{error}</p>
+			</div>
+		</Card>
 	{/if}
 
 	{#if searchable}
@@ -920,8 +932,8 @@
 
 				{#if shown === 0}
 					<!-- The same card the results are in, because it stands where a result would.
-					Red Alerts are kept for the one thing that is an alert — a search that failed —
-					so a page with nothing on it is not dressed as a page with something wrong.
+					A failed search gets its own card with red text below; this one is empty, not
+					broken, so it stays neutral.
 
 					The way out is already on screen: Load more sits directly below, and the
 					filters that emptied the list are directly above. A third copy of either here
@@ -1134,9 +1146,8 @@
 			{:else if status === 'done'}
 				<!-- The card a result comes in: same border, same radius, same column, same
 				width. An empty search is still the page answering, so it answers in the shape
-				the reader has been reading all along. The grey Alert it used to sit in was a
-				second surface with no border and its own muted type; red Alerts stay where they
-				belong, on errors.
+				the reader has been reading all along. Red is reserved for the text of the
+				error card below; this state has nothing wrong to say, so its type stays grey.
 
 				The one thing not carried over is the fill. Grey where a result is white, the
 				page's own gray-900 where a result is the lifted gray-800, and no shadow at all,
@@ -1165,11 +1176,32 @@
 						<p class="font-medium text-gray-900 dark:text-white">No results found</p>
 						<p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
 							{#if semanticRanking}
-								Nothing came back close enough. Keyword search matches your words exactly, and pages
-								deeper.
+								Nothing came back close enough.
+								<button
+									type="button"
+									class="cursor-help rounded-sm font-medium text-primary-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 dark:text-primary-400"
+								>
+									Keyword search
+								</button>
+								<Tooltip class="max-w-64 text-center">{keywordModeNote}</Tooltip>
+								matches your words exactly, and pages deeper.
 							{:else}
-								Keyword search needs every word to appear. Semantic search reads the query as a
-								sentence instead.
+								<button
+									type="button"
+									class="cursor-help rounded-sm font-medium text-primary-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 dark:text-primary-400"
+								>
+									Keyword search
+								</button>
+								<Tooltip class="max-w-64 text-center">{keywordModeNote}</Tooltip>
+								needs every word to appear.
+								<button
+									type="button"
+									class="cursor-help rounded-sm font-medium text-primary-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 dark:text-primary-400"
+								>
+									Semantic search
+								</button>
+								<Tooltip class="max-w-64 text-center">{semanticModeNote}</Tooltip>
+								reads the query as a sentence instead.
 							{/if}
 						</p>
 					</div>
