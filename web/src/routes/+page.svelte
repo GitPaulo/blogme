@@ -194,8 +194,8 @@
 	// it has to say what pressing it does, in one string, with no markup.
 	const rankLabel = $derived(
 		semanticRanking
-			? 'Semantic ranking, which finds posts about the idea. Switch to keyword ranking.'
-			: 'Keyword ranking, which matches the words you typed. Switch to semantic ranking.'
+			? 'Semantic search reads the query by meaning not keywords. Try using keyword search.'
+			: 'Keyword search needs every word to appear. Try using semantic search.'
 	);
 	// Whether to offer semantic ranking for what has been typed. Only in keyword mode,
 	// only once there is a search to talk about, and only until it is waved away — see
@@ -841,7 +841,7 @@
 				class="h-4 w-4 shrink-0 text-primary-600 dark:text-primary-400"
 				aria-hidden="true"
 			/>
-			<span class="min-w-0">That reads like a question — semantic ranking looks for the idea.</span>
+			<span class="min-w-0">Question detected. Semantic ranking finds the idea.</span>
 			<button
 				type="button"
 				class="shrink-0 rounded-sm font-medium text-primary-600 underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 dark:text-primary-400"
