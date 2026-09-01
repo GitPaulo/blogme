@@ -64,6 +64,10 @@ themselves is what the query is for.
 
 ### Popularity
 
+> Summarised here. [popularity.md](popularity.md) is the full account: how the sweep
+> gathers it, how a points total becomes a score, what the number is biased towards, and
+> the sources measured and rejected.
+
 There is no public source of per-article traffic, and the paid estimates are per-domain
 anyway. Hacker News is free, unauthenticated, and where this corpus's readers actually
 circulate. It is asked **by site rather than by article**, which turns 600,000 lookups
