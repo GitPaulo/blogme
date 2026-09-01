@@ -259,16 +259,23 @@ function toResponse(body: unknown, query: string, offset: number): SearchRespons
 
 export async function search(
 	query: string,
-	options: { offset?: number; rank?: Rank; signal?: AbortSignal } = {}
+	options: { offset?: number; rank?: Rank; sources?: string[]; signal?: AbortSignal } = {}
 ): Promise<SearchResponse> {
-	const { signal, rank = 'keyword' } = options;
+	const { signal, rank = 'keyword', sources = [] } = options;
 	const term = clampQuery(query);
 	const offset = Math.min(
 		Math.max(Math.trunc(options.offset ?? 0), 0),
 		maxOffsetFor(rank, PAGE_SIZE)
 	);
 
-	const params = new URLSearchParams({ q: term, limit: String(PAGE_SIZE) });
+	const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
+	// Only one of the two has to be there. Browsing a blog sends no query at all, and
+	// the API refuses a request carrying neither rather than answering with the corpus.
+	if (term) params.set('q', term);
+	// A blog can hold more than one source id, so this is a list: see QueryOptions.Sources
+	// in api/internal/index. Sent as one comma-separated value, which is what parseSources
+	// reads.
+	if (sources.length > 0) params.set('source', sources.join(','));
 	if (offset > 0) params.set('offset', String(offset));
 	// Keyword is the server's default, so only the departure from it travels.
 	if (rank === 'semantic') params.set('mode', rank);

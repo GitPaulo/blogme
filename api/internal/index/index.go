@@ -18,6 +18,7 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -153,6 +154,18 @@ type QueryOptions struct {
 	Fetch int
 	// Origin, when set to a known discovery method, restricts results to it.
 	Origin string
+	// Sources, when set, restricts results to those blogs by their source ids.
+	//
+	// A blog can hold more than one id, because one site is sometimes listed twice
+	// and each listing crawls under its own: filtering righto.com by one of its two
+	// returns 5 documents where both return 57. So this is a set rather than one id.
+	//
+	// It is what makes "show me this blog" answerable at all. A blog's name is not
+	// reliably in its own documents — authorText holds whatever the feed called the
+	// post's author, which is usually a person — and the per-source cap below means
+	// even a query that does find the blog can only ever show three of its posts.
+	// See docs/popular-blogs-landing-plan.md.
+	Sources []string
 	// Rank selects the ranking mode. Empty means semantic, which is the default.
 	Rank string
 	// Profile names a scoring profile to rank with. Empty uses the index's own
@@ -266,7 +279,11 @@ func (i *Index) Query(ctx context.Context, q string, opts QueryOptions) (Page, e
 	body := map[string]any{
 		// Escaped, because the parser reads punctuation before any analyzer does and
 		// "c++" is otherwise a letter and two operators. See escapeQuery.
-		"search":       escapeQuery(q),
+		//
+		// An empty query means "everything the filter keeps", which is what browsing one
+		// blog asks for. It is only reachable with a filter: the API refuses a request
+		// naming neither a query nor a source, so this can never mean the whole corpus.
+		"search":       searchText(q),
 		"top":          fetch,
 		"skip":         opts.Offset,
 		"count":        true,
@@ -276,14 +293,20 @@ func (i *Index) Query(ctx context.Context, q string, opts QueryOptions) (Page, e
 		"select":       "url,title,author,origin,summary,topics,publishedAt,sourceId,framingDenied",
 	}
 
-	// Built from a fixed set rather than from the caller's string, so a filter can
-	// never be injected through the query parameter.
-	switch opts.Origin {
-	case article.OriginSitemap:
-		body["filter"] = "origin eq 'sitemap'"
-	case article.OriginFeed:
-		// Documents indexed before origin existed came from feeds.
-		body["filter"] = "origin eq 'feed' or origin eq null"
+	filter, err := filterFor(opts)
+	if err != nil {
+		return Page{}, err
+	}
+	if filter != "" {
+		body["filter"] = filter
+	}
+
+	// A search narrowed to particular blogs is a request for those blogs, so the cap
+	// that stops one blog swamping an ordinary page is exactly wrong here: it would
+	// answer "show me this blog" with three of its posts.
+	perSourceCap := maxPerSource
+	if len(opts.Sources) > 0 {
+		perSourceCap = 0
 	}
 
 	// Set before the semantic clone below, so both rankings are measured under the
@@ -310,7 +333,7 @@ func (i *Index) Query(ctx context.Context, q string, opts QueryOptions) (Page, e
 		var resp searchResponse
 		err := i.search(ctx, semantic, &resp)
 		if err == nil {
-			return selectPage(resp, opts.Offset, opts.Limit, fetch), nil
+			return selectPage(resp, opts.Offset, opts.Limit, fetch, perSourceCap), nil
 		}
 		// Reranking is metered and throttled: the free plan stops at 1,000 queries a
 		// month and the service sheds load above roughly ten concurrent queries. Worse
@@ -348,15 +371,15 @@ func (i *Index) Query(ctx context.Context, q string, opts QueryOptions) (Page, e
 			// over a retry would turn "no results" into "search is broken".
 			slog.WarnContext(ctx, "broadened search failed, reporting the strict result",
 				"error", err)
-			return selectPage(resp, opts.Offset, opts.Limit, fetch), nil
+			return selectPage(resp, opts.Offset, opts.Limit, fetch, perSourceCap), nil
 		}
 
-		page := selectPage(second, opts.Offset, opts.Limit, fetch)
+		page := selectPage(second, opts.Offset, opts.Limit, fetch, perSourceCap)
 		page.Broadened = true
 		return page, nil
 	}
 
-	return selectPage(resp, opts.Offset, opts.Limit, fetch), nil
+	return selectPage(resp, opts.Offset, opts.Limit, fetch, perSourceCap), nil
 }
 
 // worthBroadening reports whether a second, looser query is worth making.
@@ -368,6 +391,12 @@ func (i *Index) Query(ctx context.Context, q string, opts QueryOptions) (Page, e
 // Semantic ranking never reaches here — it searches for any of the words already, and a
 // semantic run that failed has fallen back to a keyword one that this then applies to.
 func worthBroadening(q string, resp searchResponse) bool {
+	// Nothing was asked in words, so there is no stricter reading to loosen: the
+	// rows are whatever the filter kept, and an empty one of those is honest.
+	if q == "" {
+		return false
+	}
+
 	return resp.Total == 0 && len(resp.Value) == 0 && len(strings.Fields(q)) > 1
 }
 
@@ -403,6 +432,57 @@ type searchResponse struct {
 	} `json:"value"`
 }
 
+// maxSources bounds how many blogs one search may be narrowed to. A blog is listed
+// more than once only a handful of times over, so this is generous; it is here so a
+// caller cannot hand the index a filter of unbounded length.
+const maxSources = 8
+
+// sourceIDPattern is every character a source id may contain.
+//
+// Ids are generated from host names by sources/tools, so they are lowercase letters,
+// digits and dashes, and the longest in the corpus is 57 characters. Checked here as
+// well as at the edge because this is the layer that puts them inside a filter string:
+// an id that has not been through this never reaches the index.
+var sourceIDPattern = regexp.MustCompile(`^[a-z0-9-]{1,64}$`)
+
+// ErrInvalidSource reports a source id that could not be checked, which is refused
+// rather than dropped. Dropping one would quietly widen the search to blogs the
+// caller did not ask for, and dropping all of them would widen it to the corpus.
+var ErrInvalidSource = errors.New("invalid source id")
+
+// filterFor builds the OData filter for one query.
+//
+// Every clause is built from a fixed set or from ids checked against the pattern
+// above, never from a caller's string, so a filter can never be injected through a
+// query parameter.
+func filterFor(opts QueryOptions) (string, error) {
+	var clauses []string
+
+	switch opts.Origin {
+	case article.OriginSitemap:
+		clauses = append(clauses, "origin eq 'sitemap'")
+	case article.OriginFeed:
+		// Documents indexed before origin existed came from feeds.
+		clauses = append(clauses, "(origin eq 'feed' or origin eq null)")
+	}
+
+	if len(opts.Sources) > 0 {
+		if len(opts.Sources) > maxSources {
+			return "", fmt.Errorf("%w: at most %d may be named", ErrInvalidSource, maxSources)
+		}
+		ids := make([]string, 0, len(opts.Sources))
+		for _, id := range opts.Sources {
+			if !sourceIDPattern.MatchString(id) {
+				return "", fmt.Errorf("%w: %q", ErrInvalidSource, id)
+			}
+			ids = append(ids, "sourceId eq '"+id+"'")
+		}
+		clauses = append(clauses, "("+strings.Join(ids, " or ")+")")
+	}
+
+	return strings.Join(clauses, " and "), nil
+}
+
 // maxPerSource caps how much of one page a single blog may occupy.
 //
 // Three posts from one site is rarely what a reader wanted, and it stops a source that
@@ -420,7 +500,9 @@ const maxPerSource = 3
 // The two go together on purpose. Rows are dropped here, after the index has ranked
 // them, so the number of rows returned says nothing about how far into the results
 // they reached, and the next page has to start where this one stopped reading.
-func selectPage(resp searchResponse, offset, limit, fetch int) Page {
+// perSourceCap is maxPerSource for an ordinary search, and 0 for a search already
+// narrowed to particular blogs, where a page of one blog is the thing asked for.
+func selectPage(resp searchResponse, offset, limit, fetch, perSourceCap int) Page {
 	out := make([]article.Result, 0, limit)
 	perSource := make(map[string]int, limit)
 	seen := make(map[string]struct{}, limit)
@@ -462,9 +544,9 @@ func selectPage(resp searchResponse, offset, limit, fetch int) Page {
 		// Counted after the repeat checks, so a duplicate does not also spend one of its
 		// source's three rows. Documents indexed before sourceId was selected carry
 		// none, and an unknown source cannot be shown to be over its share.
-		if v.SourceID != "" {
+		if v.SourceID != "" && perSourceCap > 0 {
 			perSource[v.SourceID]++
-			if perSource[v.SourceID] > maxPerSource {
+			if perSource[v.SourceID] > perSourceCap {
 				continue
 			}
 		}

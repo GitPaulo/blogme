@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -28,6 +29,19 @@ const (
 	maxQueryLen  = 512
 	defaultLimit = 20
 	maxLimit     = 50
+
+	// How many blogs one search may be narrowed to. A blog is listed twice only a
+	// handful of times over, so this is generous; it bounds the filter the index
+	// builds. Mirrors maxSources in the index package.
+	maxSourceIDs = 8
+)
+
+// sourceID is every character a source id may contain. Ids are generated from host
+// names by sources/tools, so they are lowercase letters, digits and dashes, and the
+// longest in the corpus is 57 characters.
+var sourceID = regexp.MustCompile(`^[a-z0-9-]{1,64}$`)
+
+const (
 	// Semantic reranking only reorders the top 50 keyword matches, so that window is
 	// the whole result set worth offering in that mode. Past it the ordering reverts
 	// to keyword scoring part-way down a scroll, which reads as results getting worse
@@ -138,11 +152,12 @@ func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
 	}
 
 	page, err := h.index.Query(ctx, p.q, index.QueryOptions{
-		Limit:  p.limit,
-		Offset: p.offset,
-		Fetch:  fetchFor(p.rank, p.limit, p.offset),
-		Origin: p.origin,
-		Rank:   p.rank,
+		Limit:   p.limit,
+		Offset:  p.offset,
+		Fetch:   fetchFor(p.rank, p.limit, p.offset),
+		Origin:  p.origin,
+		Rank:    p.rank,
+		Sources: p.sources,
 	})
 	if err != nil {
 		// A reader who types keeps superseding their own search, and the browser
@@ -249,11 +264,12 @@ type searchResponse struct {
 
 // searchParams is a search request that has already been checked over.
 type searchParams struct {
-	q      string
-	limit  int
-	offset int
-	origin string
-	rank   string
+	q       string
+	limit   int
+	offset  int
+	origin  string
+	rank    string
+	sources []string
 }
 
 // parseSearch validates every query parameter. Its error is answered verbatim with a
@@ -262,11 +278,51 @@ type searchParams struct {
 // Separate from the handler because none of it spends anything: the reranking budget
 // the handler spends afterwards is shared across the instance, and validating first
 // is what stops malformed traffic draining it.
+// parseSources reads the blogs a search is narrowed to, as a comma-separated list of
+// source ids.
+//
+// Checked here so a bad id is a 400 naming itself rather than a 500 from the index,
+// and checked again in index.filterFor, which is the layer that puts the id inside a
+// filter string and cannot afford to trust anyone.
+func parseSources(raw string) ([]string, error) {
+	if raw == "" {
+		return nil, nil
+	}
+
+	parts := strings.Split(raw, ",")
+	if len(parts) > maxSourceIDs {
+		return nil, fmt.Errorf("query parameter 'source' names more than %d blogs", maxSourceIDs)
+	}
+
+	ids := make([]string, 0, len(parts))
+	for _, part := range parts {
+		id := strings.TrimSpace(part)
+		if id == "" {
+			continue
+		}
+		if !sourceID.MatchString(id) {
+			return nil, fmt.Errorf("query parameter 'source' holds an invalid id %q", id)
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
 func parseSearch(values url.Values) (searchParams, error) {
 	p := searchParams{q: values.Get("q")}
 
-	if p.q == "" {
-		return p, errors.New("query parameter 'q' is required")
+	sources, err := parseSources(values.Get("source"))
+	if err != nil {
+		return p, err
+	}
+	p.sources = sources
+
+	// One or the other, not neither. A request naming a source is browsing that blog and
+	// needs no words; a request naming neither would be asking for the whole corpus in
+	// no order, which is a page nobody wants and an index scan nobody should be able to
+	// ask for.
+	if p.q == "" && len(p.sources) == 0 {
+		return p, errors.New("query parameter 'q' or 'source' is required")
 	}
 	if utf8.RuneCountInString(p.q) > maxQueryLen {
 		return p, errors.New("query parameter 'q' is too long")

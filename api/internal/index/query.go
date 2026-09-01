@@ -49,6 +49,18 @@ const queryOperators = `\+-&|!(){}[]^~*?:/`
 // every term beginning with c — 1,244,794 documents, against 0 for the literal string —
 // and neither is something this search box offers or explains. An operator nobody was
 // told about is a way for a query to mean something its author did not.
+// searchText is what goes in the request's search field.
+//
+// Azure reads "*" as match-all, which is the right reading of an empty query and the
+// wrong one of a query a reader actually typed. escapeQuery would turn a typed
+// asterisk into a literal one, so the two cases are separated before it runs.
+func searchText(q string) string {
+	if q == "" {
+		return "*"
+	}
+	return escapeQuery(q)
+}
+
 func escapeQuery(q string) string {
 	// Odd means one of them opened a phrase that was never closed, so none of them can
 	// be taken as the reader's punctuation.

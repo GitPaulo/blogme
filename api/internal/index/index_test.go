@@ -3,6 +3,7 @@ package index
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -288,7 +289,10 @@ func TestQueryFiltersByOrigin(t *testing.T) {
 		want   string
 	}{
 		{article.OriginSitemap, "origin eq 'sitemap'"},
-		{article.OriginFeed, "origin eq 'feed' or origin eq null"},
+		// Parenthesised because clauses are joined with "and": without the group, an
+		// origin filter combined with a source filter would read as "feed, or null and
+		// that blog" and return the whole corpus of feed articles.
+		{article.OriginFeed, "(origin eq 'feed' or origin eq null)"},
 		{"' or true or '", ""},
 	} {
 		var sent map[string]any
@@ -1042,5 +1046,134 @@ func TestAuthorizeRefusesWithNothingToSignWith(t *testing.T) {
 	}
 	if err := idx.authorize(context.Background(), req); err == nil {
 		t.Error("authorize accepted a request it had no way to sign")
+	}
+}
+
+// Browsing one blog is the whole reason Sources exists, so the filter it builds has to
+// name the blog exactly and nothing else. Ids come from a caller, so this is also the
+// one place a filter could be injected through a query parameter.
+func TestQueryFiltersBySource(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		sources []string
+		origin  string
+		want    string
+	}{
+		{
+			name:    "one blog",
+			sources: []string{"seangoedecke"},
+			want:    "(sourceId eq 'seangoedecke')",
+		},
+		{
+			// A blog can hold several ids: righto.com is listed twice, and filtering
+			// one of the two returns a fraction of its posts.
+			name:    "a blog listed twice",
+			sources: []string{"righto", "righto-2"},
+			want:    "(sourceId eq 'righto' or sourceId eq 'righto-2')",
+		},
+		{
+			// Joined with "and", and each side grouped, or the origin's own "or" would
+			// swallow the source clause and return the corpus.
+			name:    "narrowed and filtered by origin",
+			sources: []string{"danluu"},
+			origin:  article.OriginFeed,
+			want:    "(origin eq 'feed' or origin eq null) and (sourceId eq 'danluu')",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var sent map[string]any
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
+					t.Error(err)
+				}
+				_, _ = io.WriteString(w, `{"@odata.count":0,"value":[]}`)
+			}))
+			defer srv.Close()
+
+			query(t, New(srv.URL, "articles", "test-key", ""), "",
+				QueryOptions{Limit: 20, Origin: tc.origin, Sources: tc.sources})
+
+			if got, _ := sent["filter"].(string); got != tc.want {
+				t.Errorf("filter = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// An id that has not been through the pattern never reaches the index. Refused rather
+// than dropped: dropping one would quietly widen the search to blogs the caller did not
+// ask for, and dropping every one of them would widen it to the whole corpus.
+func TestQueryRefusesASourceItCannotVouchFor(t *testing.T) {
+	for _, bad := range [][]string{
+		{"' or true or '"},
+		{"UPPER"},
+		{"has space"},
+		{"ok", "also' or '1' eq '1"},
+		{"a", "b", "c", "d", "e", "f", "g", "h", "i"}, // past maxSources
+	} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			t.Error("a request went out for a source that should have been refused")
+			_, _ = io.WriteString(w, `{"@odata.count":0,"value":[]}`)
+		}))
+
+		_, err := New(srv.URL, "articles", "test-key", "").
+			Query(context.Background(), "", QueryOptions{Limit: 20, Sources: bad})
+		srv.Close()
+
+		if !errors.Is(err, ErrInvalidSource) {
+			t.Errorf("sources %v: err = %v, want ErrInvalidSource", bad, err)
+		}
+	}
+}
+
+// The cap that stops one blog swamping an ordinary page is exactly wrong once the
+// search has been narrowed to that blog: it would answer "show me this blog" with three
+// of its posts.
+func TestASearchNarrowedToOneBlogIsNotCappedPerSource(t *testing.T) {
+	srv := windowServer(t, dominatedBy(29, 100))
+	idx := New(srv.URL, "articles", "test-key", "")
+
+	capped := query(t, idx, "q", QueryOptions{Limit: 20, Fetch: 60})
+	loud := 0
+	for _, r := range capped.Results {
+		var n int
+		if _, err := fmt.Sscanf(r.URL, "https://example.com/%d", &n); err == nil && n < 29 {
+			loud++
+		}
+	}
+	if loud != maxPerSource {
+		t.Fatalf("an ordinary search gave one blog %d rows, want the cap of %d",
+			loud, maxPerSource)
+	}
+
+	page := query(t, idx, "", QueryOptions{Limit: 20, Fetch: 60, Sources: []string{"loud"}})
+	if len(page.Results) != 20 {
+		t.Errorf("browsing one blog gave %d rows, want a full page of 20", len(page.Results))
+	}
+}
+
+// Browsing a blog asks for its posts, not for a word, so the request has to say "match
+// everything the filter keeps" rather than searching for an empty string.
+func TestAnEmptyQueryAsksForEverythingTheFilterKeeps(t *testing.T) {
+	var sent map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
+			t.Error(err)
+		}
+		_, _ = io.WriteString(w, `{"@odata.count":0,"value":[]}`)
+	}))
+	defer srv.Close()
+
+	query(t, New(srv.URL, "articles", "test-key", ""), "",
+		QueryOptions{Limit: 20, Sources: []string{"danluu"}})
+
+	if got, _ := sent["search"].(string); got != "*" {
+		t.Errorf("search = %q, want %q", got, "*")
+	}
+	// Nothing was asked in words, so there is no stricter reading to loosen. Broadening
+	// an empty query would re-run the same request and report the same rows as though
+	// the reader had been given a looser answer than they asked for.
+	if got, _ := sent["searchMode"].(string); got != "all" {
+		t.Errorf("searchMode = %q, want it left alone", got)
 	}
 }

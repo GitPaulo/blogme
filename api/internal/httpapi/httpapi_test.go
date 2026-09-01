@@ -490,3 +490,60 @@ func TestSearchDoesNotClaimToHaveBroadenedAnExactMatch(t *testing.T) {
 		t.Errorf("body claims a broadening that did not happen: %s", strings.TrimSpace(body))
 	}
 }
+
+// A request naming a blog is browsing it and has no words to search for, so `q` stops
+// being required. What it must not become is optional altogether: a request naming
+// neither would be asking for the whole corpus in no order.
+func TestSearchAcceptsASourceWithoutAQuery(t *testing.T) {
+	h, sent := newCapturingHandlers(t, "", emptyResult, DefaultLimits())
+
+	if code := get(t, h, "/api/search?source=seangoedecke").Code; code != http.StatusOK {
+		t.Fatalf("browsing one blog got status %d, want 200", code)
+	}
+
+	requests := sent()
+	if len(requests) != 1 {
+		t.Fatalf("sent %d requests, want 1", len(requests))
+	}
+	if got, _ := requests[0]["filter"].(string); got != "(sourceId eq 'seangoedecke')" {
+		t.Errorf("filter = %q, want the blog named exactly", got)
+	}
+	if got, _ := requests[0]["search"].(string); got != "*" {
+		t.Errorf("search = %q, want everything the filter keeps", got)
+	}
+}
+
+func TestSearchRejectsBadSources(t *testing.T) {
+	h := newTestHandlers(t, emptyResult)
+
+	for _, target := range []string{
+		"/api/search", // neither a query nor a source
+		"/api/search?source=%27%20or%20true%20or%20%27", // an injected filter
+		"/api/search?source=Upper",                      // ids are lowercase
+		"/api/search?source=has%20space",                //
+		"/api/search?source=a,b,c,d,e,f,g,h,i",          // past the cap
+		"/api/search?q=go&source=ok,not%20ok",           // one bad id spoils the list
+	} {
+		if code := get(t, h, target).Code; code != http.StatusBadRequest {
+			t.Errorf("%s: got status %d, want 400", target, code)
+		}
+	}
+}
+
+// Narrowing to a blog and searching within it are both reasonable, and the two compose.
+func TestSearchCombinesAQueryWithASource(t *testing.T) {
+	h, sent := newCapturingHandlers(t, "", emptyResult, DefaultLimits())
+
+	if code := get(t, h, "/api/search?q=rust&source=danluu,danluu-2").Code; code != http.StatusOK {
+		t.Fatalf("got status %d, want 200", code)
+	}
+
+	requests := sent()
+	if got, _ := requests[0]["search"].(string); got != "rust" {
+		t.Errorf("search = %q, want the query kept", got)
+	}
+	want := "(sourceId eq 'danluu' or sourceId eq 'danluu-2')"
+	if got, _ := requests[0]["filter"].(string); got != want {
+		t.Errorf("filter = %q, want %q", got, want)
+	}
+}
