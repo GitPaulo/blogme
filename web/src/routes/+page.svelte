@@ -667,6 +667,10 @@
 		if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
 		event.preventDefault();
 		query = '';
+		// Emptying the box is not enough once a blog is being browsed: the ids alone keep
+		// the page searchable, so clearing only the query would leave the reader on that
+		// blog's posts with the wordmark apparently doing nothing.
+		leaveBlog();
 		// The ranking mode is left as it was, because emptying the box by hand does not
 		// turn it off either and a reader who chose semantic did not ask to be put back.
 		//
