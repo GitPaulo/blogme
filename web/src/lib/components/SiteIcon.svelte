@@ -51,37 +51,46 @@
 	const showTile = $derived(saveData || failed.has(host));
 </script>
 
-<!-- aria-hidden throughout: the host this stands for is written out beside it in every
-place this is used, so a screen reader announcing the icon would only repeat it. -->
-{#if showTile}
+<!-- aria-hidden on the wrapper: the host this stands for is written out beside it in
+every place this is used, so a screen reader announcing the icon would only repeat it. -->
+<!--
+	The tile is always drawn, and the icon sits on top of it.
+
+	A site can answer /favicon.ico with an image that loads perfectly and paints nothing:
+	shkspr.mobi and schneier.com both do, at 256 and 16 pixels square respectively, and
+	neither is visible against white or against the dark theme. That is the same failure
+	MIN_PIXELS was written for, but it cannot be caught the same way — the image is a
+	normal size, and reading its pixels would need the canvas, which a cross-origin icon
+	taints. Layering needs no detection: an opaque icon hides the tile completely, and a
+	blank one lets it through, so a row is never left empty.
+-->
+<span class="grid shrink-0 {className}" aria-hidden="true" style:--site-hue={hue}>
 	<span
-		aria-hidden="true"
-		class="tile grid shrink-0 place-items-center rounded-sm text-[0.625rem] leading-none font-semibold select-none {className}"
-		style:--site-hue={hue}
+		class="tile col-start-1 row-start-1 grid place-items-center rounded-sm text-[0.625rem] leading-none font-semibold select-none"
 	>
 		{monogram(host)}
 	</span>
-{:else}
-	<img
-		src={faviconUrl(host)}
-		alt=""
-		aria-hidden="true"
-		loading="lazy"
-		decoding="async"
-		fetchpriority="low"
-		draggable="false"
-		referrerpolicy="no-referrer"
-		class="shrink-0 rounded-sm object-contain {className}"
-		onerror={() => failed.add(host)}
-		onload={(event) => {
-			// Narrowed rather than asserted, as elsewhere: currentTarget is the img this is
-			// bound to, but the DOM types do not say so.
-			const img = event.currentTarget;
-			if (!(img instanceof HTMLImageElement)) return;
-			if (img.naturalWidth < MIN_PIXELS || img.naturalHeight < MIN_PIXELS) failed.add(host);
-		}}
-	/>
-{/if}
+	{#if !showTile}
+		<img
+			src={faviconUrl(host)}
+			alt=""
+			loading="lazy"
+			decoding="async"
+			fetchpriority="low"
+			draggable="false"
+			referrerpolicy="no-referrer"
+			class="col-start-1 row-start-1 h-full w-full rounded-sm object-contain"
+			onerror={() => failed.add(host)}
+			onload={(event) => {
+				// Narrowed rather than asserted, as elsewhere: currentTarget is the img this is
+				// bound to, but the DOM types do not say so.
+				const img = event.currentTarget;
+				if (!(img instanceof HTMLImageElement)) return;
+				if (img.naturalWidth < MIN_PIXELS || img.naturalHeight < MIN_PIXELS) failed.add(host);
+			}}
+		/>
+	{/if}
+</span>
 
 <style>
 	/* The hue is per site and arrives as a number, so the two colours are mixed here
