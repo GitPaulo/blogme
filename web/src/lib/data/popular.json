@@ -1,0 +1,107 @@
+{
+	"corpus": 46083,
+	"blogs": [
+		{
+			"name": "Simon Willison's Weblog",
+			"site": "https://simonwillison.net/",
+			"host": "simonwillison.net",
+			"ids": [
+				"simonwillison"
+			]
+		},
+		{
+			"name": "Troy Hunt",
+			"site": "https://www.troyhunt.com/",
+			"host": "troyhunt.com",
+			"ids": [
+				"troyhunt"
+			]
+		},
+		{
+			"name": "Shkspr",
+			"site": "https://shkspr.mobi/blog/",
+			"host": "shkspr.mobi",
+			"ids": [
+				"shkspr-blog-2",
+				"shkspr",
+				"shkspr-blog"
+			]
+		},
+		{
+			"name": "tonsky.me",
+			"site": "https://tonsky.me/",
+			"host": "tonsky.me",
+			"ids": [
+				"tonsky"
+			]
+		},
+		{
+			"name": "Drew DeVault's blog",
+			"site": "https://drewdevault.com/blog/",
+			"host": "drewdevault.com",
+			"ids": [
+				"drewdevault",
+				"drewdevault-blog"
+			]
+		},
+		{
+			"name": "Fabien Sanglard",
+			"site": "https://fabiensanglard.net/",
+			"host": "fabiensanglard.net",
+			"ids": [
+				"fabiensanglard"
+			]
+		},
+		{
+			"name": "mtlynch.io",
+			"site": "https://mtlynch.io/",
+			"host": "mtlynch.io",
+			"ids": [
+				"mtlynch"
+			]
+		},
+		{
+			"name": "Idle Words",
+			"site": "https://idlewords.com/",
+			"host": "idlewords.com",
+			"ids": [
+				"idlewords"
+			]
+		},
+		{
+			"name": "Sean Goedecke",
+			"site": "https://www.seangoedecke.com/",
+			"host": "seangoedecke.com",
+			"ids": [
+				"seangoedecke"
+			]
+		},
+		{
+			"name": "Schneier on Security",
+			"site": "https://www.schneier.com/",
+			"host": "schneier.com",
+			"ids": [
+				"schneier"
+			]
+		},
+		{
+			"name": "Martin Fowler",
+			"site": "https://martinfowler.com/",
+			"host": "martinfowler.com",
+			"ids": [
+				"martinfowler",
+				"martinfowler-2"
+			]
+		},
+		{
+			"name": "Scott Hanselman",
+			"site": "https://www.hanselman.com/blog/",
+			"host": "hanselman.com",
+			"ids": [
+				"hanselman-blog",
+				"hanselman-blog-2",
+				"hanselman"
+			]
+		}
+	]
+}

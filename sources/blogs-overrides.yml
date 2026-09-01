@@ -34,3 +34,24 @@ sources:
   # say so.
   - site: https://git.drupalcode.org/
     drop: true
+
+  # A PubSubHubbub hub endpoint, not a blog. It advertises whatever feed it was last
+  # asked to relay, so the extractor read Tim Bray's ongoing off it and filed the hub
+  # under his name — two hosts answering to "ongoing by Tim Bray", which is enough to
+  # keep the real one off the landing page. Both spellings are in the list.
+  - site: http://pubsubhubbub.appspot.com/
+    drop: true
+  - site: https://pubsubhubbub.appspot.com/
+    drop: true
+
+  # Feed titles that name the feed rather than the blog, which is what the landing
+  # page has to print and what clicking one searches for. See
+  # docs/popular-blogs-landing-plan.md.
+  - site: https://gwern.net/
+    name: Gwern Branwen
+  - site: https://steveblank.com/
+    name: Steve Blank
+  - site: https://idiallo.com/
+    name: iDiallo
+  - site: https://overreacted.io/
+    name: overreacted

@@ -68,6 +68,7 @@ place this is used, so a screen reader announcing the icon would only repeat it.
 		aria-hidden="true"
 		loading="lazy"
 		decoding="async"
+		fetchpriority="low"
 		draggable="false"
 		referrerpolicy="no-referrer"
 		class="shrink-0 rounded-sm object-contain {className}"

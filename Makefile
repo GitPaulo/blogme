@@ -21,7 +21,8 @@ FUNCTION_APP ?= func-blogme-b3d38b
 SEARCH_SERVICE ?= srch-blogme-basic-b3d38b
 
 .PHONY: help setup dev check build clean kill revive harness suggest-harness \
-        check-api check-web build-api build-web fmt sources sources-status sources-upload
+        check-api check-web build-api build-web fmt sources sources-status sources-upload \
+        popular
 
 help: ## List available targets
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -98,6 +99,26 @@ sources-status: ## Show progress of the background source rebuild
 
 sources-upload: ## Publish sources/blogs.yml to blob storage (no redeploy needed)
 	@RESOURCE_GROUP=$(RESOURCE_GROUP) FUNCTION_APP=$(FUNCTION_APP) ./infra/upload-sources.sh
+
+popular: ## Rebuild the landing page's list of widely shared blogs
+	@STORAGE_ACCOUNT="$${STORAGE_ACCOUNT:-$$(az functionapp config appsettings list \
+		--name $(FUNCTION_APP) --resource-group $(RESOURCE_GROUP) \
+		--query "[?name=='BLOGME_STORAGE_ACCOUNT'].value | [0]" -o tsv 2>/dev/null)}"; \
+	[[ -n "$$STORAGE_ACCOUNT" ]] \
+		|| { echo "error: could not resolve the storage account, run 'az login'"; exit 1; }; \
+	tmp="$$(mktemp)"; trap 'rm -f "$$tmp"' EXIT; \
+	az storage blob download --account-name "$$STORAGE_ACCOUNT" \
+		--container-name sources --name popularity.json --file "$$tmp" \
+		--auth-mode login --no-progress --output none; \
+	export BLOGME_SEARCH_ENDPOINT="$${BLOGME_SEARCH_ENDPOINT:-https://$(SEARCH_SERVICE).search.windows.net}"; \
+	export BLOGME_SEARCH_API_KEY="$${BLOGME_SEARCH_API_KEY:-$$(az search query-key list \
+		--service-name $(SEARCH_SERVICE) --resource-group $(RESOURCE_GROUP) \
+		--query '[0].key' -o tsv 2>/dev/null)}"; \
+	[[ -n "$$BLOGME_SEARCH_API_KEY" ]] \
+		|| echo "warning: no search key, blogs will not be checked for articles"; \
+	cd sources/tools && { [[ -d .venv ]] || $(PYTHON) -m venv .venv; } \
+		&& .venv/$(VENV_BIN)/pip install -q -r requirements.txt \
+		&& .venv/$(VENV_BIN)/python build_popular.py --popularity "$$tmp"
 
 suggest-harness: ## Print what a fixed set of prefixes completes to (PREFIXES=a,b to override)
 	@cd api && BLOGME_SEARCH_ENDPOINT="https://$(SEARCH_SERVICE).search.windows.net" \

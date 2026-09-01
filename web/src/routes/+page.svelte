@@ -14,6 +14,7 @@
 	import { base } from '$app/paths';
 	import BookmarkButton from '$lib/components/BookmarkButton.svelte';
 	import FilterBar from '$lib/components/FilterBar.svelte';
+	import PopularBlogs from '$lib/components/PopularBlogs.svelte';
 	import SearchSuggestions from '$lib/components/SearchSuggestions.svelte';
 	import SiteIcon from '$lib/components/SiteIcon.svelte';
 	import {
@@ -69,6 +70,15 @@
 	const decimal = new Intl.NumberFormat();
 
 	let query = $state('');
+	// The blogs a search is narrowed to, empty for an ordinary search.
+	//
+	// Set by picking a blog off the landing page, and cleared by typing. While it is set
+	// the box holds the blog's name so the reader can see whose posts these are, but the
+	// name is not what is searched for: the request sends no query at all and the API
+	// filters on these ids. Searching for the name instead does not work, and cannot be
+	// made to — a blog's name is not reliably in its own posts, and the per-source cap
+	// would hold it to three rows even when it is. See docs/popular-blogs-landing-plan.md.
+	let sources = $state.raw<string[]>([]);
 	// Raw, because a page is only ever replaced or appended as a whole and never
 	// edited in place. Deep state would instead proxy every row and charge a
 	// subscription for each field the filter pass touches.
@@ -141,8 +151,12 @@
 	const opening = new URLSearchParams(browser ? location.search : '');
 
 	const term = $derived(clampQuery(query));
-	const searchable = $derived(term.length >= MIN_QUERY_LENGTH);
+	// Browsing a blog needs no words, so it is searchable whatever the box says.
+	const browsing = $derived(sources.length > 0);
+	const searchable = $derived(browsing || term.length >= MIN_QUERY_LENGTH);
 	const tooShort = $derived(term.length > 0 && !searchable);
+	// What the request actually asks for: nothing, when the ids are doing the asking.
+	const asked = $derived(browsing ? '' : term);
 	const rank = $derived<Rank>(semanticRanking ? 'semantic' : 'keyword');
 	// Three separate ways to be out of results, and the reader meets all three. The index
 	// itself runs out, which only it can report; the count runs out; and the ranking mode
@@ -239,7 +253,7 @@
 	// for. Leaving the caret alone means the list appears when they go to the box, which
 	// is when they have asked for it.
 	$effect(() => {
-		if (opening.get('q')) return;
+		if (opening.get('q') || opening.get('source')) return;
 		searchInput?.focus();
 	});
 
@@ -248,6 +262,9 @@
 	// and hydrating a different one would not match the markup already on screen.
 	$effect(() => {
 		query = clampQuery(opening.get('q') ?? '');
+		// Ids are checked by the API, which refuses a malformed one rather than
+		// widening the search, so nothing here has to validate what the address bar says.
+		sources = (opening.get('source') ?? '').split(',').filter(Boolean);
 		semanticRanking = opening.get('mode') === 'semantic';
 	});
 
@@ -312,10 +329,14 @@
 	// Called once per search rather than once per keystroke. Both because a URL should
 	// describe results that exist, and because browsers throttle history writes: Safari
 	// stops at a hundred in thirty seconds, which is a fast typist.
-	function syncUrl(value: string, ranking?: Rank) {
+	function syncUrl(value: string, ranking?: Rank, srcs: string[] = []) {
 		const params = new URLSearchParams();
-		if (value) {
-			params.set('q', value);
+		// The blog's name rides along even though it is not what was searched for: it is
+		// what the box shows, and a link restoring the results without the name would
+		// leave the reader looking at one blog's posts with an empty box above them.
+		if (srcs.length > 0) params.set('source', srcs.join(','));
+		if (value || srcs.length > 0) {
+			if (value) params.set('q', value);
 			if (ranking === 'semantic') params.set('mode', ranking);
 		}
 
@@ -332,7 +353,7 @@
 	}
 
 	/** Resolves true when this call is the one that landed a page. */
-	async function run(value: string, offset: number, ranking: Rank) {
+	async function run(value: string, offset: number, ranking: Rank, srcs: string[] = []) {
 		cancel();
 		const current = new AbortController();
 		controller = current;
@@ -341,16 +362,20 @@
 			status = 'loading';
 			// Recorded before the request rather than after it, so that a second ask
 			// arriving while this one is still in flight is recognised too. See onsubmit.
-			requested = requestKey(value, ranking);
+			requested = requestKey(value, ranking, srcs);
 			// Filters describe the result set on screen, so a fresh search starts clean.
 			filters = emptyFilters();
-			syncUrl(value, ranking);
+			// `term`, not `value`: browsing a blog searches for nothing, and an address
+			// holding the ids alone would restore the results above an empty box. What
+			// goes in the address is what the box shows.
+			syncUrl(term, ranking, srcs);
 		}
 		error = '';
 		try {
 			const response = await search(value, {
 				offset,
 				rank: ranking,
+				sources: srcs,
 				signal: current.signal
 			});
 			// A newer search (or a cleared query) owns the UI now, so drop this answer.
@@ -406,19 +431,20 @@
 		if (!hasMore || loadingMore) return;
 		// Pinned for the whole chase: reading these per request would pair a query the
 		// user has since edited with an offset counted against the previous one.
-		const value = term;
+		const value = asked;
 		const ranking = rank;
+		const srcs = sources;
 		const before = shown;
 		const readerTookOver = watchReaderScroll();
 		loadingMore = true;
 		try {
 			const deadline = Date.now() + CHASE_BUDGET_MS;
 			for (let page = 0; page < MAX_CHASE; page++) {
-				if (!(await run(value, nextOffset, ranking))) break;
+				if (!(await run(value, nextOffset, ranking, srcs))) break;
 				if (shown > before || !hasMore || Date.now() >= deadline) break;
 				// The search this chase belongs to is no longer the one on screen. Leaving
 				// now also spares the debounce the next run() would cancel out from under.
-				if (term !== value || rank !== ranking) break;
+				if (asked !== value || rank !== ranking || sources !== srcs) break;
 			}
 		} finally {
 			loadingMore = false;
@@ -426,7 +452,7 @@
 
 		// Detaches the watcher and reports whether the reader moved the page themselves.
 		// After the chase settles rather than per page, so several pages move the reader once.
-		if (!readerTookOver() && shown > before && term === value) await revealNewResults(before);
+		if (!readerTookOver() && shown > before && asked === value) await revealNewResults(before);
 	}
 
 	/** Reports, once detached, whether the reader scrolled the page while it was called. */
@@ -488,14 +514,19 @@
 			accepted = '';
 			// And nothing has been asked for any more, so typing that query again searches.
 			requested = '';
+			// An empty box is not a blog either. Guarded rather than assigned outright: a
+			// fresh array every run is a new value to the effect that reads it, which would
+			// re-trigger this branch forever.
+			if (sources.length > 0) sources = [];
 			syncUrl(''); // No search to describe, so the address goes back to bare.
 			return;
 		}
 
-		const value = term;
+		const value = asked;
 		// Read inside the effect so flipping the ranking mode re-runs the current search
 		// rather than only affecting the next one the user types.
 		const ranking = rank;
+		const srcs = sources;
 
 		// Already on screen, so there is nothing to fetch. This runs whenever the query or
 		// the ranking changes, and both can change back: flipping the ranking on and off
@@ -505,12 +536,12 @@
 		// `requested` is a plain variable rather than state, which matters here — reading
 		// the status instead would make this effect depend on something it sets, and it
 		// would re-run itself. A failed search clears it, so a retry is never suppressed.
-		if (requested === requestKey(value, ranking)) return;
+		if (requested === requestKey(value, ranking, srcs)) return;
 
 		// The pending debounce is still work in progress, so the spinner stays up throughout.
 		status = 'loading';
 		clearTimeout(timer);
-		timer = setTimeout(() => run(value, 0, ranking), DEBOUNCE_MS);
+		timer = setTimeout(() => run(value, 0, ranking, srcs), DEBOUNCE_MS);
 		return () => clearTimeout(timer);
 	});
 
@@ -524,9 +555,32 @@
 	// "postgres qu" does not tell a reader what they are about to get. So this replaces
 	// what is in the box rather than appending to it. The search needs no prompting —
 	// the effect below already watches the query.
+	// Picking a blog off the landing page is choosing a query, so it goes through the same
+	// motions as accepting a suggestion: the box gets the text, the search that follows is
+	// remembered like any other, the dropdown stays shut, and the caret ends up back in the
+	// box. The search itself needs no prompting — the effect above already watches `query`.
+	function searchForBlog(name: string, ids: string[]) {
+		query = name;
+		sources = ids;
+		dismissed = true;
+		selected = '';
+		recent.record(name);
+		searchInput?.focus();
+	}
+
+	// Typing is how a reader leaves a blog and goes back to searching. It has to be the
+	// input event rather than a watch on the query, because the blog view puts the name
+	// in the box itself: a watcher could not tell the two apart, and would close the view
+	// the instant it opened.
+	function leaveBlog() {
+		if (sources.length > 0) sources = [];
+	}
+
 	function acceptSuggestion(option: Suggestion) {
 		accepted = option.text;
 		query = option.text;
+		// A suggestion is a query, so taking one leaves whatever blog was being browsed.
+		leaveBlog();
 		dismissed = true;
 		selected = '';
 		// Taking a suggestion is committing to it, whichever list it came from. A
@@ -584,11 +638,11 @@
 	}
 
 	/** What a first page is asked for: two searches are the same one when these match. */
-	function requestKey(value: string, ranking: Rank) {
+	function requestKey(value: string, ranking: Rank, srcs: string[] = []) {
 		// A separator no query survives being trimmed to, so a rank and a query cannot run
 		// together into the same string as some other pair. Written as an escape rather
 		// than the byte itself, which would make the whole file binary to git and grep.
-		return `${ranking}\0${value}`;
+		return `${ranking}\0${srcs.join(',')}\0${value}`;
 	}
 
 	// Taking the offer switches the mode, which the effect below re-runs the search for.
@@ -640,9 +694,9 @@
 		//
 		// A failed search clears `requested`, so this never suppresses a retry: there the
 		// query has been asked for and has nothing to show, and Enter means try again.
-		if (requested === requestKey(term, rank)) return;
+		if (requested === requestKey(asked, rank, sources)) return;
 
-		run(term, 0, rank);
+		run(asked, 0, rank, sources);
 	}
 
 	// Opening a result is the other way of saying it, and the more common one: most
@@ -729,7 +783,10 @@
 			onkeydown={onSearchKeydown}
 			onfocus={() => (searchFocused = true)}
 			onblur={() => (searchFocused = false)}
-			oninput={() => (dismissed = false)}
+			oninput={() => {
+				dismissed = false;
+				leaveBlog();
+			}}
 		>
 			{#snippet left()}
 				<!--
@@ -1217,6 +1274,11 @@
 				</Card>
 			{/if}
 		</div>
+	{:else}
+		<!-- The other half of the same gate. The result view and this are the two things
+		that can occupy the page below the search box, they are mutually exclusive, and
+		saying so here is what keeps them from ever being on screen together. -->
+		<PopularBlogs onpick={searchForBlog} />
 	{/if}
 </main>
 

@@ -7,3 +7,8 @@ bun.lockb
 
 # Miscellaneous
 /static/
+
+# Generated
+# Written by sources/tools/build_popular.py, which formats it. Two tools with
+# opinions about one generated file means every rebuild is a diff nobody made.
+src/lib/data/
