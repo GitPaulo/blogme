@@ -29,6 +29,21 @@ func hnServer(t *testing.T, body string) (*httptest.Server, *string) {
 	return srv, &query
 }
 
+// hnFailing answers every lookup with a refusal, standing in for the rate limits and
+// network faults a sweep of thousands of third-party sites meets in production.
+func hnFailing(t *testing.T, status int) {
+	t.Helper()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(status)
+	}))
+	t.Cleanup(srv.Close)
+
+	previous := hnEndpoint
+	hnEndpoint = srv.URL
+	t.Cleanup(func() { hnEndpoint = previous })
+}
+
 // The search matches URLs loosely, so the answer contains other sites. Counting them
 // would hand every blog on a shared platform the standing of the loudest one on it.
 func TestHackerNewsCountsOnlyTheSiteItAskedAbout(t *testing.T) {
@@ -53,14 +68,7 @@ func TestHackerNewsCountsOnlyTheSiteItAskedAbout(t *testing.T) {
 }
 
 func TestHackerNewsReportsARefusal(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusTooManyRequests)
-	}))
-	defer srv.Close()
-
-	previous := hnEndpoint
-	hnEndpoint = srv.URL
-	defer func() { hnEndpoint = previous }()
+	hnFailing(t, http.StatusTooManyRequests)
 
 	if _, _, err := hackerNews(context.Background(), http.DefaultClient, "example.com"); err == nil {
 		t.Error("a refusal was read as an answer")
@@ -137,18 +145,11 @@ func TestStalePutsTheNeverCheckedFirst(t *testing.T) {
 // A site that could not be read has to be marked as tried, or it stays at the head of
 // the queue and starves everything behind it.
 func TestSweepMarksSitesItCouldNotRead(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer srv.Close()
-
-	previous := hnEndpoint
-	hnEndpoint = srv.URL
-	defer func() { hnEndpoint = previous }()
+	hnFailing(t, http.StatusInternalServerError)
 
 	store := &Store{entries: map[string]Entry{}}
-	if read := store.Sweep(context.Background(), http.DefaultClient, []string{"example.com"}); read != 0 {
-		t.Errorf("reported %d sites read, want none", read)
+	if got := store.Sweep(context.Background(), http.DefaultClient, []string{"example.com"}); got.Read != 0 || got.Failed != 1 {
+		t.Errorf("reported %d read and %d failed, want none read and one failed", got.Read, got.Failed)
 	}
 
 	entry, ok := store.entries["example.com"]
@@ -160,12 +161,39 @@ func TestSweepMarksSitesItCouldNotRead(t *testing.T) {
 	}
 }
 
+// A lookup that failed says nothing about the site, and must not be written as though
+// it had. Recording zeroes here is indistinguishable from a site nobody has ever
+// posted, and because the entry is marked as checked in the same breath, that verdict
+// stands until the site comes round again a full rotation later.
+func TestSweepKeepsWhatItKnewWhenALookupFails(t *testing.T) {
+	hnFailing(t, http.StatusTooManyRequests)
+
+	before := time.Now().UTC().Add(-30 * 24 * time.Hour)
+	store := &Store{entries: map[string]Entry{
+		"known.example": {Points: 320, Stories: 4, CheckedAt: before},
+	}}
+
+	store.Sweep(context.Background(), http.DefaultClient, []string{"known.example"})
+
+	entry := store.entries["known.example"]
+	if entry.Points != 320 || entry.Stories != 4 {
+		t.Errorf("a failed lookup overwrote what was known: %d points over %d stories, want 320 over 4",
+			entry.Points, entry.Stories)
+	}
+	if !entry.CheckedAt.After(before) {
+		t.Error("a failed lookup left the site looking unchecked, so it holds the head of the queue")
+	}
+	if got := store.Score("https://known.example/post"); got == 0 {
+		t.Error("a failed lookup cost the site the standing it had already earned")
+	}
+}
+
 func TestSweepRecordsWhatItLearns(t *testing.T) {
 	hnServer(t, `{"hits":[{"url":"https://example.com/a","points":120}]}`)
 
 	store := &Store{entries: map[string]Entry{}}
-	if read := store.Sweep(context.Background(), http.DefaultClient, []string{"example.com"}); read != 1 {
-		t.Errorf("reported %d sites read, want 1", read)
+	if got := store.Sweep(context.Background(), http.DefaultClient, []string{"example.com"}); got.Read != 1 || got.Failed != 0 {
+		t.Errorf("reported %d read and %d failed, want one read and none failed", got.Read, got.Failed)
 	}
 
 	if got := store.entries["example.com"]; got.Points != 120 || got.Stories != 1 {

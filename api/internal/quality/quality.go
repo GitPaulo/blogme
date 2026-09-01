@@ -98,45 +98,46 @@ func (s *Scorer) Run(ctx context.Context) error {
 	slog.InfoContext(ctx, "quality pass complete",
 		"scored", scored,
 		"remaining", remaining,
-		"sites_swept", swept,
+		"sites_swept", swept.Read,
+		"sites_failed", swept.Failed,
 		"version", Version,
 		"duration_ms", time.Since(started).Milliseconds())
 	return nil
 }
 
 // gatherPopularity makes what is known about each site available to this run, learns a
-// little more, and reports how many sites it read.
+// little more, and reports what the sweep managed.
 //
 // Reading and gathering are separate steps because they fail and switch off separately.
 // Turning the sweep off must not also stop the scores already gathered from being used,
 // and a failed read must not be followed by a write: saving a sweep on top of a map that
 // could not be loaded would replace everything known with whatever this run fetched.
-func (s *Scorer) gatherPopularity(ctx context.Context) int {
+func (s *Scorer) gatherPopularity(ctx context.Context) SweepResult {
 	if s.popularity == nil {
-		return 0
+		return SweepResult{}
 	}
 
 	if err := s.popularity.Load(ctx); err != nil {
 		slog.WarnContext(ctx, "popularity unavailable, scoring on text alone", "error", err)
-		return 0
+		return SweepResult{}
 	}
 
 	if s.sweepBatch <= 0 || s.sources == nil {
-		return 0
+		return SweepResult{}
 	}
 
-	read, err := s.sweep(ctx)
+	result, err := s.sweep(ctx)
 	if err != nil {
 		slog.WarnContext(ctx, "popularity sweep failed", "error", err)
 	}
-	return read
+	return result
 }
 
 // sweep reads the standing of the sites that have gone longest without being checked.
-func (s *Scorer) sweep(ctx context.Context) (int, error) {
+func (s *Scorer) sweep(ctx context.Context) (SweepResult, error) {
 	list, err := s.sources.Load(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("load sources: %w", err)
+		return SweepResult{}, fmt.Errorf("load sources: %w", err)
 	}
 
 	sites := make([]string, 0, len(list))
@@ -155,11 +156,11 @@ func (s *Scorer) sweep(ctx context.Context) (int, error) {
 		sites = append(sites, site)
 	}
 
-	read := s.popularity.Sweep(ctx, s.client, s.popularity.Stale(sites, s.sweepBatch))
+	result := s.popularity.Sweep(ctx, s.client, s.popularity.Stale(sites, s.sweepBatch))
 	if err := s.popularity.Save(ctx); err != nil {
-		return read, err
+		return result, err
 	}
-	return read, nil
+	return result, nil
 }
 
 // score judges articles until the run's budget is spent or none are left, reporting how

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"math"
 	"net/http"
 	"net/url"
@@ -174,13 +173,24 @@ func (s *Store) Stale(sites []string, limit int) []string {
 	return ordered[:min(limit, len(ordered))]
 }
 
-// Sweep asks Hacker News about the sites given and records what it learns, reporting
-// how many were read successfully.
-func (s *Store) Sweep(ctx context.Context, client *http.Client, sites []string) int {
+// SweepResult is what one pass of the sweep did.
+//
+// The two are reported apart because the map itself cannot tell them apart: a site
+// that could not be read keeps the figures it already had, which for a site never yet
+// read is none at all. Without the second number, a pass whose lookups mostly failed
+// reads exactly like a corpus nobody has ever posted.
+type SweepResult struct {
+	Read   int
+	Failed int
+}
+
+// Sweep asks Hacker News about the sites given and records what it learns.
+func (s *Store) Sweep(ctx context.Context, client *http.Client, sites []string) SweepResult {
 	var (
-		wg   sync.WaitGroup
-		sem  = make(chan struct{}, sweepConcurrency)
-		read atomic.Int64
+		wg     sync.WaitGroup
+		sem    = make(chan struct{}, sweepConcurrency)
+		read   atomic.Int64
+		failed atomic.Int64
 	)
 
 	for _, site := range sites {
@@ -190,26 +200,37 @@ func (s *Store) Sweep(ctx context.Context, client *http.Client, sites []string) 
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			entry := Entry{CheckedAt: time.Now().UTC()}
 			points, stories, err := hackerNews(ctx, client, site)
-			if err != nil {
-				// Debug rather than warn: a sweep of thousands of third-party sites
-				// will always have some failures, and a site that could not be read
-				// this time simply keeps the score it had.
-				slog.DebugContext(ctx, "popularity lookup failed", "site", site, "error", err)
-			} else {
-				entry.Points, entry.Stories = points, stories
+			if err == nil {
 				read.Add(1)
+			} else {
+				// Counted rather than logged per site: a sweep of thousands of
+				// third-party sites will always have some failures, and the caller
+				// reports the total for the pass.
+				failed.Add(1)
 			}
 
 			s.mu.Lock()
+			defer s.mu.Unlock()
+
+			entry := s.entries[site]
+			// Marked as tried whether or not it answered, including when it failed.
+			// A site left unmarked would stay at the head of the queue, be asked
+			// about again every run, and starve every site behind it.
+			entry.CheckedAt = time.Now().UTC()
+			// Only an answer may change the figures. Writing zeroes for a lookup that
+			// failed would record "nobody has ever posted this site", which is what
+			// the score reads it as — and since the entry has just been marked as
+			// checked, that verdict then stands until the site comes round again.
+			if err == nil {
+				entry.Points, entry.Stories = points, stories
+			}
 			s.entries[site] = entry
-			s.mu.Unlock()
 		}()
 	}
 
 	wg.Wait()
-	return int(read.Load())
+	return SweepResult{Read: int(read.Load()), Failed: int(failed.Load())}
 }
 
 type hnResponse struct {

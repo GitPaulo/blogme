@@ -84,6 +84,14 @@ Answers are matched on exact host, because thousands of sources here are subdoma
 a handful of blogging platforms and a loose match would hand every blog on
 `bearblog.dev` the standing of the most popular one on it.
 
+**A lookup that fails is not an answer.** A site that could not be reached keeps the
+figures it already had and is marked as tried, so it goes to the back of the queue
+rather than holding the front of it. Writing zeroes instead would record "nobody has
+ever posted this site" — which is exactly how the score reads it — and that verdict
+would then stand for a full rotation. Every pass reports both numbers, `sites_swept`
+and `sites_failed`, because the map itself cannot tell a quiet corpus from a sweep
+whose lookups mostly failed.
+
 ## How it drains
 
 There is no queue and no cursor. An article leaves the unscored set by being scored, so
