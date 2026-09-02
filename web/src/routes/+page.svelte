@@ -10,6 +10,7 @@
 	import { prefersReducedMotion } from 'svelte/motion';
 	import { fade } from 'svelte/transition';
 	import { base } from '$app/paths';
+	import EmptyResults from '$lib/components/EmptyResults.svelte';
 	import FilterBar from '$lib/components/FilterBar.svelte';
 	import PopularBlogs from '$lib/components/PopularBlogs.svelte';
 	import ResultCard from '$lib/components/ResultCard.svelte';
@@ -115,11 +116,6 @@
 	// of the query, so these rows match any of them instead.
 	const broadenedNote =
 		'Nothing matched every word of the search, so these results match any of the words instead.';
-	// What each mode does, hoverable wherever its name appears in prose rather than
-	// only on the icon that switches between them.
-	const keywordModeNote = 'Every word has to appear. Best for names, libraries and exact phrases.';
-	const semanticModeNote =
-		'Reads the query as a sentence, so posts that never use your exact words can still come back.';
 	// The button's own label, which a screen reader reads and a tooltip cannot replace:
 	// it has to say what pressing it does, in one string, with no markup.
 	const rankLabel = $derived(
@@ -642,32 +638,36 @@
 			a filter narrow enough to match nothing still leaves the bar that undoes it. -->
 			{#if search.loaded > 0}
 				<!-- The sentence is aria-hidden because the live region above already reads it.
-				The note is not: it sits outside that region so the explanation is reachable by
-				keyboard and screen reader without being re-announced on every filter change,
-				and it carries the whole sentence as its label rather than pointing at a
-				tooltip a screen reader has no way to open. -->
+
+				The notes beside it are not, and they are not buttons either. They were, so that
+				a Flowbite tooltip had something to hang off — but a button that does nothing
+				when pressed is a control by every measure a reader has, and the aria-label
+				carrying the whole explanation replaced the visible name, which is the one thing
+				"label in name" asks not to do. That is the rule the wordmark below is written
+				to honour, so honouring it here too.
+
+				Now the note is an ordinary span: the visible word is the word, the explanation
+				is read inline by a screen reader, and the tooltip is what it always was for a
+				pointer. What this costs is the sighted keyboard-only reader, who could focus
+				the old button to see the tooltip and now cannot. That is the smaller loss —
+				the explanation is a footnote, not a control, and nothing on this page depends
+				on having read it. -->
 				<div class="flex items-baseline">
 					<P size="sm" class="text-gray-500 tabular-nums dark:text-gray-400" aria-hidden="true">
 						{summary}
 					</P>
 					{#if search.broadened}
-						<button
-							type="button"
-							class="cursor-help rounded-sm px-1 text-sm leading-none text-gray-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 dark:text-gray-400"
-							aria-label={broadenedNote}
-						>
+						<span class="cursor-help px-1 text-sm leading-none text-gray-500 dark:text-gray-400">
 							&nbsp;· broadened
-						</button>
+							<span class="sr-only">. {broadenedNote}</span>
+						</span>
 						<Tooltip class="max-w-64 text-center">{broadenedNote}</Tooltip>
 					{/if}
 					{#if search.partial}
-						<button
-							type="button"
-							class="cursor-help rounded-sm px-1 text-sm leading-none text-gray-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 dark:text-gray-400"
-							aria-label={partialNote}
-						>
+						<span class="cursor-help px-1 text-sm leading-none text-gray-500 dark:text-gray-400">
 							*
-						</button>
+							<span class="sr-only">{partialNote}</span>
+						</span>
 						<Tooltip class="max-w-64 text-center">{partialNote}</Tooltip>
 					{/if}
 				</div>
@@ -763,77 +763,7 @@
 					</div>
 				{/if}
 			{:else if search.status === 'done'}
-				<!-- The card a result comes in: same border, same radius, same column, same
-				width. An empty search is still the page answering, so it answers in the shape
-				the reader has been reading all along. Red is reserved for the text of the
-				error card below; this state has nothing wrong to say, so its type stays grey.
-
-				The one thing not carried over is the fill. Grey where a result is white, the
-				page's own gray-900 where a result is the lifted gray-800, and no shadow at all,
-				so the outline says a row belongs here and the flat recess inside it says none
-				came.
-
-				Inside, the type is the card's — gray-900 to lead, gray-600 at `text-sm` under
-				it — both still past AA on the greys they now sit on.
-
-				The offer to switch ranking modes is an ordinary `alternative` button at the
-				size Load more uses, so it hovers, focuses and depresses like every other button
-				here and is a 42px target under a thumb. It was a filled pill set into the
-				middle of the sentence, which is the shape this page uses for tags: a label, not
-				a control.
-
-				The icon is the mode being offered, not the mode in use — the inverse of the
-				toggle in the search box. Both carry a word beside the picture, so the wand is
-				never left to mean two things a few centimetres apart.
-
-				No role of its own: the live region above already reads emptyMessage, which
-				names this same button, and a box that announced itself would say it twice. -->
-				<Card
-					class="mt-4 max-w-none flex-col items-start gap-3 bg-gray-50 p-4 shadow-none dark:bg-gray-900"
-				>
-					<div>
-						<p class="font-medium text-gray-900 dark:text-white">No results found</p>
-						<p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
-							{#if search.semanticRanking}
-								Nothing came back close enough.
-								<button
-									type="button"
-									class="cursor-help rounded-sm font-medium text-primary-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 dark:text-primary-400"
-								>
-									Keyword search
-								</button>
-								<Tooltip class="max-w-64 text-center">{keywordModeNote}</Tooltip>
-								matches your words exactly, and pages deeper.
-							{:else}
-								<button
-									type="button"
-									class="cursor-help rounded-sm font-medium text-primary-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 dark:text-primary-400"
-								>
-									Keyword search
-								</button>
-								<Tooltip class="max-w-64 text-center">{keywordModeNote}</Tooltip>
-								needs every word to appear.
-								<button
-									type="button"
-									class="cursor-help rounded-sm font-medium text-primary-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 dark:text-primary-400"
-								>
-									Semantic search
-								</button>
-								<Tooltip class="max-w-64 text-center">{semanticModeNote}</Tooltip>
-								reads the query as a sentence instead.
-							{/if}
-						</p>
-					</div>
-					<Button color="alternative" class="gap-2" onclick={search.toggleRanking}>
-						{#if search.semanticRanking}
-							<SearchOutline class="h-4 w-4" aria-hidden="true" />
-							Try keyword search
-						{:else}
-							<WandMagicSparklesOutline class="h-4 w-4" aria-hidden="true" />
-							Try semantic search
-						{/if}
-					</Button>
-				</Card>
+				<EmptyResults semanticRanking={search.semanticRanking} ontoggle={search.toggleRanking} />
 			{/if}
 		</div>
 	{:else}
