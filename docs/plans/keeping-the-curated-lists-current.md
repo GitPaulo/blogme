@@ -96,7 +96,7 @@ Split the one operation into three, so each can run at the cadence it deserves.
 
 ```mermaid
 flowchart TD
-    O["blogs-overrides.yml<br/>corrections by hand"] --> P["Patch<br/>seconds, exact diff"]
+    O["blogs-overrides.yml<br/>corrections by hand"] --> P["Patch<br/>under a minute, exact diff"]
     Y["blogs.yml"] --> P
     P --> Y
 
@@ -115,7 +115,7 @@ flowchart TD
 
 | Operation   | Answers                            | Costs             | Cadence               |
 | ----------- | ---------------------------------- | ----------------- | --------------------- |
-| **Patch**   | is the list *correct*              | seconds, no network | every override change |
+| **Patch**   | is the list *correct*              | ~40s, no network  | every override change |
 | **Rebuild** | are there blogs we do not have     | hours, 30k lines  | on evidence, by hand  |
 | **Publish** | is production *running* the list   | seconds           | on merge              |
 
@@ -141,8 +141,9 @@ entry dicts, which is exactly what `yaml.safe_load(blogs.yml)["sources"]` yields
 load, apply, validate, write — perhaps thirty lines and a CLI, reusing every existing
 function and needing no network, no token and no venv beyond PyYAML.
 
-What it buys: a name fix becomes a four-line diff delivered in two seconds, reviewable at
-a glance. The six corrections sitting unapplied since 1 September land immediately.
+What it buys: a name fix becomes a four-line diff, reviewable at a glance, delivered in
+under a minute — almost all of it PyYAML parsing and re-rendering the 8.6 MB file, since
+the merge itself is trivial. The six corrections sitting unapplied since 1 September land immediately.
 
 Run it in CI too, on every PR touching either file, asserting the working tree is
 unchanged afterwards — so `blogs.yml` and `blogs-overrides.yml` cannot silently disagree
@@ -268,7 +269,7 @@ connection and the workflow is only ever a convenience.
 
 | Trigger                     | What runs               | Cost      | Reviewed |
 | --------------------------- | ----------------------- | --------- | -------- |
-| PR touching either list     | patch + override checks | seconds   | n/a      |
+| PR touching either list     | patch + override checks | ~40s      | n/a      |
 | Merge to `sources/blogs.yml`| publish, refresh popular| ~2 min    | already  |
 | Monthly                     | refresh popular         | ~2 min    | PR       |
 | Weekly                      | staleness watch         | seconds   | issue    |

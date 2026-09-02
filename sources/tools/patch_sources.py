@@ -34,7 +34,7 @@ from typing import Any
 
 import yaml
 
-from extractor.output import render_sources_yaml, validate_entries, write_sources_yaml
+from extractor.output import render_sources_yaml, validate_entries, write_sources_text
 from extractor.overrides import (DROP_FIELD, OVERRIDE_FIELDS, apply_overrides,
                                  load_overrides)
 from extractor.progress import log
@@ -50,14 +50,18 @@ DEFAULT_OVERRIDES = SOURCES_DIR / "blogs-overrides.yml"
 def load_entries(path: Path) -> list[dict[str, Any]]:
     """The committed list, in the shape apply_overrides expects."""
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    entries = data.get("sources") or []
+    if not isinstance(data, dict):
+        raise ValueError(f"{path} is not a mapping with a 'sources' key")
 
-    if not entries:
+    entries = data.get("sources") or []
+    if not isinstance(entries, list) or not entries:
         raise ValueError(f"{path} contains no sources; refusing to patch it")
 
-    missing = [e for e in entries if not e.get("site") or not e.get("id")]
-    if missing:
-        raise ValueError(f"{path} has {len(missing)} entr(ies) without an id or a site")
+    malformed = [e for e in entries
+                 if not isinstance(e, dict) or not e.get("site") or not e.get("id")]
+    if malformed:
+        raise ValueError(
+            f"{path} has {len(malformed)} malformed entr(ies); each needs an id and a site")
 
     return entries
 
@@ -175,7 +179,7 @@ def main(argv: list[str] | None = None) -> int:
         log("blogs.yml already matches blogs-overrides.yml; nothing to do")
         return 0
 
-    write_sources_yaml(args.sources, merged)
+    write_sources_text(args.sources, patched)
     log(report(changes, "changed"))
     return 0
 

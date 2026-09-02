@@ -111,7 +111,7 @@ sources-status: ## Show progress of the background source rebuild
 	@tail -n 3 $(SOURCES_LOG) 2>/dev/null || echo "no log at $(SOURCES_LOG) yet"
 
 # Applying the corrections is not the same job as re-deriving the list, and costs
-# seconds against hours. See docs/plans/keeping-the-curated-lists-current.md.
+# under a minute against hours. See docs/plans/keeping-the-curated-lists-current.md.
 sources-patch: sources-venv ## Apply blogs-overrides.yml to blogs.yml, without a rebuild
 	cd sources/tools && .venv/$(VENV_BIN)/python patch_sources.py
 

@@ -120,7 +120,6 @@ def build_entries(checked: list[Candidate], known: dict[str, str] | None = None)
         ((c.name or domain_name(c.site), c) for c in by_site.values()),
         key=lambda pair: (pair[0].lower(), pair[1].site),
     )
-    ordered = [candidate for _, candidate in named]
 
     # An article's id is derived from its source id, so reassigning one strands every
     # article already stored for that blog. Sites that were in the last list keep their
@@ -129,7 +128,7 @@ def build_entries(checked: list[Candidate], known: dict[str, str] | None = None)
     # is what stops a site that was briefly unreachable from losing its id to a
     # newcomer and coming back as a stranger.
     known = known or {}
-    pinned = {c.site: known[c.site] for c in ordered if c.site in known}
+    pinned = {c.site: known[c.site] for _, c in named if c.site in known}
     used_ids: set[str] = set(known.values())
 
     entries: list[dict[str, Any]] = []
@@ -242,12 +241,22 @@ def render_sources_yaml(entries: list[dict[str, Any]]) -> str:
     return YAML_HEADER + body
 
 
-def write_sources_yaml(path: Path, entries: list[dict[str, Any]]) -> None:
+def write_sources_text(path: Path, text: str) -> None:
+    """Write already-rendered source YAML.
+
+    Separate from write_sources_yaml so a caller that rendered the text to compare it
+    against what is on disk can write that same text, rather than spending another
+    fifteen seconds rendering 46,000 entries a second time.
+    """
     # LF whatever the platform, matching .gitattributes. A Windows run would otherwise
     # write CRLF: git normalises that away on commit, so the committed file looks
     # right, but the file on disk then differs from the one --check renders and the
     # check fails on every run rather than on a real one.
-    path.write_text(render_sources_yaml(entries), encoding="utf-8", newline="\n")
+    path.write_text(text, encoding="utf-8", newline="\n")
+
+
+def write_sources_yaml(path: Path, entries: list[dict[str, Any]]) -> None:
+    write_sources_text(path, render_sources_yaml(entries))
 
 
 def write_audit_csv(path: Path, candidates: dict[str, Candidate], checked_keys: set[str]) -> None:
