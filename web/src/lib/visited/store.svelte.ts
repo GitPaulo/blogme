@@ -1,4 +1,5 @@
 import { SvelteMap } from 'svelte/reactivity';
+import { onArticleOpen } from '$lib/articleOpen';
 import * as db from './db';
 import { visitKey } from './key';
 
@@ -108,20 +109,7 @@ export const visited = {
 	 * rather than one per row. Mounted once, from the layout.
 	 */
 	track() {
-		const onOpen = (event: MouseEvent) => {
-			// Something up the tree cancelled the navigation, so nothing was opened.
-			if (event.defaultPrevented) return;
-			// Left and middle click both open an article; a right click only offers to.
-			if (event.button !== 0 && event.button !== 1) return;
-			const node = event.target instanceof Element ? event.target : undefined;
-			const anchor = node?.closest('a[data-visit]') as HTMLAnchorElement | null | undefined;
-			if (anchor) mark(anchor.href);
-		};
-
-		// click covers a left click, a modified click and Enter on a focused link; middle
-		// click opens a tab without ever firing one and arrives as auxclick instead.
-		document.addEventListener('click', onOpen);
-		document.addEventListener('auxclick', onOpen);
+		const untrack = onArticleOpen(document, (anchor) => mark(anchor.href));
 
 		// Two tabs of the app share one history, so an open in either shows in both.
 		if (typeof BroadcastChannel !== 'undefined') {
@@ -132,8 +120,7 @@ export const visited = {
 		}
 
 		return () => {
-			document.removeEventListener('click', onOpen);
-			document.removeEventListener('auxclick', onOpen);
+			untrack();
 			channel?.close();
 			channel = undefined;
 		};

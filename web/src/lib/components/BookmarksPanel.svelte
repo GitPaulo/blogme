@@ -93,7 +93,11 @@
 	}
 
 	async function pickFile(event: Event) {
-		const input = event.currentTarget as HTMLInputElement;
+		// Narrowed rather than asserted, as elsewhere: currentTarget is the picker this is
+		// bound to, but the DOM types do not say so.
+		const input = event.currentTarget;
+		if (!(input instanceof HTMLInputElement)) return;
+
 		const file = input.files?.[0];
 		// Cleared straight away, so picking the same file twice still counts as a change.
 		input.value = '';

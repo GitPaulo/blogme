@@ -7,28 +7,14 @@
  * that cannot be rebuilt is dropped instead of taking the file down with it.
  */
 import { safeHttpUrl } from '$lib/api';
+import { CAPS, text, topics } from '$lib/sanitise';
 import type { Bookmark } from './db';
 import { FORMAT, VERSION } from './export';
 
 /** A 5,000 bookmark export runs to about 3MB, so this leaves room and still bounds the read. */
 const MAX_FILE_BYTES = 8_000_000;
-
-// Mirror the caps toResult applies in $lib/api, so an imported record can hold nothing a
-// searched one could not.
-const MAX_TITLE = 300;
-const MAX_SUMMARY = 2_000;
-const MAX_AUTHOR = 120;
-const MAX_TOPIC = 64;
-const MAX_TOPICS = 12;
-const MAX_DATE = 40;
 /** The furthest a Date can travel; past it toISOString throws and breaks the next export. */
 const MAX_TIME = 8.64e15;
-
-function text(value: unknown, max: number): string | undefined {
-	if (typeof value !== 'string') return undefined;
-	const trimmed = value.trim().slice(0, max);
-	return trimmed || undefined;
-}
 
 /** The export writes an ISO string. Anything unreadable is treated as saved just now. */
 function time(value: unknown): number {
@@ -45,23 +31,13 @@ function toBookmark(value: unknown): Bookmark | undefined {
 	const url = safeHttpUrl(raw.url);
 	if (!url) return undefined;
 
-	const topics = Array.isArray(raw.topics)
-		? [
-				...new Set(
-					raw.topics
-						.map((topic) => text(topic, MAX_TOPIC))
-						.filter((topic): topic is string => topic !== undefined)
-				)
-			].slice(0, MAX_TOPICS)
-		: undefined;
-
 	return {
 		url,
-		title: text(raw.title, MAX_TITLE) ?? url,
-		author: text(raw.author, MAX_AUTHOR),
-		summary: text(raw.summary, MAX_SUMMARY),
-		topics: topics?.length ? topics : undefined,
-		publishedAt: text(raw.publishedAt, MAX_DATE),
+		title: text(raw.title, CAPS.title) ?? url,
+		author: text(raw.author, CAPS.author),
+		summary: text(raw.summary, CAPS.summary),
+		topics: topics(raw.topics),
+		publishedAt: text(raw.publishedAt, CAPS.date),
 		savedAt: time(raw.savedAt)
 	};
 }

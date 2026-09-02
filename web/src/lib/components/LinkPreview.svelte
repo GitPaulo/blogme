@@ -4,6 +4,7 @@
 	import { prefersReducedMotion } from 'svelte/motion';
 	import { fade } from 'svelte/transition';
 	import { safeHttpUrl } from '$lib/api';
+	import { prefersReducedData } from '$lib/saveData';
 	import { hostOf } from '$lib/site';
 	import {
 		clampPosition,
@@ -122,17 +123,29 @@
 		return value === 'denied' || value === 'allowed' ? value : 'unknown';
 	}
 
+	// How long a preconnect tag stays in the head. The browser holds the socket in its
+	// own pool once opened, so the tag has done its work long before this; it is only
+	// generous because removing it early is the one way to waste the handshake.
+	const WARM_TTL_MS = 10_000;
+
 	// DNS and TLS on the way in, so the dwell timer is not also paying for the handshake.
+	// see: https://developer.mozilla.org/en-US/docs/Web/HTML/Attributes/rel/preconnect
 	function warm(href: string) {
 		const url = safeHttpUrl(href);
 		if (!url) return;
 		const { origin } = new URL(url);
 		if (warmed.has(origin)) return;
 		warmed.add(origin);
+
 		const link = document.createElement('link');
 		link.rel = 'preconnect';
 		link.href = origin;
 		document.head.append(link);
+		// Dropped once it has been acted on. A reader running down a long list of results
+		// meets a new origin on most rows, and the tags would otherwise pile up in the
+		// head for the life of the session. `warmed` still remembers the origin, so this
+		// never re-adds one. Same shape as the revoke in bookmarks/export.ts.
+		setTimeout(() => link.remove(), WARM_TTL_MS);
 	}
 
 	function openLater(anchor: HTMLAnchorElement, point?: { x: number; y: number }) {
@@ -337,8 +350,7 @@
 		// A preview costs a document load, so devices that cannot hover, and readers who
 		// asked for less data, never install any of this.
 		const hoverable = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
-		const { connection } = navigator as Navigator & { connection?: { saveData?: boolean } };
-		if (!hoverable || connection?.saveData) return;
+		if (!hoverable || prefersReducedData()) return;
 
 		stored = readGeometry();
 
