@@ -28,6 +28,7 @@
 		type Rank,
 		type SearchResult
 	} from '$lib/api';
+	import { onArticleOpen } from '$lib/articleOpen';
 	import { bookmarks } from '$lib/bookmarks/store.svelte';
 	import { formatDate } from '$lib/date';
 	import { elementWidth } from '$lib/elementWidth.svelte';
@@ -703,36 +704,20 @@
 		run(asked, 0, rank, sources);
 	}
 
-	// Opening a result is the other way of saying it, and the more common one: most
-	// searches here are typed, read and clicked without Enter ever being pressed, so a
-	// history that only recorded submissions would stay empty for most readers.
+	// Opening a result is the other way of saying a query was the one they meant, and the
+	// more common one: most searches here are typed, read and clicked without Enter ever
+	// being pressed, so a history that only recorded submissions would stay empty for most
+	// readers.
 	//
-	// Delegated to the list rather than bound per row, and listened for rather than
-	// written into the markup, which is how the visited tracker does the same job: a
-	// middle click opens a tab without ever firing `click` and arrives as `auxclick`
-	// instead, and a handler on the container element is a click handler on something
-	// that is not itself interactive. The anchors are.
+	// Scoped to the list rather than the document, which is the only difference from the
+	// visited tracker reading the same anchors: this is about the search behind the click,
+	// so a bookmark opened from the drawer is not one of this page's searches. `term` is
+	// read when the click lands rather than when this is set up, so it is the query that
+	// found the row.
 	$effect(() => {
 		const list = resultList;
 		if (!list) return;
-
-		const onopen = (event: MouseEvent) => {
-			// Something up the tree cancelled the navigation, so nothing was opened.
-			if (event.defaultPrevented) return;
-			// Left and middle both open the article; a right click only offers to.
-			if (event.button !== 0 && event.button !== 1) return;
-			const node = event.target instanceof Element ? event.target : undefined;
-			// The same `data-visit` anchors the visited tracker matches, so a link that
-			// is not an article does not count as one.
-			if (node?.closest('a[data-visit]')) recent.record(term);
-		};
-
-		list.addEventListener('click', onopen);
-		list.addEventListener('auxclick', onopen);
-		return () => {
-			list.removeEventListener('click', onopen);
-			list.removeEventListener('auxclick', onopen);
-		};
+		return onArticleOpen(list, () => recent.record(term));
 	});
 </script>
 

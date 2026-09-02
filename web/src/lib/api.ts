@@ -1,3 +1,5 @@
+import { CAPS, text, topics } from './sanitise';
+
 /** How an article was discovered. Mirrors the origin constants in api/internal/article. */
 export type Origin = 'feed' | 'sitemap';
 
@@ -103,8 +105,6 @@ export type ApiSuggestion = { text: string; kind: 'title' | 'query' };
 const MAX_RESULTS = 50;
 /** A completion is a query, so it cannot be longer than one. */
 const MAX_SUGGESTION_LENGTH = MAX_QUERY_LENGTH;
-const MAX_TEXT_LENGTH = 2_000;
-const MAX_TOPICS = 12;
 const MAX_ERROR_LENGTH = 200;
 const REQUEST_TIMEOUT_MS = 15_000;
 /**
@@ -172,12 +172,6 @@ export function safeHttpUrl(value: unknown): string | undefined {
 	}
 }
 
-function text(value: unknown, max = MAX_TEXT_LENGTH): string | undefined {
-	if (typeof value !== 'string') return undefined;
-	const trimmed = value.trim().slice(0, max);
-	return trimmed || undefined;
-}
-
 function toResult(value: unknown): SearchResult | undefined {
 	if (typeof value !== 'object' || value === null) return undefined;
 	const raw = value as Record<string, unknown>;
@@ -185,26 +179,14 @@ function toResult(value: unknown): SearchResult | undefined {
 	const url = safeHttpUrl(raw.url);
 	if (!url) return undefined;
 
-	// Deduped because topics are keyed in the markup, and the index has no constraint
-	// that stops a document repeating one.
-	const topics = Array.isArray(raw.topics)
-		? [
-				...new Set(
-					raw.topics
-						.map((topic) => text(topic, 64))
-						.filter((topic): topic is string => topic !== undefined)
-				)
-			].slice(0, MAX_TOPICS)
-		: undefined;
-
 	return {
 		url,
-		title: text(raw.title, 300) ?? url,
-		author: text(raw.author, 120),
+		title: text(raw.title, CAPS.title) ?? url,
+		author: text(raw.author, CAPS.author),
 		origin: raw.origin === 'sitemap' || raw.origin === 'feed' ? raw.origin : undefined,
-		summary: text(raw.summary),
-		topics: topics?.length ? topics : undefined,
-		publishedAt: text(raw.publishedAt, 40),
+		summary: text(raw.summary, CAPS.summary),
+		topics: topics(raw.topics),
+		publishedAt: text(raw.publishedAt, CAPS.date),
 		score: typeof raw.score === 'number' && Number.isFinite(raw.score) ? raw.score : 0,
 		// Only an actual boolean is an answer. Null, missing, or anything else is the
 		// API saying it does not know.

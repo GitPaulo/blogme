@@ -4,6 +4,7 @@
 	import { prefersReducedMotion } from 'svelte/motion';
 	import { fade } from 'svelte/transition';
 	import { safeHttpUrl } from '$lib/api';
+	import { prefersReducedData } from '$lib/saveData';
 	import { hostOf } from '$lib/site';
 	import {
 		clampPosition,
@@ -349,8 +350,7 @@
 		// A preview costs a document load, so devices that cannot hover, and readers who
 		// asked for less data, never install any of this.
 		const hoverable = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
-		const { connection } = navigator as Navigator & { connection?: { saveData?: boolean } };
-		if (!hoverable || connection?.saveData) return;
+		if (!hoverable || prefersReducedData()) return;
 
 		stored = readGeometry();
 

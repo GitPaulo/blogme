@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import { SvelteSet } from 'svelte/reactivity';
+	import { prefersReducedData } from '$lib/saveData';
 	import { faviconUrl, hueFor, monogram } from '$lib/site';
 
 	// A site's icon, or a coloured tile with its initial where there is no icon to be had.
@@ -28,15 +29,11 @@
 	const failed = new SvelteSet<string>();
 
 	/**
-	 * Whether this browser has been told to spend as little as possible. An icon is
-	 * decoration, so on a metered connection it is simply not fetched and every site wears
-	 * its tile. Read once at module scope: it is a device setting, and re-reading it per
-	 * card would touch `navigator` during prerendering, where there is no navigator at all.
+	 * An icon is decoration, so on a metered connection it is simply not fetched and every
+	 * site wears its tile. Read once at module scope: it is a device setting, and asking
+	 * per card would do it during prerendering, where there is no navigator at all.
 	 */
-	const saveData =
-		typeof navigator !== 'undefined' &&
-		(navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData ===
-			true;
+	const saveData = prefersReducedData();
 
 	// The smallest an icon can be and still be a picture rather than a smudge. Some sites
 	// answer /favicon.ico with a tracking pixel or a zero-height placeholder, which loads
