@@ -47,8 +47,8 @@ stopped, so no single run approaches the function timeout.
 ```mermaid
 flowchart TD
     T["Timer fires"] --> L["Load blogs.yml from blob<br/>ETag-cached"]
-    L --> C["Read cursor<br/>resume after last source"]
-    C --> BATCH["Take next 1,000 blogs"]
+    L --> C["Read cursor + source health<br/>resume after last source"]
+    C --> BATCH["Take the next 1,000 blogs<br/>not in quarantine"]
 
     BATCH --> R{"robots.txt<br/>allows the fetch?"}
     R -->|no| SKIP["Skip"]
@@ -73,7 +73,7 @@ flowchart TD
     X --> TRUNC["Clean and truncate<br/>1,000 words"]
     TRUNC --> SAVE["Save article JSON<br/>to blob"]
     TRUNC --> IDX["Upsert to search index<br/>batches of 1,000"]
-    SAVE --> CUR["Write cursor"]
+    SAVE --> CUR["Write cursor<br/>+ source health"]
     IDX --> CUR
 ```
 
@@ -90,6 +90,11 @@ homepage and uses a feed the page advertises. That is a repair, not a route: it 
 the source list is missing a feed the blog has been publishing all along, and the
 durable fix is [`blogs-overrides.yml`](../sources/README.md#corrections-by-hand).
 
+When every route fails three passes running, the source is set aside and probed weekly
+instead of hourly — about a tenth of the list, and almost all of it entries that never
+worked rather than blogs that stopped. See
+[quarantine](discovery-cadence.md#quarantine).
+
 Key properties:
 
 | Property        | How                                                                       |
@@ -100,6 +105,7 @@ Key properties:
 | Idempotent      | Article IDs are the source plus a hash of the URL, so re-crawling updates |
 | Incremental     | Sitemap pages already stored are skipped, so later runs reach deeper      |
 | Fault isolated  | One failing blog is logged and skipped; the pass continues                |
+| Self-pruning    | A source that fails every route repeatedly stops costing a full crawl     |
 
 The per-domain cap matters more than it looks: shared platforms host thousands of the
 sources, with `bearblog.dev` alone accounting for over a thousand. Limiting by hostname

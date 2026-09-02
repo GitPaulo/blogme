@@ -54,6 +54,7 @@ type Discoverer struct {
 	store     articleStore
 	index     articleIndex
 	cursor    *Cursor
+	health    *Health
 	batchSize int
 
 	fetcher      *fetcher
@@ -71,7 +72,7 @@ type Options struct {
 	Concurrency  int
 }
 
-func New(provider sources.Provider, st articleStore, idx articleIndex, cur *Cursor, opts Options) *Discoverer {
+func New(provider sources.Provider, st articleStore, idx articleIndex, cur *Cursor, hp *Health, opts Options) *Discoverer {
 	f := newFetcher(newCrawlClient(20 * time.Second))
 
 	return &Discoverer{
@@ -79,6 +80,7 @@ func New(provider sources.Provider, st articleStore, idx articleIndex, cur *Curs
 		store:        st,
 		index:        idx,
 		cursor:       cur,
+		health:       hp,
 		batchSize:    opts.BatchSize,
 		fetcher:      f,
 		robots:       newRobots(f),
@@ -116,11 +118,20 @@ func (d *Discoverer) Run(ctx context.Context) error {
 		return fmt.Errorf("read cursor: %w", err)
 	}
 
+	// Advisory, so a pass that cannot read it crawls everything rather than stopping:
+	// that is what every pass did before quarantine existed, and it is a worse pass
+	// rather than a broken one.
+	if err := d.health.Load(ctx); err != nil {
+		slog.WarnContext(ctx, "source health unavailable, crawling every source", "error", err)
+	}
+	d.health.Retain(list)
+
 	start := resumeIndex(list, last)
-	batch, next := batchFrom(list, start, d.batchSize)
+	batch, next := batchFrom(list, start, d.batchSize, d.health.Skip)
 
 	slog.InfoContext(ctx, "discovery pass starting",
-		"sources_total", len(list), "batch", len(batch), "start", start)
+		"sources_total", len(list), "batch", len(batch), "start", start,
+		"quarantined", d.health.Quarantined())
 
 	var (
 		pending   []article.Article
@@ -172,6 +183,8 @@ func (d *Discoverer) Run(ctx context.Context) error {
 	}()
 
 	for res := range results {
+		d.health.Record(res.source.ID, res.err)
+
 		// One bad source must not abort the whole pass.
 		if err := res.err; err != nil {
 			kind := failureKind(err)
@@ -213,7 +226,10 @@ func (d *Discoverer) Run(ctx context.Context) error {
 	}
 
 	// Nothing succeeding is a systemic failure rather than a batch of bad blogs, so the
-	// cursor stays put and the same slice is retried instead of being skipped.
+	// cursor stays put and the same slice is retried instead of being skipped. Returning
+	// here also discards the health this pass recorded, which is the point: a pass that
+	// failed at everything is evidence about the network, not about the blogs, and
+	// saving it would march the whole batch towards quarantine.
 	if failed > 0 && failed == len(batch) {
 		return fmt.Errorf("all %d sources in the batch failed", failed)
 	}
@@ -222,11 +238,19 @@ func (d *Discoverer) Run(ctx context.Context) error {
 		return fmt.Errorf("write cursor: %w", err)
 	}
 
+	// After the cursor, and not fatal. The crawl is already done and indexed, so losing
+	// a pass of health costs one pass of quarantine, where failing here would report a
+	// successful pass as an error and re-run the identical slice.
+	if err := d.health.Save(ctx); err != nil {
+		slog.WarnContext(ctx, "save source health failed", "error", err)
+	}
+
 	slog.InfoContext(ctx, "discovery pass complete",
 		"articles", processed,
 		"sources", len(batch),
 		"sources_failed", failed,
 		"sources_timed_out", timedOut,
+		"quarantined", d.health.Quarantined(),
 		"duration_ms", time.Since(started).Milliseconds(),
 		"next_cursor", next)
 	return nil
@@ -292,18 +316,33 @@ func resumeIndex(list []sources.Source, lastID string) int {
 	return 0
 }
 
-// batchFrom returns up to n sources from start, wrapping around, plus the ID to resume
-// after on the next run.
-func batchFrom(list []sources.Source, start, n int) ([]sources.Source, string) {
+// batchFrom returns up to n crawlable sources from start, wrapping around, plus the ID
+// to resume after on the next run.
+//
+// skip reports whether a source is quarantined; a nil skip takes every source. Skipped
+// sources do not count against n, so a pass still examines a full batch of blogs that
+// might answer, and the ground it covers widens as the list rots rather than the work
+// it does shrinking. The scan is bounded because the alternative, on a list where
+// everything is quarantined, is walking all of it every pass to fill one batch.
+//
+// The cursor is the last source *examined*, not the last one crawled, or the sources
+// passed over at the end of a batch would be walked again by the next pass.
+func batchFrom(list []sources.Source, start, n int, skip func(string) bool) ([]sources.Source, string) {
 	if n <= 0 || n > len(list) {
 		n = len(list)
 	}
+	maxScan := min(n*scanFactor, len(list))
 
 	batch := make([]sources.Source, 0, n)
-	for i := range n {
-		batch = append(batch, list[(start+i)%len(list)])
+	last := start
+	for i := 0; i < maxScan && len(batch) < n; i++ {
+		pos := (start + i) % len(list)
+		last = pos
+		if skip == nil || !skip(list[pos].ID) {
+			batch = append(batch, list[pos])
+		}
 	}
-	return batch, batch[len(batch)-1].ID
+	return batch, list[last].ID
 }
 
 // Cursor records the last source processed, so runs resume rather than restart.

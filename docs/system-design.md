@@ -46,8 +46,11 @@ be turned off alone.
 
 ### Azure Storage
 
-Holds the canonical article JSON and the discovery cursor, in containers on the same
-general-purpose account the Function App already requires. It is the source of truth.
+Holds the canonical article JSON, plus the small amount of state the timers carry between
+runs — the discovery cursor, per-source crawl health, and site popularity — in containers
+on the same general-purpose account the Function App already requires. It is the source of
+truth. Only the articles are irreplaceable; the rest is rebuilt by observation if lost,
+which is why a pass warns and continues rather than failing when it cannot read them.
 
 ### Azure AI Search
 

@@ -14,6 +14,7 @@ type config struct {
 	sourcesContainer  string
 	sourcesBlob       string
 	cursorBlob        string
+	healthBlob        string
 	articlesContainer string
 	// When set, the source list is read from this local file instead of blob storage.
 	sourcesPath    string
@@ -28,6 +29,11 @@ type config struct {
 	maxPostsPerSource int
 	contentWords      int
 	crawlConcurrency  int
+	// Source quarantine. A source that fails this many passes running is set aside and
+	// retried only every quarantineDays, so a dead entry costs one probe a week rather
+	// than the full crawl ladder every pass. A threshold of zero turns it off.
+	sourceFailureThreshold int
+	quarantineDays         int
 	// Quality scoring. It reads and writes the index and nothing else, so the only
 	// settings it needs are when to run and how much to do in one pass.
 	qualitySchedule   string
@@ -45,6 +51,7 @@ func loadConfig() config {
 		sourcesContainer:  env("BLOGME_SOURCES_CONTAINER", "sources"),
 		sourcesBlob:       env("BLOGME_SOURCES_BLOB", "blogs.yml"),
 		cursorBlob:        env("BLOGME_CURSOR_BLOB", "discovery-cursor"),
+		healthBlob:        env("BLOGME_HEALTH_BLOB", "source-health.json"),
 		articlesContainer: env("BLOGME_ARTICLES_CONTAINER", "articles"),
 		sourcesPath:       os.Getenv("BLOGME_SOURCES_PATH"),
 		searchEndpoint:    os.Getenv("BLOGME_SEARCH_ENDPOINT"),
@@ -56,6 +63,10 @@ func loadConfig() config {
 		maxPostsPerSource: envInt("BLOGME_MAX_POSTS_PER_SOURCE", 15),
 		contentWords:      envInt("BLOGME_CONTENT_WORDS", 1000),
 		crawlConcurrency:  envInt("BLOGME_CRAWL_CONCURRENCY", 16),
+		// Three passes is about six days at the deployed cadence, long enough that a
+		// blog having a bad week is not set aside for one.
+		sourceFailureThreshold: envCount("BLOGME_SOURCE_FAILURE_THRESHOLD", 3),
+		quarantineDays:         envInt("BLOGME_QUARANTINE_DAYS", 7),
 		// Half past the hour, so a scoring pass and a discovery pass are not reading
 		// and writing the same index at the same moment.
 		qualitySchedule:   env("BLOGME_QUALITY_SCHEDULE", "0 30 * * * *"),

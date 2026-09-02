@@ -8,19 +8,24 @@ and 7,680 without.
 
 ## Summary
 
-| Setting                       | Deployed      | Code default    | Meaning                      |
-| ----------------------------- | ------------- | --------------- | ---------------------------- |
-| `BLOGME_DISCOVERY_SCHEDULE`   | `0 0 * * * *` | `0 0 */6 * * *` | Timer cron, hourly           |
-| `BLOGME_DISCOVERY_BATCH`      | `1000`        | `200`           | Sources examined per run     |
-| `BLOGME_MAX_POSTS_PER_SOURCE` | `30`          | `15`            | Newest posts read per source |
+| Setting                           | Deployed      | Code default    | Meaning                                   |
+| --------------------------------- | ------------- | --------------- | ----------------------------------------- |
+| `BLOGME_DISCOVERY_SCHEDULE`       | `0 0 * * * *` | `0 0 */6 * * *` | Timer cron, hourly                        |
+| `BLOGME_DISCOVERY_BATCH`          | `1000`        | `200`           | Crawlable sources examined per run        |
+| `BLOGME_MAX_POSTS_PER_SOURCE`     | `30`          | `15`            | Newest posts read per source              |
+| `BLOGME_SOURCE_FAILURE_THRESHOLD` | code default  | `3`             | Failures running before quarantine        |
+| `BLOGME_QUARANTINE_DAYS`          | code default  | `7`             | How often a quarantined source is retried |
 
-All three are Function App application settings, so changing cadence is a configuration
+All five are Function App application settings, so changing cadence is a configuration
 change and needs **no redeploy**. The deployed values override the code defaults in
 [config.go](../api/config.go); the fallbacks apply only when a setting is absent.
 
-They are applied by [provision.sh](../infra/provision.sh), so a rebuilt environment comes
-up at the deployed cadence rather than the code defaults. Change them there rather than in
-the portal alone — the portal value is the one a provision run overwrites.
+The first three are applied by [provision.sh](../infra/provision.sh), so a rebuilt
+environment comes up at the deployed cadence rather than the code defaults. Change them
+there rather than in the portal alone — the portal value is the one a provision run
+overwrites. The two quarantine settings are deliberately not in `provision.sh`: their code
+defaults are the intended values, and repeating them there would be two more places to
+disagree. Set them explicitly only when moving off the defaults.
 
 ## Why discovery is batched
 
@@ -35,9 +40,11 @@ any single run approaching the timeout.
 ```mermaid
 flowchart LR
     A[Read source list<br/>from blob] --> B[Resume after<br/>last cursor]
-    B --> C[Process N sources]
+    B --> Q{Quarantined?}
+    Q -->|yes, and not due| B
+    Q -->|no| C[Crawl, until N of them]
     C --> D[Save articles<br/>+ index in batches]
-    D --> E[Write cursor]
+    D --> E[Write cursor<br/>+ source health]
     E -.->|next run| B
 ```
 
@@ -131,12 +138,19 @@ anything else. The blog was then in the list contributing nothing, exactly like 
 above, except that the list said it had a feed — so the failure read as a quiet blog
 rather than a broken route. A feed going stale is not evidence a blog stopped publishing,
 so the recorded feed is now cleared on failure and the source takes the sitemap and
-homepage routes a feedless one already gets. Measured over one full sweep, 287 sources
-fail on `parse feed` and 252 on `fetch feed`; those 539 had no second route at all.
+homepage routes a feedless one already gets. Measured over one day in September 2026,
+125 sources still fail on `fetch feed` and 79 on `parse feed`; before the fallback those
+204 had no second route at all.
 
 The error a wholly failed source reports is still the feed's, not the sitemap's, because
 the feed is the one naming a correction [`blogs-overrides.yml`](../sources/README.md#corrections-by-hand)
 can carry.
+
+**A source that fails every route is quarantined rather than retried forever.** Falling
+through the ladder is what makes a failure expensive: robots, the feed, several sitemap
+probes, the homepage, then any feed advertised there. Paying that every pass for a source
+that will never answer is the single largest piece of waste in a run, and it was being
+paid on about a tenth of the list — see [quarantine](#quarantine) below.
 
 **The feed window decides what can ever be found.** A feed lists only its most recent
 posts, and the crawler reads the newest `BLOGME_MAX_POSTS_PER_SOURCE` of them. Anything
@@ -186,6 +200,17 @@ watch, not a thing to reason away: `blogme-index-storage-high` fires at 60% of q
 indexing fails outright at 100%, which makes that alert the last comfortable moment to
 choose between pruning the corpus and changing tier.
 
+**On 2 September the index held 1,423,736 documents at 9.28 GB — 57.6% of quota.** Growth
+has genuinely slowed, to roughly 45,000 documents a day, or about 0.29 GB at a steady
+6.5 KB each. That is the flattening the paragraph above hoped for and it arrived too late
+to be much comfort: the 60% alert is a day or two out, and the hard ceiling about three
+weeks. Pruning is a smaller lever than it looks — `quality lt 0.1` is 178,474 documents,
+some 1 GB, which is four days of growth — so the decision that alert is asking for is
+tier or retention, not a one-off clear-out. Note also that deleting at this fill level
+carries the same transient inflation a backfill does, since a merge is a delete and a
+reinsert, so a large prune wants doing in batches with `/indexes/articles/stats` watched
+between them.
+
 Two traps sit in the way of watching it. Counts disagree — `/servicestats` reported
 531,757 documents against a match-all's 432,325 — because service statistics are
 documented as approximate and this index is written to every hour. And `storageSize`
@@ -199,6 +224,88 @@ hourly timer spent about 259,000 GB-seconds a month, or $6; batch 1,000 roughly 
 that to $15. Against Azure AI Search Basic, which is a fixed monthly charge whatever the
 cadence, doubling freshness is close to free. The ceiling that matters is the 30-minute
 invocation, not the bill.
+
+## Quarantine
+
+About a tenth of the list fails on every pass, and almost none of it is coming back.
+Measured over four days at the start of September 2026:
+
+|                                         |                                              |
+| --------------------------------------- | -------------------------------------------- |
+| Sources failing per pass, of 1,000      | 89 (max 152)                                 |
+| Distinct sources failing over four days | 4,210 (9.1% of the list)                     |
+| …that failed more than once             | 3,915 (93%)                                  |
+| Failures that are `404`                 | 65%                                          |
+| Failures that are timeouts              | 3%                                           |
+| Crawl time spent on them                | 471 s a pass of ~3,776 available (**12.5%**) |
+
+The decisive figure is not in that table. Of 300 persistently-failing sources sampled
+against the index, **291 had never contributed a single article** — and the nine that had
+contributed 194 documents between them, 0.014% of the corpus. These are overwhelmingly
+not blogs that died and left stale content behind; they are entries that never worked,
+extractor false positives like library documentation, government data portals and
+near-duplicate hosts. There is nothing of theirs to retire. There is only work to stop
+doing.
+
+So [health.go](../api/internal/discovery/health.go) keeps a `failures` count per source in
+`sources/source-health.json`, beside the cursor and `popularity.json`. A source that fails
+`BLOGME_SOURCE_FAILURE_THRESHOLD` passes running is set aside and probed once every
+`BLOGME_QUARANTINE_DAYS` instead of on every pass. One success clears the count outright,
+so a blog that comes back is fully restored by the first pass that reaches it.
+
+At the deployed cadence a full sweep takes about two days, so a threshold of 3 is roughly
+six days of consistent failure before anything is set aside — comfortably longer than an
+outage, and 93% of failures already repeat within one sweep.
+
+**Skipped sources do not count against the batch.** A pass walks past them and pulls in
+further sources to reach a full `BLOGME_DISCOVERY_BATCH`, so quarantine widens the ground
+a pass covers rather than shrinking the work it does. The scan is bounded at three times
+the batch, because the alternative on a list where everything is quarantined is walking
+all 46,083 entries every pass to find nothing. The cursor records the last source
+**examined**, not the last one crawled, or the sources passed over at the end of a batch
+would be re-walked by the next pass forever.
+
+Replaying `batchFrom` over the real list and the real 3,915 dead IDs, a full sweep of the
+live corpus takes **43 passes instead of 47**, and the 3,981 wasted crawls in it go to
+nothing but the weekly probes. Two different figures are quoted for the same waste and
+both are right: dead sources are 8.5% of the list by count and 12.5% of a pass by time,
+because failing is what sends a source down the whole route ladder.
+
+Three failure modes are deliberately not counted:
+
+- **Cancellation.** A pass cut short by a deploy or by the invocation ceiling cancels
+  every crawl still in flight. Counting those would quarantine hundreds of healthy blogs
+  at once, which is a far worse failure than the one quarantine exists to fix. A
+  *deadline* is counted, because a source that spent its own 90 seconds and returned
+  nothing has genuinely cost the run.
+- **A pass where everything failed.** The existing all-failed guard returns before health
+  is saved, so the whole pass is discarded. Nothing succeeding is evidence about the
+  network, not about the blogs.
+- **A pass that could not read the blob.** Health is advisory: an unreadable blob logs a
+  warning and the pass crawls everything, which is exactly what it did before any of this
+  existed.
+
+`BLOGME_SOURCE_FAILURE_THRESHOLD=0` turns the whole mechanism off without a deploy, which
+is the escape hatch if it ever sets aside something it should not.
+
+**What it is worth watching.** Every pass logs `quarantined`, the standing count of
+sources currently set aside, on both the starting and the completing line. That number is
+a far better measure of source-list rot than the raw `sources_failed` it replaces: it
+counts distinct sources rather than attempts, and it does not fall simply because a pass
+happened to walk a healthy stretch of the list. A `quarantined` figure climbing across
+rebuilds is the signal that the extractor needs another run; one that jumps suddenly is
+much more likely to mean the crawler has been blocked than that 4,000 blogs died at once.
+
+```bash
+az monitor log-analytics query -w <WORKSPACE_GUID> --analytics-query   "AppTraces | where TimeGenerated > ago(7d) | where Message startswith 'discovery pass complete' | extend q = toint(extract('quarantined=([0-9]+)', 1, Message)) | project TimeGenerated, q | order by TimeGenerated asc"
+```
+
+The blob is also the report. An entry with a `failures` count and no `lastOk` has never
+worked once, which makes it a candidate for removal from `blogs.yml` rather than a blog
+having a bad month — the distinction the source list cannot currently draw for itself.
+Feeding that back into the list automatically is the next step and is deliberately not
+built yet: the crawler already routes around every one of these cases at runtime, so what
+it costs today is invisibility rather than breakage.
 
 ## Changing it
 
@@ -328,6 +435,14 @@ Normal here is under a minute. The blob timestamps settle it outright, since the
 on nothing Azure Monitor does: `sources/discovery-cursor` is rewritten on every
 successful pass, and `azure-webjobs-hosts/timers/<host-id>/Host.Functions.discover/status`
 holds the host's own record of when the timer last fired and when it fires next.
+
+**Nothing yet alerts on `quarantined`, deliberately.** A rule wants a threshold, and the
+only honest source of one is a month of readings after quarantine has drained its backlog
+— the count starts at zero, climbs as the existing ~4,200 dead sources are found three
+passes at a time, and only then settles somewhere worth alerting above. Guessing now would
+produce a rule that fires for a fortnight while the mechanism works correctly, which is how
+an alert gets muted and then ignored. The query above is the interim answer; set a
+threshold from the readings once the backlog has drained.
 
 ## When batching stops being enough
 

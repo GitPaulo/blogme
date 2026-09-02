@@ -64,7 +64,7 @@ func TestResumeIndex(t *testing.T) {
 func TestBatchFromWrapsAround(t *testing.T) {
 	l := list("a", "b", "c", "d")
 
-	batch, next := batchFrom(l, 2, 3)
+	batch, next := batchFrom(l, 2, 3, nil)
 	if want := []string{"c", "d", "a"}; !equal(ids(batch), want) {
 		t.Errorf("batchFrom() = %v, want %v", ids(batch), want)
 	}
@@ -76,7 +76,7 @@ func TestBatchFromWrapsAround(t *testing.T) {
 func TestBatchFromCapsAtListLength(t *testing.T) {
 	l := list("a", "b")
 
-	batch, next := batchFrom(l, 0, 10)
+	batch, next := batchFrom(l, 0, 10, nil)
 	if len(batch) != 2 {
 		t.Errorf("batchFrom() returned %d sources, want 2", len(batch))
 	}
@@ -92,7 +92,7 @@ func TestBatchFromCoversAllSourcesOverMultipleRuns(t *testing.T) {
 
 	cursor := ""
 	for range 3 {
-		batch, next := batchFrom(l, resumeIndex(l, cursor), 2)
+		batch, next := batchFrom(l, resumeIndex(l, cursor), 2, nil)
 		for _, s := range batch {
 			seen[s.ID] = true
 		}
@@ -103,6 +103,61 @@ func TestBatchFromCoversAllSourcesOverMultipleRuns(t *testing.T) {
 		if !seen[s.ID] {
 			t.Errorf("source %q was never processed", s.ID)
 		}
+	}
+}
+
+// skipping reports the given IDs as quarantined.
+func skipping(ids ...string) func(string) bool {
+	set := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		set[id] = struct{}{}
+	}
+	return func(id string) bool {
+		_, ok := set[id]
+		return ok
+	}
+}
+
+// The point of quarantine: a skipped source is replaced rather than subtracted, so the
+// pass still crawls a full batch and simply covers more ground doing it.
+func TestBatchFromFillsPastQuarantinedSources(t *testing.T) {
+	l := list("a", "b", "c", "d", "e")
+
+	batch, next := batchFrom(l, 0, 3, skipping("b", "c"))
+	if want := []string{"a", "d", "e"}; !equal(ids(batch), want) {
+		t.Errorf("batchFrom() = %v, want %v", ids(batch), want)
+	}
+	if next != "e" {
+		t.Errorf("next cursor = %q, want %q", next, "e")
+	}
+}
+
+// The cursor is the last source examined, not the last one crawled, or the sources
+// passed over would be walked again by the next pass forever.
+func TestBatchFromCursorCoversSkippedSources(t *testing.T) {
+	l := list("a", "b", "c", "d")
+
+	_, next := batchFrom(l, 0, 2, skipping("b"))
+	if next != "c" {
+		t.Fatalf("next cursor = %q, want %q", next, "c")
+	}
+	if got := resumeIndex(l, next); got != 3 {
+		t.Errorf("next pass resumes at %d, want 3", got)
+	}
+}
+
+// A list where everything is quarantined must still terminate and still advance, or a
+// pass would scan the whole corpus every time to find nothing.
+func TestBatchFromBoundsTheScanWhenAllAreQuarantined(t *testing.T) {
+	l := list("a", "b", "c", "d", "e", "f", "g", "h")
+
+	batch, next := batchFrom(l, 0, 2, skipping("a", "b", "c", "d", "e", "f", "g", "h"))
+	if len(batch) != 0 {
+		t.Errorf("batchFrom() returned %d sources, want 0", len(batch))
+	}
+	// Bounded at scanFactor batches rather than the whole list.
+	if next != "f" {
+		t.Errorf("next cursor = %q, want %q", next, "f")
 	}
 }
 

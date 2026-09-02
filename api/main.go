@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/azure/azure-functions-golang-worker/sdk"
 	"github.com/azure/azure-functions-golang-worker/sdk/bindings"
@@ -83,6 +84,8 @@ func main() {
 		"schedule", cfg.discoverySchedule,
 		"batch", cfg.discoveryBatch,
 		"crawl_concurrency", cfg.crawlConcurrency,
+		"failure_threshold", cfg.sourceFailureThreshold,
+		"quarantine_days", cfg.quarantineDays,
 		"quality_schedule", cfg.qualitySchedule,
 		"quality_batch", cfg.qualityScoreBatch,
 		"quality_version", quality.Version)
@@ -126,11 +129,18 @@ func newJobs(cfg config, idx *index.Index) (jobs, error) {
 		provider = &sources.FileProvider{Path: cfg.sourcesPath}
 	}
 
+	// Health lives beside the cursor rather than beside the articles: it describes the
+	// source list, is rebuilt by observation if lost, and is read and written once a
+	// pass exactly as the cursor is.
+	health := discovery.NewHealth(client, cfg.sourcesContainer, cfg.healthBlob,
+		cfg.sourceFailureThreshold, time.Duration(cfg.quarantineDays)*24*time.Hour)
+
 	discoverer := discovery.New(
 		provider,
 		store.New(client, cfg.articlesContainer),
 		idx,
 		discovery.NewCursor(client, cfg.sourcesContainer, cfg.cursorBlob),
+		health,
 		discovery.Options{
 			BatchSize:    cfg.discoveryBatch,
 			MaxPosts:     cfg.maxPostsPerSource,
