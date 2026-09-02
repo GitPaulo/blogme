@@ -36,6 +36,28 @@ jobs:
           version: v2.13.1
           working-directory: api
 
+  # blogs.yml and blogs-overrides.yml have to agree, and until now nothing said so
+  # without a two-hour rebuild — so six corrections sat committed and undelivered for a
+  # day. The check reads two files off disk: seconds, no network, no credentials.
+  sources:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sources/tools
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: sources/tools/requirements.txt
+
+      - run: pip install -r requirements.txt
+      - run: python -m unittest discover -p 'test_*.py'
+      - run: python patch_sources.py --check
+
   web:
     runs-on: ubuntu-latest
     defaults:

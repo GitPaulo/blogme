@@ -102,6 +102,21 @@ build did not find that site at all — which is how a blog the extractor keeps 
 gets pinned in. An entry without them can only patch, so one that matches nothing is
 reported rather than quietly becoming a new and largely empty source.
 
+Applying a correction does not need a rebuild:
+
+```bash
+make sources-patch
+```
+
+That loads `blogs.yml`, merges this file into it and writes it back: seconds, and a diff
+of exactly the sources the corrections touch. A rebuild performs the same merge at the
+end of its run, so the two always agree.
+
+`make check` verifies they do, and fails when a correction has been written down but not
+delivered — which is not hypothetical either. Four names corrected on 1 September 2026
+went a day unapplied, so the front page went on offering a blog called "Essays" while the
+file that renamed it sat committed one directory away.
+
 Keep the file short. Every entry in it is one the checks no longer run.
 
 ## How the build works
@@ -185,6 +200,12 @@ The full run checks tens of thousands of links, then retries the ones that did n
 and takes a few hours. Review the diff before committing; the audit CSV explains anything
 that went missing. See [`tools/README.md`](tools/README.md) for flags, layout and shorter
 trial runs.
+
+A rebuild is the expensive way to change this list, and it answers only one question:
+whether there are blogs the seed lists name that this file does not have. To apply a
+correction, use [`make sources-patch`](#corrections-by-hand) instead. See
+[keeping the curated lists current](../docs/plans/keeping-the-curated-lists-current.md)
+for why a rebuild should not run on a schedule, and what should run instead.
 
 ## Publishing
 

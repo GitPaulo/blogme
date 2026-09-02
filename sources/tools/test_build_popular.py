@@ -5,7 +5,7 @@ not already have:
 
     cd sources/tools && .venv/bin/python -m unittest test_build_popular -v
 
-Not run by CI, which builds the Go API and the web app and has no Python step. The rules
+Run by CI, alongside the override check, since the `sources` job was added. The rules
 under test are the ones that decide what appears on the front page, which is reason
 enough for them to be pinned somewhere a change has to walk past.
 """

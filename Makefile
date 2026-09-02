@@ -21,8 +21,8 @@ FUNCTION_APP ?= func-blogme-b3d38b
 SEARCH_SERVICE ?= srch-blogme-basic-b3d38b
 
 .PHONY: help setup dev check build clean kill revive harness suggest-harness \
-        check-api check-web build-api build-web fmt sources sources-status sources-upload \
-        popular
+        check-api check-web check-sources build-api build-web fmt sources sources-venv \
+        sources-status sources-patch sources-upload popular
 
 help: ## List available targets
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -56,7 +56,7 @@ dev: ## Run Azurite, the Functions host and the Vite dev server together
 	(cd web && pnpm dev) & \
 	wait
 
-check: check-api check-web ## Lint, type-check and test everything
+check: check-api check-web check-sources ## Lint, type-check and test everything
 
 check-api: ## Vet, lint and test the Go API
 	cd api && gofmt -l . | (! grep .)
@@ -69,6 +69,13 @@ check-web: ## Type-check, lint and test the web app
 	cd web && pnpm run lint
 	cd web && pnpm run test
 
+# The list and the corrections have to agree, and only this says so without a rebuild:
+# an override is matched on an exact `site`, so a mistyped one is otherwise silent until
+# the next full run, which is to say for weeks.
+check-sources: sources-venv ## Test the source tools, and check blogs.yml against its overrides
+	cd sources/tools && .venv/$(VENV_BIN)/python -m unittest discover -p 'test_*.py'
+	cd sources/tools && .venv/$(VENV_BIN)/python patch_sources.py --check
+
 build: build-api build-web ## Build deployable artefacts for both apps
 
 build-api: ## Package the Functions app for Linux x64
@@ -80,6 +87,12 @@ build-web: ## Build the static site
 fmt: ## Format all source
 	cd api && gofmt -w .
 	cd web && pnpm run format
+
+# Created on first use rather than by `make setup`, so the Go and web loops need no
+# Python at all. Every target below that runs the extractor takes this as a prerequisite.
+sources-venv:
+	@cd sources/tools && { [[ -d .venv ]] || $(PYTHON) -m venv .venv; } \
+		&& .venv/$(VENV_BIN)/pip install -q -r requirements.txt
 
 sources: ## Rebuild sources/blogs.yml in the background (long-running, uses several cores)
 	cd sources/tools && { [[ -d .venv ]] || $(PYTHON) -m venv .venv; } \
@@ -96,6 +109,11 @@ sources-status: ## Show progress of the background source rebuild
 		echo "status: not running"; \
 	fi
 	@tail -n 3 $(SOURCES_LOG) 2>/dev/null || echo "no log at $(SOURCES_LOG) yet"
+
+# Applying the corrections is not the same job as re-deriving the list, and costs
+# seconds against hours. See docs/plans/keeping-the-curated-lists-current.md.
+sources-patch: sources-venv ## Apply blogs-overrides.yml to blogs.yml, without a rebuild
+	cd sources/tools && .venv/$(VENV_BIN)/python patch_sources.py
 
 sources-upload: ## Publish sources/blogs.yml to blob storage (no redeploy needed)
 	@RESOURCE_GROUP=$(RESOURCE_GROUP) FUNCTION_APP=$(FUNCTION_APP) ./infra/upload-sources.sh

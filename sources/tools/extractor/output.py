@@ -111,8 +111,16 @@ def build_entries(checked: list[Candidate], known: dict[str, str] | None = None)
         if not existing.feed and candidate.feed:
             existing.feed = candidate.feed
 
-    ordered = sorted(by_site.values(), key=lambda c: (
-        (c.name or "").lower(), c.site))
+    # Sorted on the name that gets written, not the one the candidate arrived with. A
+    # site with no name of its own is written under one derived from its domain, so
+    # sorting on the empty string it carried filed 97 blogs nowhere near their name —
+    # and left every later rebuild, and every override applied by patch_sources.py, to
+    # move them again for no reason a reader of the diff could see.
+    named = sorted(
+        ((c.name or domain_name(c.site), c) for c in by_site.values()),
+        key=lambda pair: (pair[0].lower(), pair[1].site),
+    )
+    ordered = [candidate for _, candidate in named]
 
     # An article's id is derived from its source id, so reassigning one strands every
     # article already stored for that blog. Sites that were in the last list keep their
@@ -125,10 +133,10 @@ def build_entries(checked: list[Candidate], known: dict[str, str] | None = None)
     used_ids: set[str] = set(known.values())
 
     entries: list[dict[str, Any]] = []
-    for candidate in ordered:
+    for name, candidate in named:
         entry: dict[str, Any] = {
             "id": pinned.get(candidate.site) or source_id(candidate.site, used_ids),
-            "name": candidate.name or domain_name(candidate.site),
+            "name": name,
             "site": candidate.site,
         }
         if candidate.feed:
@@ -217,7 +225,13 @@ def validate_entries(entries: list[dict[str, Any]]) -> None:
                 raise ValueError(f"invalid tag convention: {tag}")
 
 
-def write_sources_yaml(path: Path, entries: list[dict[str, Any]]) -> None:
+def render_sources_yaml(entries: list[dict[str, Any]]) -> str:
+    """The exact text blogs.yml should hold for these entries.
+
+    Separate from writing it so a caller can compare what it would write against what
+    is on disk, which is how `patch_sources.py --check` tells CI that an override has
+    not been applied without touching the working tree.
+    """
     body = yaml.dump(
         {"sources": entries},
         Dumper=BlogsDumper,
@@ -225,7 +239,15 @@ def write_sources_yaml(path: Path, entries: list[dict[str, Any]]) -> None:
         allow_unicode=True,
         width=200,
     )
-    path.write_text(YAML_HEADER + body, encoding="utf-8")
+    return YAML_HEADER + body
+
+
+def write_sources_yaml(path: Path, entries: list[dict[str, Any]]) -> None:
+    # LF whatever the platform, matching .gitattributes. A Windows run would otherwise
+    # write CRLF: git normalises that away on commit, so the committed file looks
+    # right, but the file on disk then differs from the one --check renders and the
+    # check fails on every run rather than on a real one.
+    path.write_text(render_sources_yaml(entries), encoding="utf-8", newline="\n")
 
 
 def write_audit_csv(path: Path, candidates: dict[str, Candidate], checked_keys: set[str]) -> None:

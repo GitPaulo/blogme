@@ -38,9 +38,11 @@ sources:
   # A PubSubHubbub hub endpoint, not a blog. It advertises whatever feed it was last
   # asked to relay, so the extractor read Tim Bray's ongoing off it and filed the hub
   # under his name — two hosts answering to "ongoing by Tim Bray", which is enough to
-  # keep the real one off the landing page. Both spellings are in the list.
-  - site: http://pubsubhubbub.appspot.com/
-    drop: true
+  # keep the real one off the landing page.
+  #
+  # blogs.yml carries this twice, under http and https. One entry still covers both:
+  # sites are matched on site_key, which ignores the scheme, and listing both spellings
+  # here is rejected as a duplicate rather than accepted twice.
   - site: https://pubsubhubbub.appspot.com/
     drop: true
 
