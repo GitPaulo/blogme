@@ -21,6 +21,8 @@ export type Position = { left: number; top: number };
 export type Geometry = Size & Partial<Position>;
 /** Just the part of `window` this needs, so every function here stays testable. */
 export type Viewport = { width: number; height: number };
+/** Likewise the part of a `DOMRect` placement reads. A real DOMRect satisfies it. */
+export type Edges = { left: number; right: number; top: number; bottom: number };
 
 /**
  * The panel before anyone has resized one. The height is the whole panel rather than the
@@ -97,7 +99,7 @@ export function placeAtPoint(x: number, y: number, size: Size, viewport: Viewpor
  * Keyboard focus has no pointer position to anchor to, so it falls back to the link's own
  * rect, beside it where the viewport has room and below or above otherwise.
  */
-export function placeAtRect(rect: DOMRect, size: Size, viewport: Viewport): Position {
+export function placeAtRect(rect: Edges, size: Size, viewport: Viewport): Position {
 	const beside =
 		rect.right + GAP + size.width + MARGIN <= viewport.width
 			? rect.right + GAP
