@@ -283,7 +283,12 @@ Three failure modes are deliberately not counted:
   network, not about the blogs.
 - **A pass that could not read the blob.** Health is advisory: an unreadable blob logs a
   warning and the pass crawls everything, which is exactly what it did before any of this
-  existed.
+  existed. Such a pass also does not *write* the blob, which matters more than it sounds.
+  `Health` outlives an invocation but not an instance, so after a scale to zero a cold
+  instance whose first read fails holds an empty map — and saving that would replace what
+  is known about 46,000 sources with the 1,000 that pass happened to touch. A blob that is
+  merely *absent* is a different thing and may be written: there is genuinely nothing to
+  lose.
 
 `BLOGME_SOURCE_FAILURE_THRESHOLD=0` turns the whole mechanism off without a deploy, which
 is the escape hatch if it ever sets aside something it should not.

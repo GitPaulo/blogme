@@ -146,6 +146,10 @@ func TestHealthLoadOfAMissingBlobIsEmpty(t *testing.T) {
 func TestHealthSurvivesARoundTrip(t *testing.T) {
 	store := &fakeBlobs{}
 	saved := newTestHealth(store)
+	// Loaded before saved, as a pass does it: a save that follows no read is refused.
+	if err := saved.Load(context.Background()); err != nil {
+		t.Fatalf("Load() = %v", err)
+	}
 	for range 3 {
 		saved.Record("dead", errors.New("404"))
 	}
@@ -196,5 +200,57 @@ func TestHealthDisabledByZeroThreshold(t *testing.T) {
 	}
 	if h.Quarantined() != 0 {
 		t.Errorf("Quarantined() = %d with the threshold off, want 0", h.Quarantined())
+	}
+}
+
+// A read that failed is not a read that returned nothing. Saving on top of a map that
+// could not be loaded replaces everything known with whatever this one pass touched —
+// the hazard quality.Store documents, and this store has to honour it too. Reachable
+// because Health outlives an invocation but not an instance: after a scale to zero, a
+// cold instance whose first read fails holds an empty map, not the corpus.
+func TestHealthDoesNotSaveOverAFailedLoad(t *testing.T) {
+	store := &fakeBlobs{}
+
+	seeded := newTestHealth(store)
+	for _, id := range []string{"dead-one", "dead-two", "dead-three"} {
+		for range 3 {
+			seeded.Record(id, errors.New("404"))
+		}
+	}
+	if err := seeded.Load(context.Background()); err != nil {
+		t.Fatalf("Load() = %v", err)
+	}
+	if err := seeded.Save(context.Background()); err != nil {
+		t.Fatalf("Save() = %v", err)
+	}
+	before := store.data
+
+	cold := newTestHealth(store)
+	store.failGet = errors.New("storage unavailable")
+	if err := cold.Load(context.Background()); err == nil {
+		t.Fatal("Load() with a failing read = nil, want an error")
+	}
+	store.failGet = nil
+	cold.Record("one-source-this-pass", nil)
+
+	if err := cold.Save(context.Background()); err != nil {
+		t.Fatalf("Save() = %v", err)
+	}
+	if store.data != before {
+		t.Errorf("a failed load was followed by a write:\n before %s\n after  %s", before, store.data)
+	}
+}
+
+// "null" unmarshals into a map as a nil map, with no error, and the next Record would
+// panic assigning to it.
+func TestHealthToleratesANullBlob(t *testing.T) {
+	h := newTestHealth(&fakeBlobs{present: true, data: "null"})
+
+	if err := h.Load(context.Background()); err != nil {
+		t.Fatalf("Load() = %v", err)
+	}
+	h.Record("anything", errors.New("404"))
+	if h.Skip("anything") {
+		t.Error("quarantined after a single failure")
 	}
 }

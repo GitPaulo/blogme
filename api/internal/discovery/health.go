@@ -64,6 +64,17 @@ type Health struct {
 	threshold  int
 	retryAfter time.Duration
 
+	// loaded records that entries reflects the stored blob, so that a pass which could
+	// not read it does not then overwrite it. Health outlives an invocation but not an
+	// instance: after a scale to zero, a cold instance whose first read fails holds an
+	// empty map rather than the corpus, and saving that would replace what is known
+	// about 46,000 sources with the 1,000 this pass happened to touch.
+	//
+	// It is not cleared by a later failed read, deliberately. Load leaves entries alone
+	// when it fails, so on a warm instance the map is still a real copy of the blob, only
+	// missing whatever a pass could not fetch — worth saving. The timer runs as a
+	// singleton, so no second instance is writing underneath it.
+	loaded  bool
 	entries map[string]health
 }
 
@@ -90,6 +101,9 @@ func (h *Health) Load(ctx context.Context) error {
 
 	raw, err := h.client.DownloadString(ctx, h.container, h.name)
 	if errors.Is(err, blob.ErrNotFound) {
+		// Absent is an answer, unlike unreadable: there is genuinely nothing known yet,
+		// so this pass may write the first copy.
+		h.loaded = true
 		return nil
 	}
 	if err != nil {
@@ -100,13 +114,22 @@ func (h *Health) Load(ctx context.Context) error {
 	if err := json.Unmarshal([]byte(raw), &entries); err != nil {
 		return fmt.Errorf("parse source health: %w", err)
 	}
+	// A blob holding "null" decodes to a nil map and no error, which the first Record
+	// would then panic assigning to.
+	if entries == nil {
+		entries = make(map[string]health)
+	}
 
 	h.entries = entries
+	h.loaded = true
 	return nil
 }
 
+// Save writes what this pass learned, unless the blob could not be read — see loaded.
+// Skipping is silent because Run has already warned about the read that failed, and the
+// cost is one pass of quarantine rather than the whole corpus's worth.
 func (h *Health) Save(ctx context.Context) error {
-	if h == nil {
+	if h == nil || !h.loaded {
 		return nil
 	}
 
