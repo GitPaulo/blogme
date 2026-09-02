@@ -3,6 +3,7 @@ package discovery
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -689,4 +690,167 @@ func TestSkipStoredWithoutAStoreSkipsNothing(t *testing.T) {
 	if d.skipStored(context.Background(), "none", "https://example.com/post") {
 		t.Error("skipStored() = true with no store, want false")
 	}
+}
+
+// stubFeed serves n stub entries, so every entry the crawler considers costs a page
+// fetch. page decides what those fetches get, which is how a refusing or broken site is
+// played back here.
+func stubFeed(t *testing.T, n int, pageHits *atomic.Int64, page http.HandlerFunc) *httptest.Server {
+	t.Helper()
+
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	mux.HandleFunc("/feed.xml", func(w http.ResponseWriter, _ *http.Request) {
+		var sb strings.Builder
+		sb.WriteString(`<?xml version="1.0"?><rss version="2.0"><channel><title>B</title>`)
+		for i := range n {
+			fmt.Fprintf(&sb, `<item><title>Post %d</title><link>%s/posts/%d</link>`+
+				`<description>A stub.</description></item>`, i, srv.URL, i)
+		}
+		sb.WriteString(`</channel></rss>`)
+		_, _ = io.WriteString(w, sb.String())
+	})
+	mux.HandleFunc("/posts/", func(w http.ResponseWriter, r *http.Request) {
+		pageHits.Add(1)
+		page(w, r)
+	})
+
+	return srv
+}
+
+func stubSource(srv *httptest.Server) sources.Source {
+	return sources.Source{ID: "bounded", Site: srv.URL + "/", Feed: srv.URL + "/feed.xml"}
+}
+
+// The issue this was written for: a site whose bot check we do not pass answered 1,887
+// requests in twenty-one seconds, because the walk only ever stopped once it had enough
+// articles and it was never going to get any. One refusal is now the whole conversation.
+func TestCrawlStopsAtTheFirstRefusal(t *testing.T) {
+	var pageHits atomic.Int64
+	srv := stubFeed(t, 500, &pageHits, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	})
+
+	d := newLocalDiscoverer(5)
+	if _, err := d.crawl(context.Background(), stubSource(srv)); err != nil {
+		t.Fatalf("crawl() error = %v", err)
+	}
+	if got := pageHits.Load(); got != 1 {
+		t.Errorf("fetched %d pages, want 1: a 403 is the operator saying stop", got)
+	}
+}
+
+// A 429 is the same answer said more politely, and has to read the same way.
+func TestCrawlStopsWhenRateLimited(t *testing.T) {
+	var pageHits atomic.Int64
+	srv := stubFeed(t, 500, &pageHits, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	})
+
+	d := newLocalDiscoverer(5)
+	if _, err := d.crawl(context.Background(), stubSource(srv)); err != nil {
+		t.Fatalf("crawl() error = %v", err)
+	}
+	if got := pageHits.Load(); got != 1 {
+		t.Errorf("fetched %d pages, want 1 after a 429", got)
+	}
+}
+
+// A site that is merely broken gets more patience than one that is refusing, but not
+// unlimited patience: it used to get the whole feed. maxPosts is set well clear of the
+// failure limit here, because on the feed path a failed page fetch still leaves the
+// entry's stub to keep, so otherwise the article cap would be what stopped the walk.
+func TestCrawlGivesUpAfterConsecutiveFailures(t *testing.T) {
+	var pageHits atomic.Int64
+	srv := stubFeed(t, 500, &pageHits, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+
+	d := newLocalDiscoverer(50)
+	if _, err := d.crawl(context.Background(), stubSource(srv)); err != nil {
+		t.Fatalf("crawl() error = %v", err)
+	}
+	if got := pageHits.Load(); got != maxConsecutiveFailures {
+		t.Errorf("fetched %d pages, want %d", got, maxConsecutiveFailures)
+	}
+}
+
+// The costliest shape in the logs is not a site that refuses but one that answers
+// everything and qualifies as nothing: one source spent 10,582 requests in a single
+// pass that way and kept no articles. Nothing here fails, so only the budget stops it.
+func TestCrawlStopsAtTheFetchBudget(t *testing.T) {
+	var pageHits atomic.Int64
+	srv := stubFeed(t, 500, &pageHits, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `<html><body><p>Too short to keep.</p></body></html>`)
+	})
+
+	const maxPosts = 5
+	d := newLocalDiscoverer(maxPosts)
+	articles, err := d.crawl(context.Background(), stubSource(srv))
+	if err != nil {
+		t.Fatalf("crawl() error = %v", err)
+	}
+	// The feed path keeps a thin post rather than dropping it, so the cap it hits is
+	// maxPosts. What matters is that it cost a bounded number of requests to get there.
+	if len(articles) > maxPosts {
+		t.Errorf("got %d articles, want at most %d", len(articles), maxPosts)
+	}
+	if got, limit := pageHits.Load(), int64(maxPosts*pageBudgetPerPost); got > limit {
+		t.Errorf("fetched %d pages, want at most %d", got, limit)
+	}
+}
+
+// A site that refuses its feed is refusing its sitemap and its homepage too, all of
+// which used to be tried anyway.
+func TestCrawlDoesNotHuntForAnotherWayIntoASiteThatRefusedIt(t *testing.T) {
+	var hits atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	t.Cleanup(srv.Close)
+
+	d := newLocalDiscoverer(5)
+	_, err := d.crawl(context.Background(), stubSource(srv))
+	if err == nil {
+		t.Fatal("crawl() error = nil, want the refusal reported")
+	}
+	// robots.txt, then the feed. The sitemap probes and the homepage are not tried.
+	if got := hits.Load(); got > 2 {
+		t.Errorf("made %d requests, want at most 2 once refused", got)
+	}
+}
+
+func TestBudgetStopsForTheRightReason(t *testing.T) {
+	t.Run("refusal outranks everything", func(t *testing.T) {
+		b := newBudget(5)
+		b.spend(&statusError{code: http.StatusForbidden, status: "403 Forbidden"})
+		if reason, done := b.exhausted(); !done || reason != "refused" {
+			t.Errorf("exhausted() = %q, %v, want \"refused\", true", reason, done)
+		}
+	})
+
+	t.Run("a success clears the failure run", func(t *testing.T) {
+		b := newBudget(5)
+		for range maxConsecutiveFailures - 1 {
+			b.spend(errors.New("timeout"))
+		}
+		b.spend(nil)
+		b.spend(errors.New("timeout"))
+		if _, done := b.exhausted(); done {
+			t.Error("exhausted() = true, want false: the run was broken by a success")
+		}
+	})
+
+	t.Run("fetches are capped against maxPosts", func(t *testing.T) {
+		b := newBudget(5)
+		for range 5 * pageBudgetPerPost {
+			b.spend(nil)
+		}
+		if reason, done := b.exhausted(); !done || reason != "fetch budget" {
+			t.Errorf("exhausted() = %q, %v, want \"fetch budget\", true", reason, done)
+		}
+	})
 }

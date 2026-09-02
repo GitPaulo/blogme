@@ -16,7 +16,8 @@ import (
 
 const (
 	userAgentToken = "blogme"
-	userAgent      = "blogme/0.1 (+https://github.com/GitPaulo/blogme)"
+	userAgent      = "blogme/0.1 (+https://github.com/GitPaulo/blogme; " +
+		"to opt out: https://github.com/GitPaulo/blogme/issues)"
 
 	maxRobotsBytes = 64 << 10 // 64 KB
 	maxFeedBytes   = 4 << 20  // 4 MB
@@ -44,7 +45,65 @@ const (
 	// How many advertised feeds to try when falling back to feed discovery. A page can
 	// list one per format and one per category; the site-wide feeds come first.
 	maxDeclaredFeeds = 3
+
+	// Page fetches one source may spend in a pass, as a multiple of maxPosts.
+	//
+	// Both walks below stop once they have enough articles, which counts what worked, so
+	// a source yielding nothing never stopped at all: it read its whole archive at
+	// request speed until the source deadline cut it off. That is not a rare shape. One
+	// blog took 1,887 requests in twenty-one seconds on 27 August and gave back nothing,
+	// and across a fortnight truncated walks spent 1.29 million requests for 13,521
+	// articles. This is the bound that does not depend on the crawl going well. The
+	// multiple is loose on purpose: a sitemap lists a site's every page, so a healthy
+	// blog is expected to spend several fetches per article it keeps.
+	pageBudgetPerPost = 8
+
+	// Consecutive failed fetches before a source is given up on for this pass. A blog
+	// having a bad minute is well inside this; a blog refusing us never recovers.
+	maxConsecutiveFailures = 10
 )
+
+// budget bounds what one source may spend on page fetches in a single pass, whether or
+// not the crawl is getting anywhere. Not safe for concurrent use: one source is walked
+// by one goroutine.
+type budget struct {
+	limit    int
+	fetches  int
+	failures int
+	refused  bool
+}
+
+func newBudget(maxPosts int) *budget {
+	return &budget{limit: max(maxPosts, 1) * pageBudgetPerPost}
+}
+
+// spend records one page fetch and how it went.
+func (b *budget) spend(err error) {
+	b.fetches++
+	switch {
+	case err == nil:
+		b.failures = 0
+	case refusesCrawler(err):
+		b.refused = true
+	default:
+		b.failures++
+	}
+}
+
+// exhausted reports whether the source is finished for this pass, and why. The reason
+// is logged: which of the three bounds a source keeps hitting is the difference between
+// a blog that blocks us, one that is down, and one whose sitemap is mostly not articles.
+func (b *budget) exhausted() (string, bool) {
+	switch {
+	case b.refused:
+		return "refused", true
+	case b.failures >= maxConsecutiveFailures:
+		return "consecutive failures", true
+	case b.fetches >= b.limit:
+		return "fetch budget", true
+	}
+	return "", false
+}
 
 // crawl turns one approved blog into articles.
 //
@@ -52,22 +111,35 @@ const (
 // path exists for the third of the corpus that publishes no feed. A blog with neither
 // is served by the last resort below, which asks its homepage where its feed is.
 func (d *Discoverer) crawl(ctx context.Context, s sources.Source) ([]article.Article, error) {
+	// One budget for the source, not one per route. crawl can try a feed, then a
+	// sitemap, then up to three advertised feeds, and a bound that reset at each of them
+	// would be five times the bound it claims to be.
+	b := newBudget(d.maxPosts)
+
 	// A recorded feed is the fast path, not the only one. A feed that 404s or no longer
 	// parses is not evidence the blog stopped publishing, so clear it and take the
 	// routes a source without one already gets.
 	var feedErr error
 	if s.Feed != "" {
-		articles, err := d.crawlFeed(ctx, s)
+		articles, err := d.crawlFeed(ctx, s, b)
 		if err == nil {
 			return articles, nil
+		}
+		// A refusal is not a broken feed, and the sitemap and the homepage are behind the
+		// same door. Falling through would spend another seven requests being told no.
+		if refusesCrawler(err) {
+			return nil, err
 		}
 		feedErr = err
 		s.Feed = ""
 	}
 
-	articles, sitemapErr := d.crawlSitemap(ctx, s)
+	articles, sitemapErr := d.crawlSitemap(ctx, s, b)
 	if sitemapErr == nil {
 		return articles, nil
+	}
+	if refusesCrawler(sitemapErr) {
+		return nil, sitemapErr
 	}
 
 	// With no feed recorded and no sitemap to walk, the blog is never read at all: the
@@ -76,7 +148,7 @@ func (d *Discoverer) crawl(ctx context.Context, s sources.Source) ([]article.Art
 	// position do publish a feed and simply never had it recorded.
 	for _, feed := range d.siteFeeds(ctx, s) {
 		s.Feed = feed
-		found, err := d.crawlFeed(ctx, s)
+		found, err := d.crawlFeed(ctx, s, b)
 		if err != nil {
 			continue
 		}
@@ -138,7 +210,7 @@ func (d *Discoverer) siteFeeds(ctx context.Context, s sources.Source) []string {
 	return feeds
 }
 
-func (d *Discoverer) crawlFeed(ctx context.Context, s sources.Source) ([]article.Article, error) {
+func (d *Discoverer) crawlFeed(ctx context.Context, s sources.Source, b *budget) ([]article.Article, error) {
 	feedURL, err := url.Parse(s.Feed)
 	if err != nil || !isHTTP(feedURL) {
 		return nil, fmt.Errorf("invalid feed url %q", s.Feed)
@@ -170,7 +242,13 @@ func (d *Discoverer) crawlFeed(ctx context.Context, s sources.Source) ([]article
 		if ctx.Err() != nil {
 			break
 		}
-		a, ok := d.toArticle(ctx, s, it, feedURL)
+		if reason, done := b.exhausted(); done {
+			slog.WarnContext(ctx, "feed walk cut short",
+				"source", s.ID, "reason", reason, "fetched", b.fetches,
+				"articles", len(articles))
+			break
+		}
+		a, ok := d.toArticle(ctx, s, it, feedURL, b)
 		if !ok {
 			continue
 		}
@@ -180,7 +258,7 @@ func (d *Discoverer) crawlFeed(ctx context.Context, s sources.Source) ([]article
 	return articles, nil
 }
 
-func (d *Discoverer) toArticle(ctx context.Context, s sources.Source, it feedItem, feedURL *url.URL) (article.Article, bool) {
+func (d *Discoverer) toArticle(ctx context.Context, s sources.Source, it feedItem, feedURL *url.URL, b *budget) (article.Article, bool) {
 	if it.Title == "" || it.Link == "" {
 		return article.Article{}, false
 	}
@@ -208,7 +286,9 @@ func (d *Discoverer) toArticle(ctx context.Context, s sources.Source, it feedIte
 	// from a response. See article.Article.FramingDenied.
 	var framing *bool
 	if wordCount(content) < feedContentWords && d.robots.allowed(ctx, link) {
-		if body, header, err := d.fetcher.fetch(ctx, link.String(), maxPageBytes); err == nil {
+		body, header, err := d.fetcher.fetch(ctx, link.String(), maxPageBytes)
+		b.spend(err)
+		if err == nil {
 			denied := framingDenied(header)
 			framing = &denied
 			page := parseHTML(string(body))
