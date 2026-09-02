@@ -3,7 +3,7 @@
 An end-to-end walkthrough of blogme, from a list of blogs to a search result.
 
 For the reasoning behind these choices see [system design](system-design.md),
-[tech stack](tech-stack.md) and the [high-level plan](blog-discovery-search-high-level-plan.md).
+[tech stack](tech-stack.md) and the [high-level plan](plans/blog-discovery-search-high-level-plan.md).
 
 ## Overview
 

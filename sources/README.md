@@ -34,7 +34,7 @@ flowchart TD
 | Discovery job    | Each approved blog's feed or sitemap, then every new post             | On a timer             |
 | Search API       | Nothing; it queries the index                                         | Per user query         |
 
-Keeping the boundary here is deliberate. The [high-level plan](../docs/blog-discovery-search-high-level-plan.md)
+Keeping the boundary here is deliberate. The [high-level plan](../docs/plans/blog-discovery-search-high-level-plan.md)
 calls for discovery to be selective rather than exhaustive, so the crawler only ever
 visits sites that passed through this list and a human review. See
 [system design](../docs/system-design.md) for the services involved.

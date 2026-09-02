@@ -164,7 +164,7 @@ type QueryOptions struct {
 	// reliably in its own documents — authorText holds whatever the feed called the
 	// post's author, which is usually a person — and the per-source cap below means
 	// even a query that does find the blog can only ever show three of its posts.
-	// See docs/popular-blogs-landing-plan.md.
+	// See docs/plans/popular-blogs-landing-plan.md.
 	Sources []string
 	// Rank selects the ranking mode. Empty means semantic, which is the default.
 	Rank string

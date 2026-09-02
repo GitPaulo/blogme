@@ -86,7 +86,7 @@ type sitemapLink struct {
 // crawlSitemap covers the third of the corpus that publishes no feed. It is the slower
 // path by design: a feed describes its posts, whereas here every candidate page must be
 // fetched before it can be judged.
-func (d *Discoverer) crawlSitemap(ctx context.Context, s sources.Source) ([]article.Article, error) {
+func (d *Discoverer) crawlSitemap(ctx context.Context, s sources.Source, b *budget) ([]article.Article, error) {
 	site, err := url.Parse(s.Site)
 	if err != nil || !isHTTP(site) {
 		return nil, fmt.Errorf("invalid site url %q", s.Site)
@@ -109,7 +109,15 @@ func (d *Discoverer) crawlSitemap(ctx context.Context, s sources.Source) ([]arti
 		if ctx.Err() != nil {
 			slog.WarnContext(ctx, "sitemap walk cut short",
 				"source", s.ID, "examined", i, "remaining", len(links)-i,
-				"articles", len(articles), "error", ctx.Err())
+				"articles", len(articles), "reason", "deadline", "error", ctx.Err())
+			break
+		}
+		// The deadline above only ever bounded this walk by accident, and did it after
+		// ninety seconds of requests. These bounds are about the site being read.
+		if reason, done := b.exhausted(); done {
+			slog.WarnContext(ctx, "sitemap walk cut short",
+				"source", s.ID, "examined", i, "remaining", len(links)-i,
+				"articles", len(articles), "reason", reason, "fetched", b.fetches)
 			break
 		}
 		if !d.robots.allowed(ctx, link.url) {
@@ -120,7 +128,7 @@ func (d *Discoverer) crawlSitemap(ctx context.Context, s sources.Source) ([]arti
 		if d.skipStored(ctx, s.ID, link.url.String()) {
 			continue
 		}
-		if a, ok := d.sitemapArticle(ctx, s, link); ok {
+		if a, ok := d.sitemapArticle(ctx, s, link, b); ok {
 			articles = append(articles, a)
 		}
 	}
@@ -281,8 +289,9 @@ func isArticleURL(u *url.URL, site *url.URL) bool {
 }
 
 // sitemapArticle fetches a candidate page and keeps it only if it reads like a post.
-func (d *Discoverer) sitemapArticle(ctx context.Context, s sources.Source, link sitemapLink) (article.Article, bool) {
+func (d *Discoverer) sitemapArticle(ctx context.Context, s sources.Source, link sitemapLink, b *budget) (article.Article, bool) {
 	body, header, err := d.fetcher.fetch(ctx, link.url.String(), maxPageBytes)
+	b.spend(err)
 	if err != nil {
 		return article.Article{}, false
 	}

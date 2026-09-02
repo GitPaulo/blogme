@@ -1,8 +1,17 @@
 package discovery
 
 import (
+	"context"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
+	"strings"
+	"sync/atomic"
 	"testing"
+
+	"github.com/GitPaulo/blogme/api/internal/sources"
 )
 
 const sitemapSample = `<?xml version="1.0" encoding="UTF-8"?>
@@ -113,5 +122,95 @@ func TestExtractMetaLeavesUnknownDateZero(t *testing.T) {
 	}
 	if !meta.Published.IsZero() {
 		t.Errorf("Published = %v, want zero", meta.Published)
+	}
+}
+
+// stubSitemap serves a sitemap of n candidate posts. This is the path the load in the
+// logs came from: a sitemap lists a site's whole archive, and every entry on it costs a
+// page fetch to judge.
+func stubSitemap(t *testing.T, n int, pageHits *atomic.Int64, page http.HandlerFunc) *httptest.Server {
+	t.Helper()
+
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	mux.HandleFunc("/sitemap.xml", func(w http.ResponseWriter, _ *http.Request) {
+		var sb strings.Builder
+		sb.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` +
+			`<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">`)
+		for i := range n {
+			fmt.Fprintf(&sb, `<url><loc>%s/posts/%d</loc><lastmod>2024-11-02</lastmod></url>`,
+				srv.URL, i)
+		}
+		sb.WriteString(`</urlset>`)
+		_, _ = io.WriteString(w, sb.String())
+	})
+	mux.HandleFunc("/posts/", func(w http.ResponseWriter, r *http.Request) {
+		pageHits.Add(1)
+		page(w, r)
+	})
+
+	return srv
+}
+
+func sitemapSource(srv *httptest.Server) sources.Source {
+	return sources.Source{ID: "bounded-sitemap", Site: srv.URL + "/"}
+}
+
+// The worst case in the logs, reproduced: a sitemap of thousands of pages that all
+// answer and none of which qualify as articles. One source spent 10,582 requests in a
+// single pass this way and kept nothing, because the only exit counted articles.
+func TestSitemapWalkStopsAtTheFetchBudget(t *testing.T) {
+	var pageHits atomic.Int64
+	srv := stubSitemap(t, 2000, &pageHits, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w,
+			`<html><head><title>Index</title></head><body><p>A listing, not a post.</p></body></html>`)
+	})
+
+	const maxPosts = 5
+	d := newLocalDiscoverer(maxPosts)
+	articles, err := d.crawl(context.Background(), sitemapSource(srv))
+	if err != nil {
+		t.Fatalf("crawl() error = %v", err)
+	}
+	if len(articles) != 0 {
+		t.Errorf("got %d articles, want 0: none of these pages are posts", len(articles))
+	}
+	if got, want := pageHits.Load(), int64(maxPosts*pageBudgetPerPost); got != want {
+		t.Errorf("fetched %d pages, want %d", got, want)
+	}
+}
+
+// On this path a failed fetch leaves nothing to keep, so without the breaker a site
+// that is down is read end to end at request speed for no result at all.
+func TestSitemapWalkGivesUpAfterConsecutiveFailures(t *testing.T) {
+	var pageHits atomic.Int64
+	srv := stubSitemap(t, 2000, &pageHits, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+
+	d := newLocalDiscoverer(50)
+	if _, err := d.crawl(context.Background(), sitemapSource(srv)); err != nil {
+		t.Fatalf("crawl() error = %v", err)
+	}
+	if got := pageHits.Load(); got != maxConsecutiveFailures {
+		t.Errorf("fetched %d pages, want %d", got, maxConsecutiveFailures)
+	}
+}
+
+// The reported case, on the sitemap path: 1,887 requests become one.
+func TestSitemapWalkStopsAtTheFirstRefusal(t *testing.T) {
+	var pageHits atomic.Int64
+	srv := stubSitemap(t, 2000, &pageHits, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	})
+
+	d := newLocalDiscoverer(50)
+	if _, err := d.crawl(context.Background(), sitemapSource(srv)); err != nil {
+		t.Fatalf("crawl() error = %v", err)
+	}
+	if got := pageHits.Load(); got != 1 {
+		t.Errorf("fetched %d pages, want 1: a 403 is the operator saying stop", got)
 	}
 }

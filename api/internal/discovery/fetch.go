@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -14,38 +15,31 @@ import (
 	"golang.org/x/net/publicsuffix"
 )
 
-// maxRedirects bounds a redirect chain. Go's default of ten is more hops than any blog
-// needs, and every extra hop is another chance to be walked somewhere unintended.
-const maxRedirects = 5
+const (
+	// maxRedirects bounds a redirect chain. Go's default of ten is more hops than any
+	// blog needs, and every extra hop is another chance to be walked somewhere
+	// unintended.
+	maxRedirects = 5
+
+	// Shared blogging platforms host thousands of the sources: bearblog.dev alone
+	// accounts for over a thousand, plus github.io and blogspot.com. Limiting by
+	// hostname would not help, because each blog is its own subdomain of one server, so
+	// concurrency is capped per registrable domain instead.
+	maxPerDomain = 2
+)
 
 // newCrawlClient builds the HTTP client every crawler fetch goes through.
 //
 // The crawler follows links handed to it by third parties, since a feed decides where
 // its own entries point, so without a guard it can be aimed at whatever the function
 // app can reach on its own network and up to a thousand words of the answer would
-// become publicly searchable. The check lives in the dialer's Control hook, which runs
-// after DNS resolution against the address actually being connected to, so a hostname
-// resolving to a private address is caught however it was spelled, on the first request
-// and on every redirect alike. https://pkg.go.dev/net#Dialer
+// become publicly searchable. refuseNonPublicAddress is that guard.
 func newCrawlClient(timeout time.Duration) *http.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.DialContext = (&net.Dialer{
 		Timeout:   10 * time.Second,
 		KeepAlive: 30 * time.Second,
-		Control: func(_, address string, _ syscall.RawConn) error {
-			host, _, err := net.SplitHostPort(address)
-			if err != nil {
-				return fmt.Errorf("refusing malformed address %q", address)
-			}
-			ip := net.ParseIP(host)
-			if ip == nil {
-				return fmt.Errorf("refusing unresolved address %q", host)
-			}
-			if !isPublicIP(ip) {
-				return fmt.Errorf("refusing non-public address %s", ip)
-			}
-			return nil
-		},
+		Control:   refuseNonPublicAddress,
 	}).DialContext
 
 	return &http.Client{
@@ -58,6 +52,25 @@ func newCrawlClient(timeout time.Duration) *http.Client {
 			return nil
 		},
 	}
+}
+
+// refuseNonPublicAddress is the dialer's Control hook. It runs after DNS resolution
+// against the address actually being connected to, so a hostname resolving to a private
+// address is caught however it was spelled, on the first request and on every redirect
+// alike. https://pkg.go.dev/net#Dialer
+func refuseNonPublicAddress(_, address string, _ syscall.RawConn) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return fmt.Errorf("refusing malformed address %q", address)
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return fmt.Errorf("refusing unresolved address %q", host)
+	}
+	if !isPublicIP(ip) {
+		return fmt.Errorf("refusing non-public address %s", ip)
+	}
+	return nil
 }
 
 // isPublicIP reports whether ip is routable on the public internet, which is the only
@@ -76,12 +89,6 @@ func isPublicIP(ip net.IP) bool {
 	}
 	return true
 }
-
-// Shared blogging platforms host thousands of the sources: bearblog.dev alone accounts
-// for over a thousand, plus github.io and blogspot.com. Limiting by hostname would not
-// help, because each blog is its own subdomain of one server, so concurrency is capped
-// per registrable domain instead.
-const maxPerDomain = 2
 
 // fetcher performs bounded HTTP GETs while keeping concurrent load on any single
 // operator low.
@@ -135,11 +142,40 @@ func (f *fetcher) fetch(ctx context.Context, rawURL string, limit int64) ([]byte
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 300 {
-		return nil, nil, fmt.Errorf("status %s", resp.Status)
+		return nil, nil, &statusError{code: resp.StatusCode, status: resp.Status}
 	}
 
 	read, err := io.ReadAll(io.LimitReader(resp.Body, limit))
 	return read, resp.Header, err
+}
+
+// statusError is a response that arrived intact but was not a success.
+//
+// Typed, where this used to be a bare string, because what a crawl should do next
+// depends on which refusal it was: a 403 or a 429 is the operator saying stop, and the
+// rest of their archive is behind the same door, where a 500 is a bad minute on their
+// side and the next page may well be fine. The server's own wording is kept alongside
+// the code because it is what the logs have always shown.
+type statusError struct {
+	code   int
+	status string
+}
+
+func (e *statusError) Error() string { return "status " + e.status }
+
+// refusesCrawler reports whether err is a server turning the crawler away rather than
+// failing at it. Reading past one of these is what turns a crawl into a hammering.
+func refusesCrawler(err error) bool {
+	var se *statusError
+	if !errors.As(err, &se) {
+		return false
+	}
+	switch se.code {
+	case http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests:
+		return true
+	default:
+		return false
+	}
 }
 
 // limiterKey is the domain a host's concurrency is counted against.

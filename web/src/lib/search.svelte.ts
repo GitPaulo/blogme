@@ -86,7 +86,7 @@ export function createSearch() {
 	// name is not what is searched for: the request sends no query at all and the API
 	// filters on these ids. Searching for the name instead does not work, and cannot be
 	// made to — a blog's name is not reliably in its own posts, and the per-source cap
-	// would hold it to three rows even when it is. See docs/popular-blogs-landing-plan.md.
+	// would hold it to three rows even when it is. See docs/plans/popular-blogs-landing-plan.md.
 	let sources = $state.raw<string[]>([]);
 	// Which ranking the search box asks for. Semantic understands a query phrased as a
 	// sentence; keyword is literal, and is the one that can page deep. Keyword is the

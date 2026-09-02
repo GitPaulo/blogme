@@ -12,7 +12,7 @@
 	 *
 	 * The list is generated into Git by `make popular` and imported here, so it is inlined
 	 * into the prerendered page: no request, no spinner, and no empty state before the empty
-	 * state. See docs/popular-blogs-landing-plan.md for why it is not an API route.
+	 * state. See docs/plans/popular-blogs-landing-plan.md for why it is not an API route.
 	 */
 	let { onpick }: { onpick: (name: string, ids: string[]) => void } = $props();
 
@@ -50,7 +50,7 @@
 	</h2>
 	<!-- Says what the list is, not how it was built. Which signal ranks it, what that
 	signal is biased towards and what this site does not measure are all real, and all
-	belong in docs/popular-blogs-landing-plan.md rather than above the fold. The heading
+	belong in docs/plans/popular-blogs-landing-plan.md rather than above the fold. The heading
 	avoids "most popular" for the same reason it is short: it should not claim more than
 	the ranking knows. -->
 	<p class="mt-0.5 text-sm text-gray-500 dark:text-gray-400">Blogs readers pass around the most.</p>
@@ -69,7 +69,7 @@
 					It hands over the source ids rather than the name. Searching for the name
 					does not reach the blog: measured over these twelve, only four came back in
 					their own top three and two returned none of their own posts at all. See
-					docs/popular-blogs-landing-plan.md.
+					docs/plans/popular-blogs-landing-plan.md.
 
 					No hover underline: that is this page's link idiom, and this is not a link.
 				-->

@@ -1,7 +1,7 @@
 # Blog Discovery Search — High-Level Plan
 
 > The original brief, kept as the statement of intent the rest of the docs are measured
-> against. For what actually exists, see [how it works](how-it-works.md); for the parts
+> against. For what actually exists, see [how it works](../how-it-works.md); for the parts
 > of this that are still unbuilt, see [Not yet built](#not-yet-built) at the end.
 
 ## 1. Goal
@@ -111,7 +111,7 @@ Everything above is in place except these, which are recorded so they stay decis
 rather than oversights:
 
 - **User or community submissions.** Sources are added by editing the seed lists or
-  [`blogs-overrides.yml`](../sources/README.md#corrections-by-hand).
+  [`blogs-overrides.yml`](../../sources/README.md#corrections-by-hand).
 - **Following links out of good articles** to find new blogs. The extractor reads
   curated lists only.
 - **Related articles, "more like this", topic exploration, personalised

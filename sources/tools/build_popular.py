@@ -2,7 +2,7 @@
 
 Reads the standing the scoring timer gathers into popularity.json, keeps the entries
 that are actually blogs, and writes the top few to a JSON file the web app imports at
-build time. See docs/popular-blogs-landing-plan.md for why it is generated into Git
+build time. See docs/plans/popular-blogs-landing-plan.md for why it is generated into Git
 rather than served from an API.
 
 Ranking by Hacker News points alone puts the BBC, TechCrunch and the Guardian on the
