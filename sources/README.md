@@ -108,10 +108,11 @@ Applying a correction does not need a rebuild:
 make sources-patch
 ```
 
-That loads `blogs.yml`, merges this file into it and writes it back — under a minute,
-most of it spent parsing and re-rendering 8.6 MB of YAML — and the diff is exactly the
-sources the corrections touch. A rebuild performs the same merge at the
-end of its run, so the two always agree.
+That loads `blogs.yml`, merges this file into it and writes it back, and the diff is
+exactly the sources the corrections touch. It takes about a minute, nearly all of it
+PyYAML parsing and re-rendering 8.6 MB — against hours for the rebuild that was
+previously the only way to deliver the same change. A rebuild performs the same merge
+at the end of its run, so the two always agree.
 
 `make check` verifies they do, and fails when a correction has been written down but not
 delivered — which is not hypothetical either. Four names corrected on 1 September 2026
