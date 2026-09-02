@@ -1,11 +1,11 @@
 # Popular Blogs on the Landing Page
 
 > A plan for what sits below the search bar before anyone has searched. Companion to
-> [quality-scoring.md](quality-scoring.md), which owns the figure this reads.
+> [quality-scoring.md](../quality-scoring.md), which owns the figure this reads.
 
 ## The problem it solves
 
-With no query in the box, [`+page.svelte`](../web/src/routes/+page.svelte) renders a
+With no query in the box, [`+page.svelte`](../../web/src/routes/+page.svelte) renders a
 heading, a subtitle, a search field, and nothing else. `searchable` is false, so the
 whole result view is gated out and the page is two lines of text on white.
 
@@ -68,7 +68,7 @@ the plan so nobody has to reverse-engineer it later:
 - **It favours blogs that have been publishing for a long time.** A blog that started in
   2024 cannot out-total one that started in 2007. This list will be stable for years.
 - **It is a floor, not a gradient**, above roughly 500 points — the same saturation
-  [quality-scoring.md](quality-scoring.md) describes. For a list of twelve drawn from the
+  [quality-scoring.md](../quality-scoring.md) describes. For a list of twelve drawn from the
   very top, that does not bite.
 - **It is a proxy for one audience.** Hacker News is where this corpus's readers
   circulate, which is the reason it was chosen, and it is still one room.
@@ -98,7 +98,7 @@ and `prerender = true` means it is already in the HTML that GitHub Pages serves.
 request, no spinner, no empty state before the empty state.
 
 It also puts the list in Git, which is where this project keeps every other editorial
-decision — the same argument [sources/README.md](../sources/README.md) makes for
+decision — the same argument [sources/README.md](../../sources/README.md) makes for
 `blogs.yml`: a change to what the front page recommends goes through review rather than
 appearing from a job nobody watched.
 
@@ -151,7 +151,7 @@ Names in `blogs.yml` come from feed titles, and feeds lie. In the current top tw
 
 So the generator refuses a name that is a single dictionary word, that begins `Comments
 for`, or that runs past about forty characters, and prints what it rejected. The fix goes
-in [`blogs-overrides.yml`](../sources/blogs-overrides.yml), which already exists for
+in [`blogs-overrides.yml`](../../sources/blogs-overrides.yml), which already exists for
 exactly this and survives a source rebuild. Rejected blogs fall out of the list until
 someone names them, which is the right default: this page is an editorial surface, and a
 blog nobody has bothered to name is not ready to be on it.
@@ -184,7 +184,7 @@ A two-column grid of compact rows, one column below `sm`:
 ```
 
 Each row reuses the exact pairing the result card already uses for provenance —
-[`SiteIcon`](../web/src/lib/components/SiteIcon.svelte) beside a host in `text-sm
+[`SiteIcon`](../../web/src/lib/components/SiteIcon.svelte) beside a host in `text-sm
 text-gray-500 dark:text-gray-400` — so the landing page teaches the vocabulary the
 results pages use rather than inventing a second one.
 
@@ -208,7 +208,7 @@ white is 3:1, under AA for text this size.
 
 Clicking sets `query` to the blog's name. Nothing else — the debounce effect already
 watches `query` and runs the search, which is the path
-[`acceptSuggestion`](../web/src/routes/+page.svelte) takes, comment included: *"The search
+[`acceptSuggestion`](../../web/src/routes/+page.svelte) takes, comment included: *"The search
 needs no prompting."* Record it with `recent.record(name)` and return focus to the input,
 exactly as accepting a suggestion does, so the two ways of starting a search behave
 identically.
@@ -252,7 +252,7 @@ Twelve. Two columns of six fills the space under the search box without pushing 
 into a scroll on a laptop, and it is enough names for one of them to be recognised.
 
 Twelve is also a budget. Each row asks a third party for a favicon, from that blog's own
-origin — the trade [`site.ts`](../web/src/lib/site.ts) already priced and accepted for
+origin — the trade [`site.ts`](../../web/src/lib/site.ts) already priced and accepted for
 result pages. On a results page that happens after a search; here it happens to every
 visitor on arrival. Twelve keeps the burst well under the twenty a results page already
 costs, `loading="lazy"` keeps the second column's share of it below the fold on short
@@ -291,7 +291,7 @@ Two independent reasons, and each alone is fatal:
   author, which is usually a person and often varies post to post. `blog.rust-lang.org`
   stores "Tobias Bieniek", `devblogs.microsoft.com` stores "James Rempt". Nothing in a
   document reliably says which blog it came from except `sourceId`.
-- **`maxPerSource = 3`.** [index.go](../api/internal/index/index.go) caps how much of a
+- **`maxPerSource = 3`.** [index.go](../../api/internal/index/index.go) caps how much of a
   page one blog may occupy, deliberately and correctly for ordinary searching. So even a
   query that does find the blog returns at most three of its posts per page, mixed with
   eleven other sites.
@@ -368,7 +368,7 @@ the extractor's venv does not already have, and no CI step it does not already h
 either.
 
 **No component test.** The one written into the plan would have needed jsdom and a DOM
-testing library, and [`vitest.config.ts`](../web/vitest.config.ts) says in as many words
+testing library, and [`vitest.config.ts`](../../web/vitest.config.ts) says in as many words
 that this project tests pure functions in Node because "a DOM would be a slower way to run
 the same assertions". Adding a browser environment to assert that a click sets a string is
 not worth contradicting that over; the click path is verified in the browser instead.

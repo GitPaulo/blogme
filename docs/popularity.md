@@ -4,7 +4,7 @@
 > from, how a points total becomes a number between 0 and 1, and the two places that
 > number is read. Companion to [quality-scoring.md](quality-scoring.md), which owns the
 > score popularity feeds into, and to the
-> [landing page plan](popular-blogs-landing-plan.md), which owns the list it ranks.
+> [landing page plan](plans/popular-blogs-landing-plan.md), which owns the list it ranks.
 
 ## What popularity means here
 
@@ -138,7 +138,7 @@ absence as a verdict would rank by fame. See
 **On the landing page** it orders the twelve blogs offered before anyone has searched.
 That surface applies filters the score itself does not, because points measure news
 circulation and the raw top of the corpus is the BBC and TechCrunch. See
-[popular-blogs-landing-plan.md](popular-blogs-landing-plan.md).
+[popular-blogs-landing-plan.md](plans/popular-blogs-landing-plan.md).
 
 ## What the number is, and is not
 

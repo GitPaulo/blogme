@@ -77,7 +77,7 @@
 	// name is not what is searched for: the request sends no query at all and the API
 	// filters on these ids. Searching for the name instead does not work, and cannot be
 	// made to — a blog's name is not reliably in its own posts, and the per-source cap
-	// would hold it to three rows even when it is. See docs/popular-blogs-landing-plan.md.
+	// would hold it to three rows even when it is. See docs/plans/popular-blogs-landing-plan.md.
 	let sources = $state.raw<string[]>([]);
 	// Raw, because a page is only ever replaced or appended as a whole and never
 	// edited in place. Deep state would instead proxy every row and charge a

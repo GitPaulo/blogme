@@ -60,7 +60,7 @@ full pass   = 46,083 / sources per day
 The code defaults are deliberately conservative and are **not** a recommendation for
 production. At 58 days per pass a blog's new post could take two months to become
 searchable, which defeats the goal in the
-[high-level plan](blog-discovery-search-high-level-plan.md) that new posts appear
+[high-level plan](plans/blog-discovery-search-high-level-plan.md) that new posts appear
 automatically.
 
 **Deployed:** batch 1,000, hourly. Measured against the 19,383-entry list of 18 August, a
