@@ -4,7 +4,7 @@ A search engine to find tech blogs.
 
 <img width="1004" height="1162" alt="image" src="https://github.com/user-attachments/assets/cafcb5ee-a991-4040-ad45-5091a7b9bee9" />
 
-Co-authored by @Claude
+Co-authored by @Claude (surely, this will go well)
 
 ## Dev
 
