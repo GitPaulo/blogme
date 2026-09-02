@@ -16,9 +16,22 @@
 	 */
 	let { onpick }: { onpick: (name: string, ids: string[]) => void } = $props();
 
+	/**
+	 * The shape `make popular` writes. Declared rather than inferred from whatever is
+	 * checked in, so a change to the generator fails here instead of rendering a list of
+	 * blanks — TypeScript would otherwise take the current file as the definition.
+	 */
+	type Popular = {
+		/** Blogs in the whole index, so the list can say what it is a sample of. */
+		corpus: number;
+		blogs: { name: string; site: string; host: string; ids: string[] }[];
+	};
+
+	const { corpus, blogs }: Popular = popular;
+
 	// Everything the twelve stand for. Generated alongside them rather than written here,
 	// so the sentence cannot drift from the corpus the way a pasted number would.
-	const rest = new Intl.NumberFormat().format(popular.corpus - popular.blogs.length);
+	const rest = new Intl.NumberFormat().format(corpus - blogs.length);
 </script>
 
 <!--
@@ -46,7 +59,7 @@
 	above them rather than sitting eight pixels inside it. The rows keep their padding so
 	the hover background has somewhere to be. -->
 	<ul class="-mx-2 mt-3 grid gap-x-4 gap-y-1 sm:grid-cols-2">
-		{#each popular.blogs as blog (blog.host)}
+		{#each blogs as blog (blog.host)}
 			<li>
 				<!--
 					A button, not a link to the blog. Sending a reader straight out to the blog
