@@ -838,14 +838,18 @@
 			.wordmark-stencil {
 				display: block;
 				position: absolute;
-				top: 0;
+				top: -0.2em;
 				left: 0;
 				/* A mask paints nothing outside the box it is clipped to, however far it
-				   repeats, and the tail of the "g" hangs below a block box one line high — so
-				   the box is grown to hold it. Padding rather than height, so it follows the
-				   type size, and on an out-of-flow element it moves nothing. The solid copy
-				   needs none of this: an inline box is already as deep as the font's descent.
-				   Absent it, the descender is cut clean off for the length of the sweep. */
+				   repeats, and both the ascenders of "b"/"l" and the tail of the "g" reach
+				   past a block box one line high — so the box is grown to hold them.
+				   Padding rather than height, so it follows the type size, and on an
+				   out-of-flow element it moves nothing by itself; the negative `top` above
+				   pairs with `padding-top` below so the box grows upward without dragging the
+				   text down with it. The solid copy needs none of this: an inline box is
+				   already as deep as the font's ascent and descent. Absent it, the ascenders
+				   and the descender are cut clean off for the length of the sweep. */
+				padding-top: 0.2em;
 				padding-bottom: 0.25em;
 				-webkit-text-fill-color: transparent;
 				-webkit-text-stroke: 1.5px currentColor;
