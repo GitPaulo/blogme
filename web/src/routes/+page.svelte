@@ -234,8 +234,14 @@
 
 		const landed = await search.loadMore();
 
+		// Detached before anything is decided, never as half of a condition: reading it is
+		// also what removes the listeners, so short-circuiting past it leaks a set of them
+		// on every click that lands no rows — a filter hiding everything that arrives, the
+		// chase running out its budget, a page refused for going too fast.
+		const tookOver = readerTookOver();
+
 		// After the chase settles rather than per page, so several pages move the reader once.
-		if (landed && !readerTookOver()) await revealNewResults(before);
+		if (landed && !tookOver) await revealNewResults(before);
 	}
 
 	/** Reports, once detached, whether the reader scrolled the page while it was called. */

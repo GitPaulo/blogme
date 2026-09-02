@@ -127,6 +127,12 @@ export function createSearch() {
 	);
 	const loaded = $derived(answer.results.length);
 	const shown = $derived(filtered.length);
+	// Derived rather than recomputed per read: the summary and the note beside it both ask,
+	// and a filter pass runs on every bookmark toggled.
+	const partial = $derived(isFiltered(filters));
+	const tooShort = $derived(term.length > 0 && !searchable);
+	// A constant, not a getter: what the reader arrived with cannot change.
+	const openedWithSearch = Boolean(opening.get('q') || opening.get('source'));
 	// Three separate ways to be out of results, and the reader meets all three. The index
 	// itself runs out, which only it can report; the count runs out; and the ranking mode
 	// runs out of ordering it can vouch for, which is a limit only semantic has, because
@@ -181,6 +187,16 @@ export function createSearch() {
 	function merge(existing: SearchResult[], incoming: SearchResult[]) {
 		const seen = new Set(existing.map((result) => result.url));
 		return [...existing, ...incoming.filter((result) => !seen.has(result.url))];
+	}
+
+	/**
+	 * Leaves a blog and goes back to searching.
+	 *
+	 * Guarded rather than assigned outright: a fresh array every call is a new value to
+	 * the effect that reads it, which would re-trigger the clear branch forever.
+	 */
+	function leaveBlog() {
+		if (sources.length > 0) sources = [];
 	}
 
 	/** Resolves true when this call is the one that landed a page. */
@@ -268,10 +284,7 @@ export function createSearch() {
 			status = 'idle';
 			// Nothing has been asked for any more, so typing that query again searches.
 			requested = '';
-			// An empty box is not a blog either. Guarded rather than assigned outright: a
-			// fresh array every run is a new value to the effect that reads it, which would
-			// re-trigger this branch forever.
-			if (sources.length > 0) sources = [];
+			leaveBlog(); // An empty box is not a blog either.
 			syncUrl(''); // No search to describe, so the address goes back to bare.
 			return;
 		}
@@ -335,12 +348,10 @@ export function createSearch() {
 		},
 		/** Something was typed, but not yet enough of it to be worth a round trip. */
 		get tooShort() {
-			return term.length > 0 && !searchable;
+			return tooShort;
 		},
 		/** Whether the link the reader arrived on already described a search. */
-		get openedWithSearch() {
-			return Boolean(opening.get('q') || opening.get('source'));
-		},
+		openedWithSearch,
 
 		get results() {
 			return answer.results;
@@ -380,7 +391,7 @@ export function createSearch() {
 		},
 		/** Whether any filter is narrowing the rows on screen. */
 		get partial() {
-			return isFiltered(filters);
+			return partial;
 		},
 
 		/**
@@ -457,13 +468,11 @@ export function createSearch() {
 		},
 
 		/**
-		 * Leaves a blog and goes back to searching. Called from the input event rather than
-		 * watched, because browsing puts the blog's name in the box itself: a watcher could
-		 * not tell the two apart, and would close the view the instant it opened.
+		 * Called from the input event rather than watched, because browsing puts the blog's
+		 * name in the box itself: a watcher could not tell the two apart, and would close
+		 * the view the instant it opened.
 		 */
-		leaveBlog() {
-			if (sources.length > 0) sources = [];
-		},
+		leaveBlog,
 
 		/**
 		 * Empties the box. Everything else — the results, the filters, the error, the
@@ -476,7 +485,7 @@ export function createSearch() {
 		 */
 		clear() {
 			query = '';
-			this.leaveBlog();
+			leaveBlog();
 		}
 	};
 }
