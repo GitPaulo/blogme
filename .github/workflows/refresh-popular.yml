@@ -52,11 +52,6 @@ jobs:
       # Required for the OIDC token exchange with Entra ID.
       id-token: write
 
-    env:
-      # Read by both scripts. Named here rather than inline so no workflow expression is
-      # ever substituted into a shell body.
-      REPORT: ${{ runner.temp }}/report.md
-
     steps:
       - uses: actions/checkout@v7
 
@@ -79,6 +74,10 @@ jobs:
           RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
           FUNCTION_APP: ${{ vars.AZURE_FUNCTIONAPP_NAME }}
           PYTHON: python
+          # Per step, not on the job: `runner` is not one of the contexts a job-level
+          # `env` may read, and using it there is not a warning but a workflow file the
+          # runner refuses to load at all - no jobs, no logs, just a failed run.
+          REPORT: ${{ runner.temp }}/report.md
         run: ./infra/ci/refresh-popular.sh
 
       # Does nothing when the list came back the same, which is most weeks.
@@ -90,4 +89,5 @@ jobs:
           # The date is in the title, where it is read.
           BRANCH: bot/popular-${{ github.run_number }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REPORT: ${{ runner.temp }}/report.md
         run: ./infra/ci/open-popular-pr.sh

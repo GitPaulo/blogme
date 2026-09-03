@@ -67,6 +67,30 @@ jobs:
       - uses: actions/checkout@v7
       - run: shellcheck infra/*.sh infra/ci/*.sh
 
+  # A workflow file is only checked when it runs, and an invalid one does not fail
+  # loudly: it produces a run with no jobs, no logs and the file path where its name
+  # should be. `refresh-popular.yml` shipped with `runner.temp` in a job-level `env`,
+  # which is not one of the contexts allowed there, and failed silently on every push
+  # until someone read the Actions tab. Actionlint catches exactly that, in a second.
+  #
+  # Pinned and taken from the release rather than an action, for the reason deploy-api
+  # takes Core Tools the same way: a release asset is immutable and cannot be withdrawn
+  # from under a build.
+  workflows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Lint the workflow files
+        env:
+          ACTIONLINT_VERSION: '1.7.12'
+        run: |
+          set -euo pipefail
+          base=https://github.com/rhysd/actionlint/releases/download
+          curl -fsSL "$base/v$ACTIONLINT_VERSION/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP" actionlint
+          # Its own shellcheck pass would re-flag the `run:` blocks the shell job owns.
+          "$RUNNER_TEMP/actionlint" -color -shellcheck=
+
   web:
     runs-on: ubuntu-latest
     defaults:
