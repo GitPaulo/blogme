@@ -37,54 +37,66 @@
 <Card class="max-w-none p-4" shadow="sm">
 	<div class="flex items-start gap-3">
 		<div class="min-w-0 flex-1">
-			<!-- Where the post came from leads, above the title rather than under it.
-				This is a search engine for blogs, so which blog wrote a thing is half of
-				what the reader is choosing between: on a page of twenty results the site
-				is what tells "another framework post" apart from "another framework post,
-				by the people who wrote the framework".
+			<!-- The site line and the title are one hover target: the icon, the host and the
+				title all raise the same underline, rather than the pointer crossing a live row
+				and a dead one a few pixels apart. It stops above the byline, so what answers
+				to the title is where the post came from and what it is called, not the whole
+				column. Grouping alone styles nothing — it only widens what counts as pointing
+				at the title. -->
+			<div class="group">
+				<!-- Where the post came from leads, above the title rather than under it.
+					This is a search engine for blogs, so which blog wrote a thing is half of
+					what the reader is choosing between: on a page of twenty results the site
+					is what tells "another framework post" apart from "another framework post,
+					by the people who wrote the framework".
 
-				The site gets this line to itself. It shared it with the author and the
-				date at first, and three facts of equal weight separated by dots read as a
-				list to be parsed rather than as one thing to be recognised — and the two
-				that truncate were competing for the same width.
+					The site gets this line to itself. It shared it with the author and the
+					date at first, and three facts of equal weight separated by dots read as a
+					list to be parsed rather than as one thing to be recognised — and the two
+					that truncate were competing for the same width.
 
-				Everything here is derived from the url and the row the index already
-				returns. Nothing costs the index a byte. See lib/site.ts.
+					Everything here is derived from the url and the row the index already
+					returns. Nothing costs the index a byte. See lib/site.ts.
 
-				Undefined host is a url that is not an http page, which the index should
-				not hold and which is not worth a broken row if it ever does: the line is
-				simply absent, and the title takes the top of the card. -->
-			{#if host}
-				<div class="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
-					<SiteIcon {host} class="h-4 w-4" />
-					<span class="truncate">{host}</span>
-				</div>
-			{/if}
-			<!-- Twice the gap above the title that the byline gets below it. Proximity
-				is what says the byline belongs to the title and the site line does not:
-				both rows are the same size, weight and colour, so spacing is carrying the
-				grouping on its own, and it cannot do that if it is equal on both sides. -->
-			<Heading tag="h2" class="text-lg font-semibold {host ? 'mt-2' : ''}">
-				<!-- data-preview opens the shared hover panel, and carries what the crawler
-					found out about framing so the panel knows whether to try; data-visit tells the
-					shared tracker that following this link counts as reading the article.
+					Undefined host is a url that is not an http page, which the index should
+					not hold and which is not worth a broken row if it ever does: the line is
+					simply absent, and the title takes the top of the card. -->
+				{#if host}
+					<div class="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
+						<SiteIcon {host} class="h-4 w-4" />
+						<span class="truncate">{host}</span>
+					</div>
+				{/if}
+				<!-- Twice the gap above the title that the byline gets below it. Proximity
+					is what says the byline belongs to the title and the site line does not:
+					both rows are the same size, weight and colour, so spacing is carrying the
+					grouping on its own, and it cannot do that if it is equal on both sides. -->
+				<Heading tag="h2" class="text-lg font-semibold {host ? 'mt-2' : ''}">
+					<!-- data-preview opens the shared hover panel, and carries what the crawler
+						found out about framing so the panel knows whether to try; data-visit tells the
+						shared tracker that following this link counts as reading the article.
 
-					An opened post takes the theme's blue, a step darker than the accent the
-					buttons wear: at eighteen pixels of semibold that accent shouts, and this
-					is a note about the post rather than the thing to look at. -->
-				<a
-					href={result.url}
-					target="_blank"
-					rel="noopener noreferrer"
-					data-preview={framing}
-					data-visit
-					class="line-clamp-2 rounded-sm break-words hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 {opened
-						? 'text-primary-700 dark:text-primary-400'
-						: 'text-gray-900 dark:text-white'}"
-				>
-					{result.title}
-				</a>
-			</Heading>
+						An opened post takes the theme's blue, a step darker than the accent the
+						buttons wear: at eighteen pixels of semibold that accent shouts, and this
+						is a note about the post rather than the thing to look at.
+
+						group-hover rather than hover, and not both: the anchor is inside the group,
+						so pointing at the title still hovers it, and one variant leaves one place
+						for the state to be changed. -->
+					<a
+						href={result.url}
+						target="_blank"
+						rel="noopener noreferrer"
+						data-preview={framing}
+						data-visit
+						class="line-clamp-2 rounded-sm break-words group-hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 {opened
+							? 'text-primary-700 dark:text-primary-400'
+							: 'text-gray-900 dark:text-white'}"
+					>
+						{result.title}
+					</a>
+				</Heading>
+			</div>
 			<!-- Who wrote it and when, under the title where a byline goes.
 
 				Set in the page's own typeface, at the size the site line above it uses
