@@ -660,23 +660,35 @@
 				pointer. What this costs is the sighted keyboard-only reader, who could focus
 				the old button to see the tooltip and now cannot. That is the smaller loss —
 				the explanation is a footnote, not a control, and nothing on this page depends
-				on having read it. -->
-				<div class="flex items-baseline">
-					<P size="sm" class="text-gray-500 tabular-nums dark:text-gray-400" aria-hidden="true">
-						{summary}
-					</P>
+				on having read it.
+
+				Ordinary inline text rather than a flex row, because that is what it is: a
+				sentence with two notes hung off the end of it. As flex items the notes could
+				not wrap, so on a narrow screen the sentence broke over two lines and left
+				"broadened" stranded out to the right of the first one, reading as though it
+				annotated nothing. The non-breaking space is what keeps a note attached to the
+				word before it when the line does break.
+
+				The sentence carries the `aria-hidden`, not the row: the live region above
+				reads the sentence and nothing else, so the notes have to stay audible. Each
+				tooltip follows its own note, which is how Flowbite finds what it belongs to. -->
+				<div class="text-sm text-gray-500 tabular-nums dark:text-gray-400">
+					<span aria-hidden="true">{summary}</span>
 					{#if search.broadened}
-						<span class="cursor-help px-1 text-sm leading-none text-gray-500 dark:text-gray-400">
-							&nbsp;· broadened
-							<span class="sr-only">. {broadenedNote}</span>
-						</span>
+						<span class="cursor-help"
+							>&nbsp;· broadened<span class="sr-only">. {broadenedNote}</span></span
+						>
 						<Tooltip class="max-w-64 text-center">{broadenedNote}</Tooltip>
 					{/if}
 					{#if search.partial}
-						<span class="cursor-help px-1 text-sm leading-none text-gray-500 dark:text-gray-400">
-							*
-							<span class="sr-only">{partialNote}</span>
-						</span>
+						<!-- The space before this note is load-bearing where the one above has none:
+						that note's explanation opens with the full stop that ends the word in front
+						of it, and this one opens with a word, which would otherwise be read fused to
+						the asterisk. -->
+						<span class="cursor-help"
+							>&nbsp;*
+							<span class="sr-only">{partialNote}</span></span
+						>
 						<Tooltip class="max-w-64 text-center">{partialNote}</Tooltip>
 					{/if}
 				</div>
