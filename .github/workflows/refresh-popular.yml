@@ -1,0 +1,93 @@
+name: Refresh widely shared blogs
+
+# Rebuilds web/src/lib/data/popular.json, the twelve blogs the landing page offers
+# before anyone has searched, and proposes it as a pull request when it changed.
+#
+# The two steps that do the work live in infra/ci, so they can be read, reviewed and run
+# outside Actions. What stays here is the schedule, the credentials and the permissions.
+#
+# Weekly is faster than the ranking moves - lifetime Hacker News points barely shift -
+# but the sweep's coverage is still climbing (docs/popularity.md), so blogs are crossing
+# from zero into the ranking. A run that changes nothing opens nothing, so the quiet
+# weeks cost a minute of compute and no review.
+#
+# See docs/plans/keeping-the-curated-lists-current.md, which owns the decision.
+
+on:
+  schedule:
+    # Mondays, 04:00 UTC. Off the hour and off the half hour, where the scoring and
+    # discovery timers run.
+    - cron: '0 4 * * 1'
+
+  # The corpus size and the name gate both read the source list, so a correction landing
+  # in blogs.yml should reach the front page without waiting for Monday. This is how the
+  # four names fixed on 1 September stayed missing from the twelve for a day.
+  push:
+    branches: [main]
+    paths:
+      - 'sources/blogs.yml'
+      - 'sources/tools/build_popular.py'
+      - 'infra/ci/*popular*.sh'
+      - '.github/workflows/refresh-popular.yml'
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One refresh at a time: two would race to open a pull request and each would close the
+# other's.
+concurrency:
+  group: refresh-popular
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    permissions:
+      # Push the branch the pull request is opened from.
+      contents: write
+      # Open the new pull request and close the last one.
+      pull-requests: write
+      # Required for the OIDC token exchange with Entra ID.
+      id-token: write
+
+    env:
+      # Read by both scripts. Named here rather than inline so no workflow expression is
+      # ever substituted into a shell body.
+      REPORT: ${{ runner.temp }}/report.md
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: sources/tools/requirements.txt
+
+      - run: pip install -r sources/tools/requirements.txt
+
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Rebuild the list
+        env:
+          RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          FUNCTION_APP: ${{ vars.AZURE_FUNCTIONAPP_NAME }}
+          PYTHON: python
+        run: ./infra/ci/refresh-popular.sh
+
+      # Does nothing when the list came back the same, which is most weeks.
+      - name: Propose it, and close the last proposal
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # The run number rather than the date: two runs can land on one day - the
+          # Monday schedule and a push to blogs.yml - and they must not share a branch.
+          # The date is in the title, where it is read.
+          BRANCH: bot/popular-${{ github.run_number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: ./infra/ci/open-popular-pr.sh

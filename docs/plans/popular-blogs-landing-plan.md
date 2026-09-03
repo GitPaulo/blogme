@@ -82,7 +82,7 @@ claim to know what is *popular*, only what has been *widely shared*.
 
 ```mermaid
 flowchart LR
-    P["popularity.json<br/>blob storage"] --> G["make popular<br/>run by hand"]
+    P["popularity.json<br/>blob storage"] --> G["make popular<br/>weekly, and by hand"]
     Y["blogs.yml<br/>name, kind, tags"] --> G
     G --> J["web/src/lib/data/popular.json<br/>twelve rows, committed"]
     J -->|"imported at build time"| B["Prerendered index.html"]
@@ -102,8 +102,12 @@ decision — the same argument [sources/README.md](../../sources/README.md) make
 `blogs.yml`: a change to what the front page recommends goes through review rather than
 appearing from a job nobody watched.
 
-Refreshing it is `make popular` and a commit, on whatever cadence feels right. Monthly is
-more than enough for a list whose top has not moved in a decade.
+Refreshing it is `make popular` and a commit. Since
+[`refresh-popular.yml`](../../.github/workflows/refresh-popular.yml) that happens weekly
+without anyone remembering: the workflow regenerates the file, opens a pull request when
+it changed, and closes the previous one as superseded. Weekly is faster than the ranking
+moves, which is the point - a run that changes nothing opens nothing, and the weeks it
+does change are the weeks the sweep's coverage moved underneath it.
 
 ### The generator
 
@@ -325,8 +329,9 @@ whether the crawler ever reached it.
 So the generator now counts what the index holds for each candidate, using the same
 filter the app sends, and walks down the ranking taking blogs that clear
 `MIN_ARTICLES = 5` rather than taking the top twelve and hoping. That needs a search key,
-which `make popular` fetches the way `make dev` does; without one the check is skipped
-and the list is the top twelve by standing alone.
+which `make popular` fetches the way `make dev` does; without one the generator refuses
+to write anything, because a scheduled run has nobody to read a warning. `--allow-unchecked`
+takes the top twelve on standing alone, for working offline.
 
 ## Sequencing
 

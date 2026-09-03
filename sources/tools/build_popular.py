@@ -8,12 +8,17 @@ rather than served from an API.
 Ranking by Hacker News points alone puts the BBC, TechCrunch and the Guardian on the
 front page of a search engine for independent tech blogs: they are in the corpus, and
 points measure news circulation. The kind filter below is what excludes them, and it
-uses corpus data rather than anyone's opinion — those entries arrived from general link
+uses corpus data rather than anyone's opinion - those entries arrived from general link
 lists and carry no kind at all.
 
     python build_popular.py --popularity /tmp/popularity.json
 
-Run through `make popular`, which downloads the blob first.
+Run through `make popular`, which downloads the blob first, and weekly by
+.github/workflows/popular.yml, which opens a pull request with whatever changed.
+
+It refuses rather than degrades. Every check below ends in either a complete list or a
+non-zero exit, because the caller is now a job nobody watches: a warning on stderr that
+still writes a file is how a front page ends up showing seven blogs, or none.
 """
 
 from __future__ import annotations
@@ -22,8 +27,10 @@ import argparse
 import json
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Any, Iterable
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
 
@@ -49,7 +56,7 @@ BLOG_KINDS = frozenset({
 
 # Platforms, archives and standards bodies the extractor mis-kinded as blogs. Kept here
 # rather than in blogs-overrides.yml because `drop` there would take them out of the
-# crawl entirely, and they are worth indexing — they are just not what this page is for.
+# crawl entirely, and they are worth indexing - they are just not what this page is for.
 DENY_HOSTS = frozenset({
     "web.archive.org",
     "w3.org",
@@ -81,12 +88,12 @@ GENERIC_NAMES = frozenset({
 FEED_TITLE_PREFIXES = ("comments for ", "comments on ")
 
 # A dash with spaces around it joins a name to a tagline, which is a feed title rather
-# than a name: overreacted.io calls itself "overreacted ' + chr(8212) + ' A blog by Dan Abramov" and
-# idiallo.com appends its own domain. The tail is never the name, and a dash is not
+# than a name: overreacted.io calls itself "overreacted <em dash> A blog by Dan Abramov"
+# and idiallo.com appends its own domain. The tail is never the name, and a dash is not
 # something this page should print either.
 TAGLINE_SEPARATORS = (" " + chr(8212) + " ", " " + chr(8211) + " ", " - ", " | ", " :: ")
 
-# A name longer than this is a tagline, not a name — idiallo.com's is "Software and Tech
+# A name longer than this is a tagline, not a name - idiallo.com's is "Software and Tech
 # stories from an Insider". Too long to sit in a two-column row, and too long to be a
 # sensible query.
 MAX_NAME = 40
@@ -99,6 +106,38 @@ MIN_NAME = 3
 # documents. A handful is also too few to be worth a click, hence a floor rather than
 # merely "more than none".
 MIN_ARTICLES = 5
+
+# Mirrors maxSourceIDs in api/internal/httpapi. A blog listed more times than the API
+# will filter on cannot be reached completely, so it is not offered at all.
+MAX_IDS = 8
+
+# How far down the ranking the article check is willing to walk to fill the list.
+#
+# Without a bound, a systematic fault - a filter the index rejects, a key with no read
+# access - becomes thousands of requests before anything is reported. Twelve blogs have
+# never needed more than the low twenties, so reaching this is a fault rather than a
+# shortfall, and it is reported as one.
+MAX_SCAN = 60
+
+# The smallest popularity map worth ranking. A truncated download, an empty blob and a
+# sweep that has never completed all read as "nobody has ever been posted", which the
+# ranking cannot tell from the truth. The real map carries around 9,000 sites with
+# points, so this is far below anything a healthy sweep produces.
+# See docs/popularity.md.
+MIN_SITES_WITH_POINTS = 500
+
+# Retries for one article count. Covers a search service restart or a throttle; anything
+# longer-lived should stop the run rather than silently reshuffle the front page.
+SEARCH_ATTEMPTS = 3
+SEARCH_BACKOFF = 2.0
+
+
+class Refused(RuntimeError):
+    """The list could not be vouched for, so nothing is written.
+
+    An exception rather than a return code, so each check reads as one line where the
+    fault is known and main has a single place that reports them.
+    """
 
 
 def host_of(url: str) -> str:
@@ -118,7 +157,38 @@ def host_of(url: str) -> str:
 
 def load_sources(path: Path) -> list[dict[str, Any]]:
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    return [s for s in (data.get("sources") or []) if isinstance(s, dict) and s.get("site")]
+    sources = [s for s in (data.get("sources") or []) if isinstance(s, dict) and s.get("site")]
+    if not sources:
+        raise Refused(f"{path} lists no usable sources")
+    return sources
+
+
+def load_popularity(path: Path) -> dict[str, dict[str, Any]]:
+    """The site standing map, checked for the shapes a bad download takes.
+
+    The same argument infra/upload-sources.sh makes before it writes: a file read from
+    somewhere else can arrive empty, and every failure here is silent downstream because
+    "no points" is a value the ranking accepts rather than one it can question.
+    """
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as err:
+        raise Refused(f"could not read {path}: {err}") from err
+
+    if not isinstance(data, dict):
+        raise Refused(f"{path} holds {type(data).__name__}, not an object of sites")
+
+    with_points = sum(
+        1 for entry in data.values()
+        if isinstance(entry, dict) and int(entry.get("points") or 0) > 0
+    )
+    if with_points < MIN_SITES_WITH_POINTS:
+        raise Refused(
+            f"{path} has only {with_points} sites with any standing, under the "
+            f"{MIN_SITES_WITH_POINTS} a healthy sweep produces - a truncated download "
+            "is far likelier than a real collapse"
+        )
+    return data
 
 
 def name_problem(name: str, host_count: int) -> str | None:
@@ -149,18 +219,15 @@ def name_problem(name: str, host_count: int) -> str | None:
     return None
 
 
-# Mirrors maxSourceIDs in api/internal/httpapi. A blog listed more times than the API
-# will filter on cannot be reached completely, so it is not offered at all.
-MAX_IDS = 8
-
-
 def rank(
     sources: Iterable[dict[str, Any]],
     popularity: dict[str, dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Every eligible blog, most widely shared first, one row per host."""
+    sources = list(sources)
+
     # Counted over distinct hosts, not over sources: one blog often appears in blogs.yml
-    # several times over — tbray.org four times — and those are the same name for the
+    # several times over - tbray.org four times - and those are the same name for the
     # same writing, not two blogs competing for it.
     hosts_by_name: dict[str, set[str]] = {}
     # Every id a host is crawled under, because clicking a blog filters on them and one
@@ -191,21 +258,24 @@ def rank(
         if points <= 0:
             continue
 
-        name = " ".join(str(source.get("name") or "").split())
-        # Several sources can share a host; the one with a usable name wins, and points
-        # are a property of the host so they cannot break the tie.
-        if len(ids_by_host.get(host, [])) > MAX_IDS:
+        ids = ids_by_host.get(host, [])
+        # No id is no way to browse the blog, and an empty list would build a filter the
+        # index rejects - a 400 that would otherwise read as "the search is down".
+        if not ids or len(ids) > MAX_IDS:
             continue
 
+        # Several sources can share a host; the one with a usable name wins, and points
+        # are a property of the host so they cannot break the tie.
         current = best.get(host)
         if current and current["problem"] is None:
             continue
 
+        name = " ".join(str(source.get("name") or "").split())
         best[host] = {
             "name": name,
             "site": str(source["site"]),
             "host": host,
-            "ids": ids_by_host.get(host, []),
+            "ids": ids,
             "points": points,
             "problem": name_problem(name, len(hosts_by_name.get(name.lower(), ()))),
         }
@@ -218,6 +288,11 @@ def indexed(endpoint: str, key: str, ids: list[str]) -> int:
 
     The same filter the app sends when a reader clicks the blog, so this measures the
     page they will actually land on rather than something adjacent to it.
+    See: https://learn.microsoft.com/en-us/rest/api/searchservice/search-documents
+
+    A 4xx is an answer - the filter is wrong, and asking again cannot change it. Every
+    other failure is the service being out of reach, which is retried and then raised,
+    because a blog dropped for one timeout is a blog silently swapped off the front page.
     """
     clause = " or ".join("sourceId eq '%s'" % i for i in ids)
     params = urlencode({
@@ -229,8 +304,174 @@ def indexed(endpoint: str, key: str, ids: list[str]) -> int:
     })
     url = "%s/indexes/articles/docs?%s" % (endpoint.rstrip("/"), params)
     request = Request(url, headers={"api-key": key})
-    with urlopen(request, timeout=30) as response:
-        return int(json.load(response)["@odata.count"])
+
+    last: Exception | None = None
+    for attempt in range(1, SEARCH_ATTEMPTS + 1):
+        try:
+            with urlopen(request, timeout=30) as response:
+                return int(json.load(response)["@odata.count"])
+        except HTTPError as err:
+            if err.code < 500:
+                raise Refused(f"the index rejected a count for {ids}: HTTP {err.code}") from err
+            last = err
+        except (URLError, TimeoutError, ValueError, KeyError) as err:
+            last = err
+        if attempt < SEARCH_ATTEMPTS:
+            time.sleep(SEARCH_BACKOFF * attempt)
+
+    raise Refused(f"could not reach the index after {SEARCH_ATTEMPTS} attempts: {last}")
+
+
+def choose(
+    named: list[dict[str, Any]],
+    limit: int,
+    endpoint: str,
+    key: str,
+) -> list[dict[str, Any]]:
+    """The top `limit` blogs the index can actually show.
+
+    Walks down the ranking rather than taking the head and hoping, because standing and
+    coverage are unrelated: utcc.utoronto.ca is in the top twelve on points and has no
+    documents at all.
+    """
+    if not endpoint or not key:
+        raise Refused(
+            "no search endpoint or key, so no blog can be checked for articles "
+            "(pass --allow-unchecked to build the list on standing alone)"
+        )
+
+    chosen: list[dict[str, Any]] = []
+    for row in named[:MAX_SCAN]:
+        if len(chosen) == limit:
+            return chosen
+        row["articles"] = indexed(endpoint, key, row["ids"])
+        if row["articles"] >= MIN_ARTICLES:
+            chosen.append(row)
+        else:
+            row["problem"] = f"only {row['articles']} articles indexed"
+
+    if len(chosen) < limit:
+        raise Refused(
+            f"only {len(chosen)} of the top {MAX_SCAN} blogs had {MIN_ARTICLES} or more "
+            f"articles indexed, wanted {limit} - the index is likely incomplete"
+        )
+    return chosen
+
+
+def previous_hosts(path: Path) -> dict[str, str]:
+    """Host to name, as the committed list currently stands, for reporting what moved.
+
+    A missing or unreadable file is the first run rather than a fault, and the report
+    then reads as twelve additions.
+    """
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {
+        str(blog.get("host")): str(blog.get("name", ""))
+        for blog in (data.get("blogs") or [])
+        if isinstance(blog, dict) and blog.get("host")
+    }
+
+
+def cell(text: str) -> str:
+    """One Markdown table cell of text nobody here wrote.
+
+    Names come from feed titles, so a pipe in one would end the column early and shift
+    every cell after it. The name gate rejects " | " as a tagline separator but not a
+    bare one, and a report a reviewer cannot read is a report they merge past.
+    """
+    return text.replace("\\", "\\\\").replace("|", "\\|")
+
+
+def render(
+    chosen: list[dict[str, Any]],
+    rejected: list[dict[str, Any]],
+    before: dict[str, str],
+    corpus: int,
+    unchecked: bool,
+) -> str:
+    """The pull request body, in Markdown.
+
+    Written here rather than assembled in the workflow: this is the only place holding
+    the points, the article counts and the previous list at once, and a shell reaching
+    back into the JSON for them would be a second copy of these rules.
+    """
+    after = {row["host"] for row in chosen}
+    added = [row for row in chosen if row["host"] not in before]
+    removed = [(host, name) for host, name in before.items() if host not in after]
+
+    out = [
+        f"Regenerated from `popularity.json`. **{len(chosen)} "
+        f"blog{'' if len(chosen) == 1 else 's'}**, drawn from {corpus:,} sources.",
+        "",
+    ]
+
+    if added or removed:
+        out += ["### What moved", "", "| | Blog | Host |", "| --- | --- | --- |"]
+        out += [f"| add | {cell(row['name'])} | `{row['host']}` |" for row in added]
+        out += [f"| drop | {cell(name)} | `{host}` |" for host, name in removed]
+    else:
+        out += ["### What moved", "", "The same blogs as before, in a different order."]
+    out += [""]
+
+    out += ["### The list", "", "| # | Blog | Host | Points | Articles |",
+            "| ---: | --- | --- | ---: | ---: |"]
+    for i, row in enumerate(chosen, 1):
+        articles = row.get("articles")
+        out.append(
+            f"| {i} | {cell(row['name'])} | `{row['host']}` | {row['points']:,} | "
+            f"{'not checked' if articles is None else format(articles, ',')} |"
+        )
+    out += [""]
+
+    if unchecked:
+        out += ["> Built on standing alone: no search key, so no blog here was checked "
+                "for articles and a row may open onto nothing.", ""]
+
+    if rejected:
+        out += [
+            "### Rejected, and popular enough to have made the list",
+            "",
+            "Name these in [`sources/blogs-overrides.yml`](sources/blogs-overrides.yml) "
+            "to let them through.",
+            "",
+            "| Host | Name in the corpus | Problem |",
+            "| --- | --- | --- |",
+        ]
+        out += [
+            f"| `{row['host']}` | {cell(repr(row['name']))} | {cell(row['problem'])} |"
+            for row in rejected
+        ]
+        out += [""]
+
+    out += [
+        "---",
+        "",
+        "Ranked by lifetime Hacker News points per host, which measures circulation in "
+        "one audience and favours blogs that have been publishing for years. See "
+        "[docs/popularity.md](docs/popularity.md) and "
+        "[the landing page plan](docs/plans/popular-blogs-landing-plan.md).",
+    ]
+    return "\n".join(out) + "\n"
+
+
+def write_json(path: Path, payload: dict[str, Any]) -> None:
+    """Replace the list in one step, so a crash cannot leave half a file in the tree.
+
+    Vite inlines this at build time, and a truncated import is a build failure whose
+    cause is a week behind it.
+    """
+    body = json.dumps(payload, indent="\t", ensure_ascii=False) + "\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    # LF, whatever the platform: the repo is checked out with LF and prettier rewrites
+    # the file otherwise, so a generated list would fail the web lint.
+    tmp.write_text(body, encoding="utf-8", newline="\n")
+    os.replace(tmp, path)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -244,67 +485,62 @@ def main(argv: list[str] | None = None) -> int:
                         help="search endpoint, used to check each blog has articles to show")
     parser.add_argument("--key", default=os.environ.get("BLOGME_SEARCH_API_KEY", ""),
                         help="search query key")
+    parser.add_argument("--summary", type=Path,
+                        help="write a Markdown report here, for a pull request body")
+    parser.add_argument("--allow-unchecked", action="store_true",
+                        help="build on standing alone when the index cannot be reached "
+                             "(offline use; a blog may then open onto no articles)")
     args = parser.parse_args(argv)
 
-    popularity = json.loads(args.popularity.read_text(encoding="utf-8"))
-    sources = load_sources(args.blogs)
-    ranked = rank(sources, popularity)
+    unchecked = args.allow_unchecked and not (args.endpoint and args.key)
+    try:
+        # An empty list is not a page, and the rejection report reads the last row.
+        if args.limit < 1:
+            raise Refused(f"--limit is {args.limit}; the page needs at least one blog")
+        popularity = load_popularity(args.popularity)
+        sources = load_sources(args.blogs)
+        ranked = rank(sources, popularity)
+        named = [row for row in ranked if row["problem"] is None]
 
-    named = [row for row in ranked if row["problem"] is None]
-
-    # Walk down the ranking taking blogs the index can actually show, rather than taking
-    # the top twelve and hoping. Without an endpoint the check is skipped and the list is
-    # the top twelve by standing alone, which is how it behaves offline.
-    chosen: list[dict[str, Any]] = []
-    if args.endpoint and args.key:
-        for row in named:
-            if len(chosen) == args.limit:
-                break
-            try:
-                row["articles"] = indexed(args.endpoint, args.key, row["ids"])
-            except Exception as err:  # noqa: BLE001 - any failure here means "cannot vouch"
-                print(f"warning: could not count {row['host']}: {err}", file=sys.stderr)
-                continue
-            if row["articles"] >= MIN_ARTICLES:
-                chosen.append(row)
-            else:
-                row["problem"] = f"only {row['articles']} articles indexed"
-    else:
-        print("warning: no search endpoint given, blogs not checked for articles",
-              file=sys.stderr)
-        chosen = named[: args.limit]
-
-    if len(chosen) < args.limit:
-        print(f"warning: only {len(chosen)} blogs qualified, wanted {args.limit}", file=sys.stderr)
+        if not unchecked:
+            chosen = choose(named, args.limit, args.endpoint, args.key)
+        else:
+            print("warning: no search endpoint, blogs not checked for articles",
+                  file=sys.stderr)
+            chosen = named[: args.limit]
+            if len(chosen) < args.limit:
+                raise Refused(f"only {len(chosen)} blogs qualified, wanted {args.limit}")
+    except Refused as err:
+        print(f"error: {err}", file=sys.stderr)
+        print(f"nothing written, {args.out.name} is unchanged", file=sys.stderr)
+        return 1
 
     # Everything a better name would have promoted into the list, so the rejections
-    # worth acting on are the ones printed and the rest stay quiet.
-    cutoff = chosen[-1]["points"] if chosen else 0
+    # worth acting on are the ones reported and the rest stay quiet.
+    cutoff = chosen[-1]["points"]
     rejected = [row for row in ranked if row["problem"] and row["points"] >= cutoff]
 
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(
-        json.dumps(
-            {
-                # What the twelve stand for, so the page can say how much it is not
-                # showing without a pasted number going stale behind it.
-                "corpus": len(sources),
-                "blogs": [
-                    {"name": r["name"], "site": r["site"], "host": r["host"], "ids": r["ids"]}
-                    for r in chosen
-                ],
-            },
-            indent="\t",
-            ensure_ascii=False,
+    before = previous_hosts(args.out)
+    write_json(args.out, {
+        # What the twelve stand for, so the page can say how much it is not showing
+        # without a pasted number going stale behind it.
+        "corpus": len(sources),
+        "blogs": [
+            {"name": row["name"], "site": row["site"], "host": row["host"], "ids": row["ids"]}
+            for row in chosen
+        ],
+    })
+    if args.summary:
+        args.summary.write_text(
+            render(chosen, rejected, before, len(sources), unchecked),
+            encoding="utf-8",
+            newline="\n",
         )
-        + "\n",
-        encoding="utf-8",
-        # LF, whatever the platform: the repo is checked out with LF and prettier
-        # rewrites the file otherwise, so a generated list would fail the web lint.
-        newline="\n",
-    )
 
-    print(f"{len(ranked)} eligible blogs, {len(chosen)} written to {args.out.relative_to(ROOT)}\n")
+    # Relative when it is in the repo, absolute when --out points elsewhere. Crashing
+    # here would report a failure for a run that had already written a good list.
+    where = args.out.relative_to(ROOT) if args.out.is_relative_to(ROOT) else args.out
+    print(f"{len(ranked)} eligible blogs, {len(chosen)} written to {where}\n")
     for i, row in enumerate(chosen, 1):
         articles = row.get("articles")
         shown = f"{articles:>5} articles" if articles is not None else "not checked"
@@ -315,7 +551,7 @@ def main(argv: list[str] | None = None) -> int:
               " sources/blogs-overrides.yml:")
         for row in rejected:
             print(f"     {row['points']:>6}  {row['host']:<28} {row['problem']}"
-                  f"  — {row['name']!r}")
+                  f"  {chr(8212)} {row['name']!r}")
 
     return 0
 

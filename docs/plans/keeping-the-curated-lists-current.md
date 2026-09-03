@@ -183,7 +183,7 @@ environment comes up with it.
 
 **Files:** `.github/workflows/publish-sources.yml`, `infra/github-oidc.sh`
 
-### 4. Refresh `popular.json` monthly, as a PR
+### 4. Refresh `popular.json` weekly, as a PR ~ done
 
 The cheap half of the original question, and the one where the answer is yes.
 `make popular` is a blob download, a YAML read and a dozen Search count queries — about
@@ -209,7 +209,17 @@ Three details that matter:
   the exact failure `utcc.utoronto.ca` was found to cause. Unattended, it must be an
   error.
 
-**Files:** `.github/workflows/refresh-popular.yml`, `sources/tools/build_popular.py`
+**Files:** `.github/workflows/refresh-popular.yml`, `infra/ci/refresh-popular.sh`, `infra/ci/open-popular-pr.sh`, `sources/tools/build_popular.py`
+
+**Built.** Weekly rather than monthly, and also on a push touching `blogs.yml`. The
+generator now refuses instead of warning on every degraded path - no key, a truncated
+`popularity.json`, an unreachable index, a list it could not fill - so a scheduled run
+either produces twelve blogs or fails without touching the committed file. Each run opens
+`chore(popular): refresh widely shared blogs (<date>)` and closes the last one as
+superseded, so at most one is ever waiting. The two steps that do the work are
+scripts under `infra/ci`, so they read and run outside Actions; the workflow holds
+only the schedule, the credentials and the permissions, and `make popular` now calls
+the same script rather than repeating its `az` incantations.
 
 ### 5. Watch staleness, and let it call for a rebuild
 

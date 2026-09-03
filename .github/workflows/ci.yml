@@ -58,6 +58,15 @@ jobs:
       - run: python -m unittest discover -p 'test_*.py'
       - run: python patch_sources.py --check
 
+  # The infra scripts provision, deploy and refresh the front page, and until now nothing
+  # read them but a shell at the moment they ran. Shellcheck is on the runner image
+  # already, so this is a checkout and a second.
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: shellcheck infra/*.sh infra/ci/*.sh
+
   web:
     runs-on: ubuntu-latest
     defaults:
