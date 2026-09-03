@@ -119,7 +119,7 @@ the repo, and writes `web/src/lib/data/popular.json`.
 | Step   | Rule                                                                                       | Why                                                                                                                                       |
 | ------ | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | Join   | `siteOf(site)` to a `popularity.json` entry                                                | The same exact-host key the scorer uses, for the same reason: `bearblog.dev` subdomains must not inherit each other's standing             |
-| Filter | keep entries whose `kind` meets `personal-blogs`, `company-blogs`, `independent-web`, `small-web` | This is what excludes the newspapers, and it is corpus data rather than a hand-list                                                       |
+| Filter | keep entries whose `kind` meets `personal-blogs`, `independent-web`, `small-web` | This is what excludes the newspapers, and it is corpus data rather than a hand-list. `company-blogs` is deliberately absent — see [Company blogs are not what this page is for](#company-blogs-are-not-what-this-page-is-for) |
 | Deny   | drop a short list of hosts                                                                 | `web.archive.org`, `w3.org`, `youtube.com`, `linkedin.com`, `github.com`, `medium.com` — platforms the extractor mis-kinded. Kept short, and in the script where it is reviewable |
 | Dedupe | one row per host, highest points                                                           | Several sources share a host: `bbc.com` appears twice, `tbray.org` twice                                                                  |
 | Gate   | reject unusable names                                                                      | A bad name here is a bad search                                                                                                           |
@@ -143,6 +143,34 @@ Points are deliberately **not** in the output. The page does not show a score, a
 shipping one invites a future version to render it — which would turn a way in to the
 corpus into a leaderboard, and put a number beside people's names that they did not ask
 for and cannot move.
+
+### Company blogs are not what this page is for
+
+`company-blogs` was in the kind filter and is not any more. It covers Stripe, Twilio,
+JetBrains, Uber, Databricks, Elastic, Fastly, DigitalOcean, Shopify Engineering, Dropbox
+Tech and some eighty more. Every one is worth indexing and worth searching. None of them
+is what a reader who came to a search engine for independent tech blogs is looking at the
+front page to find, and `stripe.com` ranked third on standing.
+
+It is a cheap exclusion, which is the other reason to make it: 93 hosts of 31,483
+eligible, 0.3%, and none of the twelve that were on the page at the time.
+
+The kind itself stays. The extractor keeps assigning it and `blogs.yml` keeps carrying it
+— this is a statement about one editorial surface, not about the corpus, and a search for
+"stripe" should still find their engineering writing.
+
+Two hosts the kind filter cannot reach are named in `DENY_HOSTS` instead, both mis-kinded
+in the corpus as personal blogs:
+
+| Host | Kinds it carries | Why it is denied |
+| --- | --- | --- |
+| `aws.amazon.com` | `company-blogs`, `personal-blogs`, `independent-web`, `small-web` | Survives the kind filter on the strength of tags it should not have. Seventh on standing, under the feed title "Recent Announcements", which is what it is |
+| `addons.mozilla.org` | `personal-blogs`, `independent-web`, `small-web` | A listing of browser extensions rather than writing at all |
+
+`blog.kagi.com` sits at 38 and is left alone deliberately. It is a company blog by any
+reading, and Kagi is a small independent company, so denying it would start the page down
+the road of judging which companies count as independent — which is a hand-list, and the
+thing the kind filter exists to avoid.
 
 ### Names are a gate
 

@@ -2,16 +2,16 @@
 	"windowDays": 7,
 	"posts": [
 		{
-			"title": "GUIs should be fully keyboard-driven",
-			"url": "https://ckardaris.com/blog/2026/08/28/keyboard-driven-guis.html",
-			"blog": "Charalampos Kardaris’ blog",
-			"host": "ckardaris.com"
-		},
-		{
 			"title": ".name Termination",
 			"url": "https://neil.fraser.name/news/2026/09/03/",
 			"blog": "Neil Fraser's News",
 			"host": "neil.fraser.name"
+		},
+		{
+			"title": "GUIs should be fully keyboard-driven",
+			"url": "https://ckardaris.com/blog/2026/08/28/keyboard-driven-guis.html",
+			"blog": "Charalampos Kardaris’ blog",
+			"host": "ckardaris.com"
 		},
 		{
 			"title": "Hang on to your Firefox!",

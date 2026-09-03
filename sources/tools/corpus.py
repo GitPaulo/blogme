@@ -28,9 +28,17 @@ BLOGS = ROOT / "sources" / "blogs.yml"
 
 # A source has to claim one of these to be eligible. Every mainstream news domain in the
 # corpus has no kind at all, so this one line is the whole newspaper filter.
+#
+# `company-blogs` is deliberately not among them. The page exists to name independent
+# blogs, and the kind covers Stripe, Twilio, JetBrains, Uber, Databricks, Shopify and
+# some ninety more - corporate engineering blogs, worth indexing and worth searching,
+# but not what a reader looking for independent writing came to the front page for.
+# Dropping it costs 93 of 31,483 eligible hosts and none of the twelve then on the page.
+#
+# The kind itself stays in blogs.yml and the extractor keeps assigning it. This is a
+# statement about one editorial surface, not about the corpus.
 BLOG_KINDS = frozenset({
     "personal-blogs",
-    "company-blogs",
     "independent-web",
     "small-web",
 })
@@ -50,11 +58,20 @@ DENY_HOSTS = frozenset({
     "news.ycombinator.com",
     "reddit.com",
     "wikipedia.org",
-    # Documentation portals and corporate newsrooms. They pass the kind filter, they
-    # are worth indexing, and they are not what a reader looking for blogs came for.
+    # Documentation portals and corporate newsrooms. Kept now that `company-blogs` is
+    # out of BLOG_KINDS, which already excludes the first two: the kind a host carries
+    # is corpus data and can be re-derived by the next rebuild, so a host that should
+    # never be offered is said so here rather than left to a tag to keep saying.
     "developer.apple.com",
     "deepmind.google",
     "docs.google.com",
+    # The two the kind filter cannot reach, both mis-kinded in the corpus as personal
+    # blogs. `aws.amazon.com` carries `company-blogs` and `personal-blogs` at once and
+    # would otherwise sit seventh on standing, under the feed title "Recent
+    # Announcements" - which is what it is. `addons.mozilla.org` is a listing of
+    # extensions rather than writing at all.
+    "aws.amazon.com",
+    "addons.mozilla.org",
 })
 
 # Names too generic to be searched for. Clicking a row searches for the blog's name, so

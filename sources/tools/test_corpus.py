@@ -55,8 +55,24 @@ class IsBlog(unittest.TestCase):
     def test_no_kind_is_the_whole_newspaper_filter(self):
         self.assertFalse(is_blog(source("https://bbc.com/", kind=()), "bbc.com"))
 
+    def test_a_company_blog_is_not(self):
+        # The page names independent blogs. `company-blogs` covers Stripe, Twilio,
+        # JetBrains, Uber and some ninety more: worth indexing, worth searching, and not
+        # what a reader looking for independent writing came to the front page for.
+        self.assertFalse(
+            is_blog(source("https://stripe.com/blog", kind=("company-blogs",)), "stripe.com")
+        )
+
     def test_a_denied_host_is_not(self):
         self.assertFalse(is_blog(source("https://github.com/"), "github.com"))
+
+    def test_the_corporate_hosts_the_kind_filter_cannot_reach_are_denied(self):
+        # Both are kinded as personal blogs in the corpus. aws.amazon.com would sit
+        # seventh on standing under the feed title "Recent Announcements", and
+        # addons.mozilla.org is a listing of extensions rather than writing.
+        for host in ("aws.amazon.com", "addons.mozilla.org"):
+            with self.subTest(host=host):
+                self.assertFalse(is_blog(source(f"https://{host}/"), host))
 
     def test_an_unparseable_site_is_not(self):
         self.assertFalse(is_blog(source("nonsense"), ""))

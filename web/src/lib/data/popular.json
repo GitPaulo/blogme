@@ -1,5 +1,5 @@
 {
-	"corpus": 46083,
+	"corpus": 46081,
 	"blogs": [
 		{
 			"name": "Simon Willison's Weblog",
@@ -10,11 +10,53 @@
 			]
 		},
 		{
+			"name": "Bartosz Ciechanowski",
+			"site": "https://ciechanow.ski/",
+			"host": "ciechanow.ski",
+			"ids": [
+				"ciechanow"
+			]
+		},
+		{
+			"name": "danluu",
+			"site": "https://danluu.com/",
+			"host": "danluu.com",
+			"ids": [
+				"danluu",
+				"danluu-2"
+			]
+		},
+		{
 			"name": "Troy Hunt",
 			"site": "https://www.troyhunt.com/",
 			"host": "troyhunt.com",
 			"ids": [
 				"troyhunt"
+			]
+		},
+		{
+			"name": "Daring Fireball",
+			"site": "https://daringfireball.net/",
+			"host": "daringfireball.net",
+			"ids": [
+				"daringfireball"
+			]
+		},
+		{
+			"name": "<antirez>",
+			"site": "https://antirez.com/",
+			"host": "antirez.com",
+			"ids": [
+				"antirez"
+			]
+		},
+		{
+			"name": "Jeff Geerling",
+			"site": "https://www.jeffgeerling.com/",
+			"host": "jeffgeerling.com",
+			"ids": [
+				"jeffgeerling-blog",
+				"jeffgeerling"
 			]
 		},
 		{
@@ -36,71 +78,29 @@
 			]
 		},
 		{
+			"name": "Jacques Mattheij",
+			"site": "https://jacquesmattheij.com/",
+			"host": "jacquesmattheij.com",
+			"ids": [
+				"jacquesmattheij"
+			]
+		},
+		{
+			"name": "ongoing by Tim Bray",
+			"site": "https://www.tbray.org/",
+			"host": "tbray.org",
+			"ids": [
+				"tbray-2",
+				"tbray"
+			]
+		},
+		{
 			"name": "Drew DeVault's blog",
 			"site": "https://drewdevault.com/blog/",
 			"host": "drewdevault.com",
 			"ids": [
 				"drewdevault",
 				"drewdevault-blog"
-			]
-		},
-		{
-			"name": "Fabien Sanglard",
-			"site": "https://fabiensanglard.net/",
-			"host": "fabiensanglard.net",
-			"ids": [
-				"fabiensanglard"
-			]
-		},
-		{
-			"name": "mtlynch.io",
-			"site": "https://mtlynch.io/",
-			"host": "mtlynch.io",
-			"ids": [
-				"mtlynch"
-			]
-		},
-		{
-			"name": "Idle Words",
-			"site": "https://idlewords.com/",
-			"host": "idlewords.com",
-			"ids": [
-				"idlewords"
-			]
-		},
-		{
-			"name": "Sean Goedecke",
-			"site": "https://www.seangoedecke.com/",
-			"host": "seangoedecke.com",
-			"ids": [
-				"seangoedecke"
-			]
-		},
-		{
-			"name": "Schneier on Security",
-			"site": "https://www.schneier.com/",
-			"host": "schneier.com",
-			"ids": [
-				"schneier"
-			]
-		},
-		{
-			"name": "Martin Fowler",
-			"site": "https://martinfowler.com/",
-			"host": "martinfowler.com",
-			"ids": [
-				"martinfowler",
-				"martinfowler-2"
-			]
-		},
-		{
-			"name": "Scott Hanselman",
-			"site": "https://www.hanselman.com/blog/",
-			"host": "hanselman.com",
-			"ids": [
-				"hanselman-blog",
-				"hanselman-blog-2",
-				"hanselman"
 			]
 		}
 	]
