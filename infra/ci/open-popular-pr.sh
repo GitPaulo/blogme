@@ -101,8 +101,22 @@ url="$(gh pr view "$BRANCH" --json url,state \
 if [[ -n "$url" ]]; then
 	gh pr edit "$url" --body-file "$body"
 	echo "  updated $url"
+elif ! url="$(gh pr create --base main --head "$BRANCH" --title "$title" --body-file "$body")"; then
+	# One repository setting is the usual cause and the API's own message does not name
+	# it: "GitHub Actions is not permitted to create or approve pull requests" is a
+	# checkbox, off by default, not anything wrong with this branch.
+	{
+		printf '\033[31merror: could not open a pull request from %s\033[0m\n' "$BRANCH"
+		echo "If the message above says GitHub Actions is not permitted to create pull"
+		echo "requests, switch on: Settings > Actions > General > Workflow permissions >"
+		echo "'Allow GitHub Actions to create and approve pull requests', then re-run."
+	} >&2
+	# Taken back down. The list behind it is two minutes of compute and the branch is
+	# useless without a pull request, so leaving it would bank one dead branch per failed
+	# run - and the "close the previous one" search only ever sees branches that have one.
+	git push origin --delete "$BRANCH" || true
+	exit 1
 else
-	url="$(gh pr create --base main --head "$BRANCH" --title "$title" --body-file "$body")"
 	echo "  opened $url"
 fi
 
