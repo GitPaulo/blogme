@@ -168,7 +168,13 @@
 puts it there, and the edges it shares with the screen carry neither border nor corner,
 so the panel reads as the side of the window rather than as a card floating near it.
 Full-width below `sm`, where a 24rem panel would leave a strip of page too narrow to use
-but wide enough to invite a tap that only closes it. -->
+but wide enough to invite a tap that only closes it.
+
+The inline end reaching the glass is not this element's doing and cannot be fixed here:
+`me-0` only takes the panel to the edge of the box a dialog is laid out in, which is the
+window less whatever the document's scrollbar is holding open. layout.css hands that space
+back for as long as a dialog is up. If a strip of page shows down the right again, that
+rule is where it went, not this class list. -->
 <Drawer
 	bind:open
 	placement="right"
