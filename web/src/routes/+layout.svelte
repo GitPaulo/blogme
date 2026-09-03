@@ -28,11 +28,15 @@
 		<link rel="preconnect" href={API_ORIGIN} crossorigin="anonymous" />
 	{/if}
 </svelte:head>
-<div class="fixed end-4 top-4 z-50 flex items-center gap-2">
+<!-- A landmark rather than a bare div. These controls sit outside `main`, so without a
+region of their own they are the one thing on the site a reader moving by landmark walks
+straight past. A `header` that is not inside a sectioning element is the page's banner,
+which is what this is. -->
+<header class="fixed end-4 top-4 z-50 flex items-center gap-2">
 	<BookmarksPanel />
 	<GithubLink />
 	<ThemeToggle />
-</div>
+</header>
 {@render children()}
 <!-- Mounted once for the whole app; every `data-preview` link on any page shares it. -->
 <LinkPreview />
