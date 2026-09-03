@@ -37,13 +37,33 @@
 <Card class="max-w-none p-4" shadow="sm">
 	<div class="flex items-start gap-3">
 		<div class="min-w-0 flex-1">
-			<!-- The site line and the title are one hover target: the icon, the host and the
-				title all raise the same underline, rather than the pointer crossing a live row
-				and a dead one a few pixels apart. It stops above the byline, so what answers
-				to the title is where the post came from and what it is called, not the whole
-				column. Grouping alone styles nothing — it only widens what counts as pointing
-				at the title. -->
-			<div class="group">
+			<!-- The site line and the title are one link: the icon, the host and the title
+				share a hover, a focus ring, a click and a preview. It stops above the byline,
+				so what answers to the title is where the post came from and what it is called,
+				not the whole column.
+
+				They were grouped by hover alone before this, and that was worse than leaving
+				them apart: the site line raised the title's underline, took no pointer, opened
+				no preview and did nothing when it was clicked. A row that offers itself and
+				then refuses is a harder thing to understand than one that never offered.
+
+				The anchor is the group, so the region is exactly the one that already lit up
+				on hover — a block the width of the column, whitespace to the right of a short
+				host included. What changes is that the region now does what it was promising.
+
+				data-preview opens the shared hover panel, and carries what the crawler found
+				out about framing so the panel knows whether to try; data-visit tells the
+				shared tracker that following this link counts as reading the article. Both sit
+				here rather than on the title, which is what puts the icon and the host inside
+				the target for each. -->
+			<a
+				href={result.url}
+				target="_blank"
+				rel="noopener noreferrer"
+				data-preview={framing}
+				data-visit
+				class="group block rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600"
+			>
 				<!-- Where the post came from leads, above the title rather than under it.
 					This is a search engine for blogs, so which blog wrote a thing is half of
 					what the reader is choosing between: on a page of twenty results the site
@@ -70,33 +90,30 @@
 				<!-- Twice the gap above the title that the byline gets below it. Proximity
 					is what says the byline belongs to the title and the site line does not:
 					both rows are the same size, weight and colour, so spacing is carrying the
-					grouping on its own, and it cannot do that if it is equal on both sides. -->
-				<Heading tag="h2" class="text-lg font-semibold {host ? 'mt-2' : ''}">
-					<!-- data-preview opens the shared hover panel, and carries what the crawler
-						found out about framing so the panel knows whether to try; data-visit tells the
-						shared tracker that following this link counts as reading the article.
+					grouping on its own, and it cannot do that if it is equal on both sides.
 
-						An opened post takes the theme's blue, a step darker than the accent the
-						buttons wear: at eighteen pixels of semibold that accent shouts, and this
-						is a note about the post rather than the thing to look at.
+					Only the title is underlined, though the whole link is hovered, which is why
+					this is group-hover on the heading and not hover on the anchor: a text
+					decoration set on the anchor would be drawn through the host as well, and a
+					descendant cannot take one back. Underlining the site line would make the
+					card look like two links again, which is the thing being fixed.
 
-						group-hover rather than hover, and not both: the anchor is inside the group,
-						so pointing at the title still hovers it, and one variant leaves one place
-						for the state to be changed. -->
-					<a
-						href={result.url}
-						target="_blank"
-						rel="noopener noreferrer"
-						data-preview={framing}
-						data-visit
-						class="line-clamp-2 rounded-sm break-words group-hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 {opened
-							? 'text-primary-700 dark:text-primary-400'
-							: 'text-gray-900 dark:text-white'}"
-					>
-						{result.title}
-					</a>
+					An opened post takes the theme's blue, a step darker than the accent the
+					buttons wear: at eighteen pixels of semibold that accent shouts, and this
+					is a note about the post rather than the thing to look at. The clamp is on
+					the heading now: on the anchor it would have counted the site line as one
+					of the title's two lines. -->
+				<Heading
+					tag="h2"
+					class="line-clamp-2 text-lg font-semibold break-words group-hover:underline {host
+						? 'mt-2'
+						: ''} {opened
+						? 'text-primary-700 dark:text-primary-400'
+						: 'text-gray-900 dark:text-white'}"
+				>
+					{result.title}
 				</Heading>
-			</div>
+			</a>
 			<!-- Who wrote it and when, under the title where a byline goes.
 
 				Set in the page's own typeface, at the size the site line above it uses
