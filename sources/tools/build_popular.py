@@ -7,14 +7,15 @@ rather than served from an API.
 
 Ranking by Hacker News points alone puts the BBC, TechCrunch and the Guardian on the
 front page of a search engine for independent tech blogs: they are in the corpus, and
-points measure news circulation. The kind filter below is what excludes them, and it
-uses corpus data rather than anyone's opinion - those entries arrived from general link
-lists and carry no kind at all.
+points measure news circulation. The kind filter in corpus.py is what excludes them, and
+it uses corpus data rather than anyone's opinion - those entries arrived from general
+link lists and carry no kind at all.
 
     python build_popular.py --popularity /tmp/popularity.json
 
 Run through `make popular`, which downloads the blob first, and weekly by
-.github/workflows/popular.yml, which opens a pull request with whatever changed.
+.github/workflows/refresh-popular.yml, which opens a pull request with whatever changed.
+Its companion is build_trending.py, which fills the section above this one.
 
 It refuses rather than degrades. Every check below ends in either a complete list or a
 non-zero exit, because the caller is now a job nobody watches: a warning on stderr that
@@ -27,77 +28,32 @@ import argparse
 import json
 import os
 import sys
-import time
 from pathlib import Path
 from typing import Any, Iterable
-from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode, urlparse
-from urllib.request import Request, urlopen
 
-import yaml
+from corpus import (
+    BLOG_KINDS,
+    BLOGS,
+    DENY_HOSTS,
+    MAX_IDS,
+    ROOT,
+    Refused,
+    ask_index,
+    host_of,
+    hosts_by_name,
+    is_blog,
+    load_sources,
+    name_problem,
+    source_ids_by_host,
+    write_json,
+)
 
-ROOT = Path(__file__).resolve().parents[2]
-BLOGS = ROOT / "sources" / "blogs.yml"
 OUT = ROOT / "web" / "src" / "lib" / "data" / "popular.json"
 
 # How many blogs the page shows. Two columns of six, which fills the space under the
 # search box without pushing the page into a scroll, and is twelve favicon requests to
 # twelve other people's servers rather than the twenty a page of results already makes.
 LIMIT = 12
-
-# A source has to claim one of these to be eligible. Every mainstream news domain in the
-# corpus has no kind at all, so this one line is the whole newspaper filter.
-BLOG_KINDS = frozenset({
-    "personal-blogs",
-    "company-blogs",
-    "independent-web",
-    "small-web",
-})
-
-# Platforms, archives and standards bodies the extractor mis-kinded as blogs. Kept here
-# rather than in blogs-overrides.yml because `drop` there would take them out of the
-# crawl entirely, and they are worth indexing - they are just not what this page is for.
-DENY_HOSTS = frozenset({
-    "web.archive.org",
-    "w3.org",
-    "youtube.com",
-    "linkedin.com",
-    "github.com",
-    "gitlab.com",
-    "medium.com",
-    "substack.com",
-    "news.ycombinator.com",
-    "reddit.com",
-    "wikipedia.org",
-    # Documentation portals and corporate newsrooms. They pass the kind filter, they
-    # are worth indexing, and they are not what a reader looking for blogs came for.
-    "developer.apple.com",
-    "deepmind.google",
-    "docs.google.com",
-})
-
-# Names too generic to be searched for. Clicking a row searches for the blog's name, so
-# a blog called "Essays" would return the whole corpus rather than gwern.
-GENERIC_NAMES = frozenset({
-    "articles", "blog", "blogs", "essays", "home", "journal", "news", "notes",
-    "posts", "thoughts", "updates", "writing", "writings", "index", "feed", "rss",
-})
-
-# Feed titles that describe the feed rather than the blog. A WordPress comments feed is
-# the common one: steveblank.com's name in the corpus is "Comments for Steve Blank".
-FEED_TITLE_PREFIXES = ("comments for ", "comments on ")
-
-# A dash with spaces around it joins a name to a tagline, which is a feed title rather
-# than a name: overreacted.io calls itself "overreacted <em dash> A blog by Dan Abramov"
-# and idiallo.com appends its own domain. The tail is never the name, and a dash is not
-# something this page should print either.
-TAGLINE_SEPARATORS = (" " + chr(8212) + " ", " " + chr(8211) + " ", " - ", " | ", " :: ")
-
-# A name longer than this is a tagline, not a name - idiallo.com's is "Software and Tech
-# stories from an Insider". Too long to sit in a two-column row, and too long to be a
-# sensible query.
-MAX_NAME = 40
-MIN_NAME = 3
 
 # The fewest indexed articles a blog may have and still be offered.
 #
@@ -106,10 +62,6 @@ MIN_NAME = 3
 # documents. A handful is also too few to be worth a click, hence a floor rather than
 # merely "more than none".
 MIN_ARTICLES = 5
-
-# Mirrors maxSourceIDs in api/internal/httpapi. A blog listed more times than the API
-# will filter on cannot be reached completely, so it is not offered at all.
-MAX_IDS = 8
 
 # How far down the ranking the article check is willing to walk to fill the list.
 #
@@ -125,42 +77,6 @@ MAX_SCAN = 60
 # points, so this is far below anything a healthy sweep produces.
 # See docs/popularity.md.
 MIN_SITES_WITH_POINTS = 500
-
-# Retries for one article count. Covers a search service restart or a throttle; anything
-# longer-lived should stop the run rather than silently reshuffle the front page.
-SEARCH_ATTEMPTS = 3
-SEARCH_BACKOFF = 2.0
-
-
-class Refused(RuntimeError):
-    """The list could not be vouched for, so nothing is written.
-
-    An exception rather than a return code, so each check reads as one line where the
-    fault is known and main has a single place that reports them.
-    """
-
-
-def host_of(url: str) -> str:
-    """The host a blog's writing lives under, matching siteOf in api/internal/quality.
-
-    The full host rather than the registrable domain, and the same key the scorer writes
-    popularity.json with: thousands of sources here are subdomains of a handful of
-    blogging platforms, and folding them together would hand every blog on bearblog.dev
-    the standing of the most popular one on it.
-    """
-    try:
-        host = (urlparse(url).hostname or "").lower()
-    except ValueError:
-        return ""
-    return host.removeprefix("www.")
-
-
-def load_sources(path: Path) -> list[dict[str, Any]]:
-    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    sources = [s for s in (data.get("sources") or []) if isinstance(s, dict) and s.get("site")]
-    if not sources:
-        raise Refused(f"{path} lists no usable sources")
-    return sources
 
 
 def load_popularity(path: Path) -> dict[str, dict[str, Any]]:
@@ -191,67 +107,19 @@ def load_popularity(path: Path) -> dict[str, dict[str, Any]]:
     return data
 
 
-def name_problem(name: str, host_count: int) -> str | None:
-    """Why this name cannot be shown, or None if it can.
-
-    A rejected blog simply falls out of the list until someone names it properly in
-    blogs-overrides.yml. That is the right default: this page is an editorial surface,
-    and a blog nobody has bothered to name is not ready to be on it.
-    """
-    cleaned = " ".join(name.split())
-    lowered = cleaned.lower()
-
-    if len(cleaned) < MIN_NAME:
-        return "too short"
-    if len(cleaned) > MAX_NAME:
-        return f"too long ({len(cleaned)} chars, a tagline rather than a name)"
-    if lowered.startswith(FEED_TITLE_PREFIXES):
-        return "the title of a comments feed, not the blog"
-    for sep in TAGLINE_SEPARATORS:
-        if sep in cleaned:
-            return "a name joined to a tagline by %r" % sep.strip()
-    if lowered in GENERIC_NAMES:
-        return "too generic to search for"
-    # Ambiguous as a query whatever it says: two blogs answer to it, so clicking one
-    # cannot reliably reach either.
-    if host_count > 1:
-        return f"the name of {host_count} different blogs"
-    return None
-
-
 def rank(
     sources: Iterable[dict[str, Any]],
     popularity: dict[str, dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Every eligible blog, most widely shared first, one row per host."""
     sources = list(sources)
-
-    # Counted over distinct hosts, not over sources: one blog often appears in blogs.yml
-    # several times over - tbray.org four times - and those are the same name for the
-    # same writing, not two blogs competing for it.
-    hosts_by_name: dict[str, set[str]] = {}
-    # Every id a host is crawled under, because clicking a blog filters on them and one
-    # blog is often listed more than once: righto.com has two ids, and filtering only
-    # one of them returns 5 of its articles where both return 57.
-    ids_by_host: dict[str, list[str]] = {}
-    for source in sources:
-        host = host_of(str(source["site"]))
-        name = " ".join(str(source.get("name") or "").split()).lower()
-        if name:
-            hosts_by_name.setdefault(name, set()).add(host)
-        if source.get("id") and host:
-            ids = ids_by_host.setdefault(host, [])
-            if source["id"] not in ids:
-                ids.append(str(source["id"]))
+    by_name = hosts_by_name(sources)
+    ids_by_host = source_ids_by_host(sources)
 
     best: dict[str, dict[str, Any]] = {}
     for source in sources:
-        kinds = set(source.get("kind") or ())
-        if not kinds & BLOG_KINDS:
-            continue
-
         host = host_of(str(source["site"]))
-        if not host or host in DENY_HOSTS:
+        if not is_blog(source, host):
             continue
 
         points = int((popularity.get(host) or {}).get("points") or 0)
@@ -277,7 +145,7 @@ def rank(
             "host": host,
             "ids": ids,
             "points": points,
-            "problem": name_problem(name, len(hosts_by_name.get(name.lower(), ()))),
+            "problem": name_problem(name, len(by_name.get(name.lower(), ()))),
         }
 
     return sorted(best.values(), key=lambda row: (-row["points"], row["host"]))
@@ -288,38 +156,15 @@ def indexed(endpoint: str, key: str, ids: list[str]) -> int:
 
     The same filter the app sends when a reader clicks the blog, so this measures the
     page they will actually land on rather than something adjacent to it.
-    See: https://learn.microsoft.com/en-us/rest/api/searchservice/search-documents
-
-    A 4xx is an answer - the filter is wrong, and asking again cannot change it. Every
-    other failure is the service being out of reach, which is retried and then raised,
-    because a blog dropped for one timeout is a blog silently swapped off the front page.
     """
     clause = " or ".join("sourceId eq '%s'" % i for i in ids)
-    params = urlencode({
-        "api-version": "2024-07-01",
+    answer = ask_index(endpoint, key, {
         "search": "*",
         "$filter": "(%s)" % clause,
         "$top": "0",
         "$count": "true",
     })
-    url = "%s/indexes/articles/docs?%s" % (endpoint.rstrip("/"), params)
-    request = Request(url, headers={"api-key": key})
-
-    last: Exception | None = None
-    for attempt in range(1, SEARCH_ATTEMPTS + 1):
-        try:
-            with urlopen(request, timeout=30) as response:
-                return int(json.load(response)["@odata.count"])
-        except HTTPError as err:
-            if err.code < 500:
-                raise Refused(f"the index rejected a count for {ids}: HTTP {err.code}") from err
-            last = err
-        except (URLError, TimeoutError, ValueError, KeyError) as err:
-            last = err
-        if attempt < SEARCH_ATTEMPTS:
-            time.sleep(SEARCH_BACKOFF * attempt)
-
-    raise Refused(f"could not reach the index after {SEARCH_ATTEMPTS} attempts: {last}")
+    return int(answer["@odata.count"])
 
 
 def choose(
@@ -457,21 +302,6 @@ def render(
         "[the landing page plan](docs/plans/popular-blogs-landing-plan.md).",
     ]
     return "\n".join(out) + "\n"
-
-
-def write_json(path: Path, payload: dict[str, Any]) -> None:
-    """Replace the list in one step, so a crash cannot leave half a file in the tree.
-
-    Vite inlines this at build time, and a truncated import is a build failure whose
-    cause is a week behind it.
-    """
-    body = json.dumps(payload, indent="\t", ensure_ascii=False) + "\n"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    # LF, whatever the platform: the repo is checked out with LF and prettier rewrites
-    # the file otherwise, so a generated list would fail the web lint.
-    tmp.write_text(body, encoding="utf-8", newline="\n")
-    os.replace(tmp, path)
 
 
 def main(argv: list[str] | None = None) -> int:

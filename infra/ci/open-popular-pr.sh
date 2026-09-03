@@ -40,7 +40,12 @@ cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 [[ "$BRANCH" == "$BRANCH_PREFIX"* ]] || die "BRANCH must start with $BRANCH_PREFIX"
 [[ -f "$REPORT" ]] || die "$REPORT not found; did refresh-popular.sh run?"
 
-if git diff --quiet -- "$LIST"; then
+# Staged before it is compared. `git diff` on its own is blind to a file git does not yet
+# track, so a run that first creates this list would report "unchanged" and propose
+# nothing. Staging early is safe: `git switch -c` below carries the index onto the new
+# branch.
+git add "$LIST"
+if git diff --cached --quiet -- "$LIST"; then
 	log "The list is unchanged, so there is nothing to propose"
 	echo 'The list is unchanged. Nothing to open.' | summary
 	exit 0

@@ -1,0 +1,29 @@
+{
+	"windowDays": 7,
+	"posts": [
+		{
+			"title": "GUIs should be fully keyboard-driven",
+			"url": "https://ckardaris.com/blog/2026/08/28/keyboard-driven-guis.html",
+			"blog": "Charalampos Kardaris’ blog",
+			"host": "ckardaris.com"
+		},
+		{
+			"title": ".name Termination",
+			"url": "https://neil.fraser.name/news/2026/09/03/",
+			"blog": "Neil Fraser's News",
+			"host": "neil.fraser.name"
+		},
+		{
+			"title": "Hang on to your Firefox!",
+			"url": "https://www.newsonaut.com/articles/hang-on-to-your-firefox",
+			"blog": "Newsonaut",
+			"host": "newsonaut.com"
+		},
+		{
+			"title": "Good Culture is the Biggest Productivity Hack, Not AI",
+			"url": "https://newsletter.eng-leadership.com/p/good-culture-is-the-biggest-productivity",
+			"blog": "Engineering Leadership",
+			"host": "newsletter.eng-leadership.com"
+		}
+	]
+}

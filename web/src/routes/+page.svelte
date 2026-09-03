@@ -15,6 +15,7 @@
 	import PopularBlogs from '$lib/components/PopularBlogs.svelte';
 	import ResultCard from '$lib/components/ResultCard.svelte';
 	import SearchSuggestions from '$lib/components/SearchSuggestions.svelte';
+	import TrendingPosts from '$lib/components/TrendingPosts.svelte';
 	import { MAX_QUERY_LENGTH, MAX_SUGGESTIONS, MIN_QUERY_LENGTH } from '$lib/api';
 	import { onArticleOpen } from '$lib/articleOpen';
 	import { bookmarks } from '$lib/bookmarks/store.svelte';
@@ -773,9 +774,14 @@
 			{/if}
 		</div>
 	{:else}
-		<!-- The other half of the same gate. The result view and this are the two things
+		<!-- The other half of the same gate. The result view and these are the two things
 		that can occupy the page below the search box, they are mutually exclusive, and
-		saying so here is what keeps them from ever being on screen together. -->
+		saying so here is what keeps them from ever being on screen together.
+
+		This week's reading above what the corpus recommends always: four posts that answer
+		"is anything happening here?", then twelve blogs that answer "what is in here?".
+		Both are generated into Git and inlined into this page, so neither costs a request. -->
+		<TrendingPosts />
 		<PopularBlogs onpick={searchForBlog} />
 	{/if}
 </main>

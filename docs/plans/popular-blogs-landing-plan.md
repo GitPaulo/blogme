@@ -1,7 +1,8 @@
 # Popular Blogs on the Landing Page
 
-> A plan for what sits below the search bar before anyone has searched. Companion to
-> [quality-scoring.md](../quality-scoring.md), which owns the figure this reads.
+> A plan for what sits below the search bar before anyone has searched: twelve blogs the
+> corpus recommends always, and four posts it is being read for this week. Companion to
+> [quality-scoring.md](../quality-scoring.md), which owns the figure the twelve read.
 
 ## The problem it solves
 
@@ -378,12 +379,115 @@ that this project tests pure functions in Node because "a DOM would be a slower 
 the same assertions". Adding a browser environment to assert that a click sets a string is
 not worth contradicting that over; the click path is verified in the browser instead.
 
+## Popular this week, above it
+
+The twelve rank lifetime Hacker News points. That is a stable ordering — the section
+above says so plainly — and stability is both its virtue and its whole problem. A reader
+who comes back sees the same page forever, and nothing on it says the index knows about
+anything published since.
+
+So a second, smaller section sits above it: four posts the corpus is being read for.
+Different question, different signal, same page.
+
+### Asked the cheap way round
+
+The scoring timer asks *"how popular is each of my 46,000 sites?"*, which is 46,000
+lookups rationed at 2,000 an hour. This asks *"what is popular?"* — **one request** to the
+same free API — and intersects the answer with `blogs.yml` locally. There is no new
+timer, no new blob, no new index field and no API route.
+
+### Two measurements decided the shape
+
+Both taken on 3 September 2026, against the live corpus.
+
+**The window cannot be a day.** Eligible blogs found in HN's top stories, by window:
+
+| Window | Stories over 50 points | Distinct hosts | Blog-kinded, usably named | Already in the twelve |
+| --- | ---: | ---: | ---: | ---: |
+| 24 hours | 43 | 38 | **3** | 0 |
+| 3 days | 168 | 142 | 18 | 1 |
+| 7 days | 398 | 320 | 65 | 3 |
+| 30 days | 986 | 718 | 146 | 5 |
+
+Three blogs cannot fill four rows, and on a quiet day it would be one. So the window is
+seven days and the heading says **"Popular this week"** rather than "right now" — the same
+rule the "Widely shared" heading follows, which is that a heading may not claim more than
+its ranking knows.
+
+That also settles the architecture. Once the window is a week wide, a live fetch buys
+almost nothing: the post is up to seven days old either way, and rebuilding daily adds at
+most one more. Paying a Function invocation, a cold start, a skeleton and a layout shift
+on the most-visited page to shave hours off a seven-day window is a bad trade, and it
+would break the property this whole page is built on — in the HTML at first paint.
+
+**Every row is a post the index actually holds.** Of the trending candidates, 8 in 14 were
+already indexed. Requiring it costs a third of them, and there are 64 for four slots, so
+the constraint is free. It is also the only thing that makes this section more than a slow
+mirror of a site the reader has already read this morning.
+
+The vouch is one lookup by computed key: `articleID` in
+[`crawl.go`](../../api/internal/discovery/crawl.go) is
+`sanitizeKey(sourceID) + "-" + hex(sha256(url)[:8])`, and
+[`build_trending.py`](../../sources/tools/build_trending.py) mirrors it. Exact, one
+request, and no guessing at how a title was rewritten between the feed and Hacker News. A
+post the crawler stored under a differently-normalised URL simply misses — a row the
+section does without rather than a row that lies. The mirror is pinned by tests generated
+from the real Go function, because a drift there would silently *empty* the section rather
+than break it.
+
+### Posts, not blogs
+
+A blog only trends because of one post, and naming the blog throws away the reason it is
+there. "Hang on to your Firefox!" is the row; "Newsonaut" is the byline.
+
+The **indexed** title, not Hacker News's — moderators rewrite titles there, and this page
+should print what the blog called its own post. The two differ in practice: HN had "Hang
+on to **Your** Firefox".
+
+And the row is a **link**, where the twelve below are buttons. Browsing a blog keeps a
+reader in the corpus with twenty of its posts in front of them; this row already names the
+one post they came for, and sending them anywhere else answers a question they did not
+ask. It carries `data-visit`, so an opened post greys exactly as a result does.
+
+### Committed daily, not proposed
+
+[`refresh-trending.yml`](../../.github/workflows/refresh-trending.yml) commits straight to
+`main`, where the twelve go through a pull request. The difference is what a reviewer
+would be reviewing. The twelve are an editorial choice; these four are a data feed,
+filtered by rules already written down, and a daily pull request nobody can meaningfully
+reject is the rubber-stamped PR that
+[keeping-the-curated-lists-current.md](keeping-the-curated-lists-current.md) argues
+against — the check removed, the ceremony kept.
+
+The gates stand in for the review. `build_trending.py` refuses to write unless every row
+is a blog-kinded, non-denied, usably-named host that is not already among the twelve and
+whose post is in the index; it cannot ship a short section or an empty one. The shared
+rules live in [`corpus.py`](../../sources/tools/corpus.py) precisely so a blog this page
+refuses under one heading cannot appear under the other.
+
+The file carries **no timestamp and no scores**, only the four posts. Measured: two runs
+minutes apart, with points drifting 958 → 961, produced a byte-identical file. A day when
+nothing changed is a day with no commit and no deploy.
+
 ## Cost
 
-Nothing recurring. No index field, no API route, no timer, no blob read on the read path.
-The generated JSON is around a kilobyte inlined into a page that is already prerendered,
-and the twelve favicons are requests to twelve other people's servers, cached by the
-browser.
+Nothing recurring, for either section. No index field, no API route, no timer, no blob
+read on the read path. The generated JSON is around a kilobyte inlined into a page that is
+already prerendered, and the sixteen favicons are requests to other people's servers,
+cached by the browser.
+
+Both refresh jobs are free: GitHub Actions is unmetered on public repositories, the Hacker
+News API is free and unauthenticated at 10,000 requests an hour against the one a day this
+spends, and Azure AI Search Basic is a fixed monthly charge whose queries are not metered.
+Neither adds a byte to the index, which is the constraint that actually binds this project.
+
+The alternative was a live endpoint for the trending four, and it is the only version of
+this that costs anything. Flex Consumption bills instance *uptime*, not execution: a single
+permanently-warm instance is roughly $190 a month against a bill that is otherwise about
+$86. Per request it is negligible — 2 GB by 48 ms is some four cents per ten thousand views
+— but the shape is wrong. Compute here scales with the corpus, through timers that sleep
+between runs. A landing-page fetch would make it scale with readers, on the most-visited
+page, to shave hours off a seven-day window.
 
 ## Deliberately left out
 

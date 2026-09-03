@@ -1,0 +1,77 @@
+name: Refresh trending posts
+
+# Rebuilds web/src/lib/data/trending.json, the four posts at the top of the landing page,
+# and commits it when it changed.
+#
+# The two steps that do the work live in infra/ci, so they can be read, reviewed and run
+# outside Actions. What stays here is the schedule, the credentials and the permissions.
+#
+# Daily, against a seven-day window: a twenty-four hour window yields three eligible blogs
+# across the whole corpus and cannot fill four rows, so freshness is bounded by the window
+# rather than by the cadence. The file carries no timestamp and no scores, only the four
+# posts, so a day when nothing changed produces no commit and no deploy - measured, with
+# points drifting between two runs and the file byte-identical.
+#
+# Committed rather than proposed. See the reasoning at the top of infra/ci/commit-trending.sh:
+# these four are a data feed with hard gates, not the editorial choice the twelve below
+# them are, and a daily pull request nobody can reject is ceremony without a check.
+
+on:
+  schedule:
+    # Every day at 05:00 UTC, an hour after the weekly refresh of the twelve, so the two
+    # never race for the same file's neighbourhood on a Monday.
+    - cron: '0 5 * * *'
+
+  push:
+    branches: [main]
+    paths:
+      - 'sources/tools/build_trending.py'
+      - 'infra/ci/*trending*.sh'
+      - '.github/workflows/refresh-trending.yml'
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One at a time. Two runs committing to main would race, and the loser would rebase onto
+# a list it had already replaced.
+concurrency:
+  group: refresh-trending
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    permissions:
+      # Commit the refreshed section to main.
+      contents: write
+      # Required for the OIDC token exchange with Entra ID.
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: sources/tools/requirements.txt
+
+      - run: pip install -r sources/tools/requirements.txt
+
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Rebuild the section
+        env:
+          RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          PYTHON: python
+        run: ./infra/ci/refresh-trending.sh
+
+      # Does nothing on a day when the same four posts came back.
+      - name: Commit it
+        run: ./infra/ci/commit-trending.sh

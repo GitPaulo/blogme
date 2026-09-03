@@ -22,7 +22,7 @@ SEARCH_SERVICE ?= srch-blogme-basic-b3d38b
 
 .PHONY: help setup dev check build clean kill revive harness suggest-harness \
         check-api check-web check-sources build-api build-web fmt sources sources-venv \
-        sources-status sources-patch sources-upload popular
+        sources-status sources-patch sources-upload popular trending
 
 help: ## List available targets
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -123,6 +123,14 @@ popular: sources-venv ## Rebuild the landing page's list of widely shared blogs
 		SEARCH_SERVICE=$(SEARCH_SERVICE) \
 		PYTHON=sources/tools/.venv/$(VENV_BIN)/python \
 		./infra/ci/refresh-popular.sh
+
+# The section above it, and a different question: not which blogs are worth knowing but
+# which posts are being read this week. One free API call and a few index lookups, so
+# unlike `popular` this needs no blob and no storage account.
+trending: sources-venv ## Rebuild the landing page's four trending posts
+	@RESOURCE_GROUP=$(RESOURCE_GROUP) SEARCH_SERVICE=$(SEARCH_SERVICE) \
+		PYTHON=sources/tools/.venv/$(VENV_BIN)/python \
+		./infra/ci/refresh-trending.sh
 
 suggest-harness: ## Print what a fixed set of prefixes completes to (PREFIXES=a,b to override)
 	@cd api && BLOGME_SEARCH_ENDPOINT="https://$(SEARCH_SERVICE).search.windows.net" \

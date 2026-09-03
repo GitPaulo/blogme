@@ -8,13 +8,14 @@
 
 ## What this covers
 
-Two files are built by hand and committed. Until items 1 and 2 below, nothing watched
-either of them.
+Three files are generated and committed. Until items 1 and 2 below, nothing watched any
+of them; two are now on a schedule and the third is the one that cannot be.
 
 | File                                                        | Size            | Built by         | Last built                    |
 | ----------------------------------------------------------- | --------------- | ---------------- | ----------------------------- |
 | [`sources/blogs.yml`](../../sources/blogs.yml)              | 8.65 MB, 46,081 | `make sources`   | 21 Aug 2026 (`b4d92ab`)       |
-| [`web/src/lib/data/popular.json`](../../web/src/lib/data/popular.json) | 1.8 KB, 12      | `make popular`   | 1 Sep 2026 (`c9a7d53`), once |
+| [`web/src/lib/data/popular.json`](../../web/src/lib/data/popular.json) | 1.8 KB, 12      | `make popular`   | weekly, as a pull request     |
+| [`web/src/lib/data/trending.json`](../../web/src/lib/data/trending.json) | 0.8 KB, 4      | `make trending`  | daily, committed              |
 
 They look alike — generated, committed, reviewed — and they are not. One takes two hours
 and rewrites 30,000 lines; the other takes two minutes and rewrites twelve. Treating them
