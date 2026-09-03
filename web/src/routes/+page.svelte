@@ -174,7 +174,8 @@
 	// window resize changes the answer, and the observer already fires on all of them.
 	$effect(() => {
 		const measure = () => {
-			scrollable = document.documentElement.scrollHeight > window.innerHeight;
+			const doc = document.documentElement;
+			scrollable = doc.scrollHeight > doc.clientHeight;
 		};
 		const observer = new ResizeObserver(measure);
 		observer.observe(document.documentElement);
@@ -271,7 +272,8 @@
 		// Clamped to what the document can actually offer, so a final short page scrolls to
 		// the bottom rather than asking for a position past it. Computed rather than left to
 		// scrollIntoView so the destination is a number this code chose and can check.
-		const furthest = document.documentElement.scrollHeight - window.innerHeight;
+		const doc = document.documentElement;
+		const furthest = doc.scrollHeight - doc.clientHeight;
 		const top = window.scrollY + target.getBoundingClientRect().top - SCROLL_TOP_GAP;
 
 		window.scrollTo({

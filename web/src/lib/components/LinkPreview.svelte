@@ -96,7 +96,16 @@
 	// in from storage on mount, because this component is prerendered.
 	let stored: Geometry | undefined;
 
-	const viewport = () => ({ width: window.innerWidth, height: window.innerHeight });
+	// The panel is `position: fixed`, so the box it is placed in is the layout viewport: the
+	// window less whatever the document's scrollbar holds open. layout.css reserves that
+	// gutter whether or not the page overflows, so `innerWidth` overstates the room by its
+	// width for as long as the page is up — more than enough to swallow MARGIN whole and
+	// leave the resize corner sitting under the scrollbar. `documentElement` measures the
+	// box the panel is actually laid out in, which is the one every clamp here means.
+	const viewport = () => ({
+		width: document.documentElement.clientWidth,
+		height: document.documentElement.clientHeight
+	});
 
 	function anchorFrom(node: EventTarget | null) {
 		const el = node instanceof Element ? node : undefined;
