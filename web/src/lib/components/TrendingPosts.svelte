@@ -43,14 +43,15 @@
 {#if posts.length}
 	<section aria-labelledby="trending-heading" class="mt-10">
 		<h2 id="trending-heading" class="text-sm font-medium text-gray-700 dark:text-gray-200">
-			Popular this week
+			Popular posts
 		</h2>
 		<!-- "This week" and not "right now": the window is seven days, because a
 		twenty-four hour one yields three eligible blogs across the whole corpus and cannot
 		fill four rows. The heading says what the ranking knows, which is the same rule the
-		"Widely shared" heading below follows. -->
+		"Widely shared blogs" heading below follows — and the week is the half that matters,
+		since it is what separates these four from the twelve underneath them. -->
 		<p class="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
-			Posts doing the rounds on Hacker News.
+			Popular posts on forums this week.
 		</p>
 
 		<!-- The same grid, gaps and negative inset as the twelve below, so the two sections

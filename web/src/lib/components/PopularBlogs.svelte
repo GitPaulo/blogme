@@ -46,14 +46,22 @@
 -->
 <section aria-labelledby="popular-heading" class="mt-10">
 	<h2 id="popular-heading" class="text-sm font-medium text-gray-700 dark:text-gray-200">
-		Widely shared
+		Widely shared blogs
 	</h2>
 	<!-- Says what the list is, not how it was built. Which signal ranks it, what that
 	signal is biased towards and what this site does not measure are all real, and all
 	belong in docs/plans/popular-blogs-landing-plan.md rather than above the fold. The heading
 	avoids "most popular" for the same reason it is short: it should not claim more than
-	the ranking knows. -->
-	<p class="mt-0.5 text-sm text-gray-500 dark:text-gray-400">Blogs readers pass around the most.</p>
+	the ranking knows.
+
+	"For years", not "this week", and the difference is the whole reason there are two
+	sections. This one ranks lifetime Hacker News points: a blog that started in 2024
+	cannot out-total one that started in 2007, so what it names is durable rather than
+	current. The list is rebuilt weekly, but the cadence of the rebuild is not the period
+	the ranking covers, and saying "this week" here would claim the section above's job. -->
+	<p class="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
+		Blogs readers have passed around for years.
+	</p>
 
 	<!-- Pulled back by the padding the rows carry, so the icons line up with the heading
 	above them rather than sitting eight pixels inside it. The rows keep their padding so

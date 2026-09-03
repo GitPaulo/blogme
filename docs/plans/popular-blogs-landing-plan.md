@@ -269,7 +269,7 @@ A closing line under the grid carries the scale the list cannot: *"…and 46,071
 
 The heading should not overclaim, for the reasons in
 [What the ranking is honestly measuring](#what-the-ranking-is-honestly-measuring).
-`Widely shared` over `Most popular`, with the method one hover away in the `Tooltip`
+`Widely shared blogs` over `Most popular`, with the method one hover away in the `Tooltip`
 component the page already uses for the ranking toggle:
 
 > Blogs from this index whose posts Hacker News has carried most often. Not a measure of
@@ -379,7 +379,7 @@ that this project tests pure functions in Node because "a DOM would be a slower 
 the same assertions". Adding a browser environment to assert that a click sets a string is
 not worth contradicting that over; the click path is verified in the browser instead.
 
-## Popular this week, above it
+## Popular posts, above them
 
 The twelve rank lifetime Hacker News points. That is a stable ordering — the section
 above says so plainly — and stability is both its virtue and its whole problem. A reader
@@ -410,9 +410,16 @@ Both taken on 3 September 2026, against the live corpus.
 | 30 days | 986 | 718 | 146 | 5 |
 
 Three blogs cannot fill four rows, and on a quiet day it would be one. So the window is
-seven days and the heading says **"Popular this week"** rather than "right now" — the same
-rule the "Widely shared" heading follows, which is that a heading may not claim more than
-its ranking knows.
+seven days, and the line under **"Popular posts"** says *this week* rather than *right
+now* — the same rule the "Widely shared blogs" heading follows, which is that nothing on
+the page may claim more than its ranking knows.
+
+The two subtitles carry the whole distinction between the sections, so they are worth
+reading together. *Popular posts on forums this week* is a seven-day window. *Blogs
+readers have passed around for years* is a lifetime total, and deliberately not "this
+week": the twelve are rebuilt weekly, but the cadence of a rebuild is not the period a
+ranking covers, and borrowing the word would make the lower section claim the upper
+one's job.
 
 That also settles the architecture. Once the window is a week wide, a live fetch buys
 almost nothing: the post is up to seven days old either way, and rebuilding daily adds at
