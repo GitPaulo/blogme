@@ -425,9 +425,10 @@
 	<meta name="description" content="Search across thousands of independent tech blogs." />
 </svelte:head>
 
-<!-- The bottom padding is half the top's because the footer below carries the other half:
-	together they leave the page the same air at its foot that `py-16` left on its own. -->
-<main class="mx-auto max-w-3xl px-6 pt-16 pb-4">
+<!-- The footer no longer sits under this, it floats over it, so the bottom sixteen is back
+	to being this element's own: it is the room the repository mark occupies, and what keeps
+	the last line of a long page from ending up behind it. -->
+<main class="mx-auto max-w-3xl px-6 py-16">
 	<Heading tag="h1" class="mb-2">
 		<!-- The visible word is the whole accessible name, so no aria-label: a link labelled
 		differently from what it reads as is the one thing WCAG's "label in name" asks not to
@@ -829,64 +830,75 @@
 	}
 
 	@media (prefers-reduced-motion: no-preference) {
-		@supports (
-			(
-					(mask-image: linear-gradient(#000, #000)) or
-						(-webkit-mask-image: linear-gradient(#000, #000))
-				)
-				and (-webkit-text-stroke: 1px red)
-		) {
-			.wordmark-fill,
-			.wordmark-stencil {
-				/* The gradient is a hard edge, twice the width of the word, so sliding it is a
-				   wipe rather than a fade. Repeated down the axis it does not vary in, so a box
-				   shorter than the ink inside it still gets a mask everywhere. */
-				-webkit-mask-repeat: repeat-y;
-				mask-repeat: repeat-y;
-				-webkit-mask-size: 200% 100%;
-				mask-size: 200% 100%;
-				-webkit-mask-position: 100% 0;
-				mask-position: 100% 0;
-				transition:
-					-webkit-mask-position 550ms ease-out,
-					mask-position 550ms ease-out;
-			}
+		/* The sweep is a hover flourish and a touch screen has no hover: what it has is a
+		   `:hover` that latches on tap and stays latched until something else is tapped, so
+		   on a phone the word simply sat there hollow — an outline with no sweep to explain
+		   it. Gated rather than rewritten as a tap animation, because the wordmark's tap job
+		   is to go home and clear the search; playing 550ms of decoration over a navigation
+		   is not worth the delay it implies. `pointer: fine` as well as `hover`, so a device
+		   that reports a hover it can only fake through touch is excluded too. Keyboard
+		   focus still gets the effect wherever the query passes; on a phone there is no
+		   focus ring to pair it with anyway. */
+		@media (hover: hover) and (pointer: fine) {
+			@supports (
+				(
+						(mask-image: linear-gradient(#000, #000)) or
+							(-webkit-mask-image: linear-gradient(#000, #000))
+					)
+					and (-webkit-text-stroke: 1px red)
+			) {
+				.wordmark-fill,
+				.wordmark-stencil {
+					/* The gradient is a hard edge, twice the width of the word, so sliding it is a
+					   wipe rather than a fade. Repeated down the axis it does not vary in, so a box
+					   shorter than the ink inside it still gets a mask everywhere. */
+					-webkit-mask-repeat: repeat-y;
+					mask-repeat: repeat-y;
+					-webkit-mask-size: 200% 100%;
+					mask-size: 200% 100%;
+					-webkit-mask-position: 100% 0;
+					mask-position: 100% 0;
+					transition:
+						-webkit-mask-position 550ms ease-out,
+						mask-position 550ms ease-out;
+				}
 
-			.wordmark-fill {
-				-webkit-mask-image: linear-gradient(90deg, transparent 50%, #000 50%);
-				mask-image: linear-gradient(90deg, transparent 50%, #000 50%);
-			}
+				.wordmark-fill {
+					-webkit-mask-image: linear-gradient(90deg, transparent 50%, #000 50%);
+					mask-image: linear-gradient(90deg, transparent 50%, #000 50%);
+				}
 
-			.wordmark-stencil {
-				display: block;
-				position: absolute;
-				top: -0.2em;
-				left: 0;
-				/* A mask paints nothing outside the box it is clipped to, however far it
-				   repeats, and both the ascenders of "b"/"l" and the tail of the "g" reach
-				   past a block box one line high — so the box is grown to hold them.
-				   Padding rather than height, so it follows the type size, and on an
-				   out-of-flow element it moves nothing by itself; the negative `top` above
-				   pairs with `padding-top` below so the box grows upward without dragging the
-				   text down with it. The solid copy needs none of this: an inline box is
-				   already as deep as the font's ascent and descent. Absent it, the ascenders
-				   and the descender are cut clean off for the length of the sweep. */
-				padding-top: 0.2em;
-				padding-bottom: 0.25em;
-				-webkit-text-fill-color: transparent;
-				-webkit-text-stroke: 1.5px currentColor;
-				-webkit-mask-image: linear-gradient(90deg, #000 50%, transparent 50%);
-				mask-image: linear-gradient(90deg, #000 50%, transparent 50%);
-			}
+				.wordmark-stencil {
+					display: block;
+					position: absolute;
+					top: -0.2em;
+					left: 0;
+					/* A mask paints nothing outside the box it is clipped to, however far it
+					   repeats, and both the ascenders of "b"/"l" and the tail of the "g" reach
+					   past a block box one line high — so the box is grown to hold them.
+					   Padding rather than height, so it follows the type size, and on an
+					   out-of-flow element it moves nothing by itself; the negative `top` above
+					   pairs with `padding-top` below so the box grows upward without dragging the
+					   text down with it. The solid copy needs none of this: an inline box is
+					   already as deep as the font's ascent and descent. Absent it, the ascenders
+					   and the descender are cut clean off for the length of the sweep. */
+					padding-top: 0.2em;
+					padding-bottom: 0.25em;
+					-webkit-text-fill-color: transparent;
+					-webkit-text-stroke: 1.5px currentColor;
+					-webkit-mask-image: linear-gradient(90deg, #000 50%, transparent 50%);
+					mask-image: linear-gradient(90deg, #000 50%, transparent 50%);
+				}
 
-			/* Both halves move together, so the seam between solid and outline is a single
-			   edge travelling across the word rather than two that can drift apart. */
-			.wordmark:hover .wordmark-fill,
-			.wordmark:focus-visible .wordmark-fill,
-			.wordmark:hover .wordmark-stencil,
-			.wordmark:focus-visible .wordmark-stencil {
-				-webkit-mask-position: 0 0;
-				mask-position: 0 0;
+				/* Both halves move together, so the seam between solid and outline is a single
+				   edge travelling across the word rather than two that can drift apart. */
+				.wordmark:hover .wordmark-fill,
+				.wordmark:focus-visible .wordmark-fill,
+				.wordmark:hover .wordmark-stencil,
+				.wordmark:focus-visible .wordmark-stencil {
+					-webkit-mask-position: 0 0;
+					mask-position: 0 0;
+				}
 			}
 		}
 
