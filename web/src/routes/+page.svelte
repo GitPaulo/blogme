@@ -427,7 +427,7 @@
 
 <!-- The bottom padding is half the top's because the footer below carries the other half:
 	together they leave the page the same air at its foot that `py-16` left on its own. -->
-<main class="mx-auto max-w-3xl px-6 pt-16 pb-8">
+<main class="mx-auto max-w-3xl px-6 pt-16 pb-4">
 	<Heading tag="h1" class="mb-2">
 		<!-- The visible word is the whole accessible name, so no aria-label: a link labelled
 		differently from what it reads as is the one thing WCAG's "label in name" asks not to
