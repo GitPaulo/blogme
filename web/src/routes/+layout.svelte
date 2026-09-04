@@ -39,9 +39,18 @@ straight past. A `header` that is not inside a sectioning element is the page's 
 which is what this is. -->
 <header class="fixed end-4 top-4 z-50 flex items-center gap-2">
 	<BookmarksPanel />
-	<GithubLink />
 	<ThemeToggle />
 </header>
 {@render children()}
+<!-- The repository link keeps company with nothing, so it is given the foot of the page
+rather than a third seat in the corner: it is the one thing up there that was not about
+the search in front of you.
+
+`mt-auto` against the column layout.css gives the body — on a page too short to scroll it
+settles at the foot of the window, and on a long one it follows the last result. `main` is
+never asked to give the room up, so nothing above it is compressed either way. -->
+<footer class="mt-auto flex justify-center py-8">
+	<GithubLink />
+</footer>
 <!-- Mounted once for the whole app; every `data-preview` link on any page shares it. -->
 <LinkPreview />
