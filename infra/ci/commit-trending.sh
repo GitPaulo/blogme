@@ -2,7 +2,7 @@
 # Commits a refreshed trending.json straight to main, when it changed.
 #
 # A commit, where its companion opens a pull request, and the difference is deliberate.
-# The twelve blogs below are an editorial recommendation: someone chose them, and
+# The six blogs below are an editorial recommendation: someone chose them, and
 # docs/plans/popular-blogs-landing-plan.md keeps that choice in review. These four are a
 # data feed - whatever Hacker News read this week, filtered by rules already written
 # down - so there is no judgement for a reviewer to apply. A daily pull request nobody
@@ -11,7 +11,7 @@
 # while keeping the ceremony.
 #
 # What stands in for review is the gates. build_trending.py refuses to write unless every
-# row is a blog-kinded, non-denied, usably-named host that is not already in the twelve,
+# row is a blog-kinded, non-denied, usably-named host that is not already in the six,
 # and whose post is in the index. It cannot ship a short section or an empty one.
 #
 # Run by .github/workflows/refresh-trending.yml, which supplies the token and holds

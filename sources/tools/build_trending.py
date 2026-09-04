@@ -1,6 +1,6 @@
 """Builds the four posts at the top of the landing page: what is being read this week.
 
-The twelve blogs below this section rank lifetime Hacker News points, which is a stable
+The six blogs below this section rank lifetime Hacker News points, which is a stable
 ordering that has barely moved in a decade - that is its virtue, and its whole problem.
 A reader who comes back sees the same page forever, and nothing on it says the index
 knows about anything published since.
@@ -60,7 +60,7 @@ OUT = ROOT / "web" / "src" / "lib" / "data" / "trending.json"
 # window's hits were already among the twelve when this was measured.
 POPULAR = ROOT / "web" / "src" / "lib" / "data" / "popular.json"
 
-# Four, against the twelve below: enough to read at a glance, and few enough that the
+# Four, against the six below: enough to read at a glance, and few enough that the
 # section cannot outweigh the list it sits above.
 LIMIT = 4
 
@@ -152,7 +152,7 @@ def candidates(
 ) -> list[dict[str, Any]]:
     """Every trending story that is a blog this page would be willing to name.
 
-    The same gates the twelve pass, for the reason corpus.py exists: a blog the list
+    The same gates the six pass, for the reason corpus.py exists: a blog the list
     below refuses for its name should not appear above it under a different heading.
     One row per host, since a blog can trend twice in a week.
     """
@@ -242,7 +242,7 @@ def choose(
 
 
 def shown_below(path: Path) -> set[str]:
-    """Hosts the twelve already offer, so this section does not repeat them."""
+    """Hosts the six already offer, so this section does not repeat them."""
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):

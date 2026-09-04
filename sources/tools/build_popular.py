@@ -50,10 +50,10 @@ from corpus import (
 
 OUT = ROOT / "web" / "src" / "lib" / "data" / "popular.json"
 
-# How many blogs the page shows. Two columns of six, which fills the space under the
-# search box without pushing the page into a scroll, and is twelve favicon requests to
-# twelve other people's servers rather than the twenty a page of results already makes.
-LIMIT = 12
+# How many blogs the page shows. Two columns of three, which sits under the search box
+# without crowding the four trending posts above it, and is six favicon requests to six
+# other people's servers rather than the twenty a page of results already makes.
+LIMIT = 6
 
 # The fewest indexed articles a blog may have and still be offered.
 #
@@ -66,9 +66,9 @@ MIN_ARTICLES = 5
 # How far down the ranking the article check is willing to walk to fill the list.
 #
 # Without a bound, a systematic fault - a filter the index rejects, a key with no read
-# access - becomes thousands of requests before anything is reported. Twelve blogs have
-# never needed more than the low twenties, so reaching this is a fault rather than a
-# shortfall, and it is reported as one.
+# access - becomes thousands of requests before anything is reported. Filling the list has
+# never needed more than the low twenties, and needs fewer now than when it was twice as
+# long, so reaching this is a fault rather than a shortfall, and it is reported as one.
 MAX_SCAN = 60
 
 # The smallest popularity map worth ranking. A truncated download, an empty blob and a
@@ -176,7 +176,7 @@ def choose(
     """The top `limit` blogs the index can actually show.
 
     Walks down the ranking rather than taking the head and hoping, because standing and
-    coverage are unrelated: utcc.utoronto.ca is in the top twelve on points and has no
+    coverage are unrelated: utcc.utoronto.ca is near the top on points and has no
     documents at all.
     """
     if not endpoint or not key:
@@ -207,7 +207,7 @@ def previous_hosts(path: Path) -> dict[str, str]:
     """Host to name, as the committed list currently stands, for reporting what moved.
 
     A missing or unreadable file is the first run rather than a fault, and the report
-    then reads as twelve additions.
+    then reads as a list of nothing but additions.
     """
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -352,7 +352,7 @@ def main(argv: list[str] | None = None) -> int:
 
     before = previous_hosts(args.out)
     write_json(args.out, {
-        # What the twelve stand for, so the page can say how much it is not showing
+        # What the list stands for, so the page can say how much it is not showing
         # without a pasted number going stale behind it.
         "corpus": len(sources),
         "blogs": [

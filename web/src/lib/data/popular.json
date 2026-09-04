@@ -49,59 +49,6 @@
 			"ids": [
 				"antirez"
 			]
-		},
-		{
-			"name": "Jeff Geerling",
-			"site": "https://www.jeffgeerling.com/",
-			"host": "jeffgeerling.com",
-			"ids": [
-				"jeffgeerling-blog",
-				"jeffgeerling"
-			]
-		},
-		{
-			"name": "Shkspr",
-			"site": "https://shkspr.mobi/blog/",
-			"host": "shkspr.mobi",
-			"ids": [
-				"shkspr-blog-2",
-				"shkspr",
-				"shkspr-blog"
-			]
-		},
-		{
-			"name": "tonsky.me",
-			"site": "https://tonsky.me/",
-			"host": "tonsky.me",
-			"ids": [
-				"tonsky"
-			]
-		},
-		{
-			"name": "Jacques Mattheij",
-			"site": "https://jacquesmattheij.com/",
-			"host": "jacquesmattheij.com",
-			"ids": [
-				"jacquesmattheij"
-			]
-		},
-		{
-			"name": "ongoing by Tim Bray",
-			"site": "https://www.tbray.org/",
-			"host": "tbray.org",
-			"ids": [
-				"tbray-2",
-				"tbray"
-			]
-		},
-		{
-			"name": "Drew DeVault's blog",
-			"site": "https://drewdevault.com/blog/",
-			"host": "drewdevault.com",
-			"ids": [
-				"drewdevault",
-				"drewdevault-blog"
-			]
 		}
 	]
 }

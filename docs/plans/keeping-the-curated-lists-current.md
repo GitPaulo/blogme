@@ -18,7 +18,7 @@ of them; two are now on a schedule and the third is the one that cannot be.
 | [`web/src/lib/data/trending.json`](../../web/src/lib/data/trending.json) | 0.8 KB, 4      | `make trending`  | daily, committed              |
 
 They look alike — generated, committed, reviewed — and they are not. One takes two hours
-and rewrites 30,000 lines; the other takes two minutes and rewrites twelve. Treating them
+and rewrites 30,000 lines; the other takes two minutes and rewrites six. Treating them
 the same is what a cadence would do, and it is the mistake this plan exists to avoid.
 
 ## The problem, in one example
@@ -188,7 +188,7 @@ environment comes up with it.
 
 The cheap half of the original question, and the one where the answer is yes.
 `make popular` is a blob download, a YAML read and a dozen Search count queries — about
-two minutes, a twelve-line diff, and because the file lives under `web/` a merge already
+two minutes, a diff of one row per blog, and because the file lives under `web/` a merge already
 triggers [`deploy-pages.yml`](../../.github/workflows/deploy-pages.yml).
 
 There is a live reason to schedule it now rather than later. The sweep only stopped
@@ -202,7 +202,7 @@ Three details that matter:
 - **A PR, not a push.** The landing page is an editorial surface with a name gate; a bot
   committing to `main` gives up the review for nothing.
 - **Also on push to `sources/blogs.yml`.** The `corpus` figure and the name gate both
-  read the source list, so a patch or a rebuild should refresh the twelve.
+  read the source list, so a patch or a rebuild should refresh the six.
 - **Fail without a search key, do not warn.**
   [`build_popular.py`](../../sources/tools/build_popular.py) skips the `MIN_ARTICLES`
   check when no endpoint is given and prints a warning. In a scheduled run nobody reads
@@ -215,7 +215,7 @@ Three details that matter:
 **Built.** Weekly rather than monthly, and also on a push touching `blogs.yml`. The
 generator now refuses instead of warning on every degraded path - no key, a truncated
 `popularity.json`, an unreachable index, a list it could not fill - so a scheduled run
-either produces twelve blogs or fails without touching the committed file. Each run opens
+either produces six blogs or fails without touching the committed file. Each run opens
 `chore(popular): refresh widely shared blogs (<date>)` and closes the last one as
 superseded, so at most one is ever waiting. The two steps that do the work are
 scripts under `infra/ci`, so they read and run outside Actions; the workflow holds
@@ -319,7 +319,7 @@ workflow that never runs on a schedule.
   around every one of these cases at runtime, so the cost today is invisibility rather
   than breakage. Build it when the staleness watch shows the counts climbing across
   rebuilds rather than being reset by them.
-- **Auto-merging the `popular.json` PR.** The diff is twelve lines precisely so that
+- **Auto-merging the `popular.json` PR.** The diff is one row per blog precisely so that
   someone reads it.
 - **A self-hosted runner for the rebuild.** Would settle the datacenter-IP question by
   avoiding it, and costs a machine to maintain. Measure first (item 6); most likely the

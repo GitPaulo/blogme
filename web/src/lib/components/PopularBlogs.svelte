@@ -7,7 +7,7 @@
 	 *
 	 * The empty state was a heading, a subtitle and a search box on white, which tells a
 	 * reader with no query in mind nothing about what is in here and gives them no way in
-	 * that does not start with typing. Twelve blogs they might recognise does both at once,
+	 * that does not start with typing. Six blogs they might recognise does both at once,
 	 * and every row is a search they did not have to think of.
 	 *
 	 * The list is generated into Git by `make popular` and imported here, so it is inlined
@@ -29,8 +29,8 @@
 
 	const { corpus, blogs }: Popular = popular;
 
-	// Everything the twelve stand for. Generated alongside them rather than written here,
-	// so the sentence cannot drift from the corpus the way a pasted number would.
+	// Everything the six stand for. Generated alongside them rather than written here, so
+	// the sentence cannot drift from the corpus the way a pasted number would.
 	const rest = new Intl.NumberFormat().format(corpus - blogs.length);
 </script>
 
@@ -75,9 +75,9 @@
 					it here keeps them with twenty of its posts in front of them.
 
 					It hands over the source ids rather than the name. Searching for the name
-					does not reach the blog: measured over these twelve, only four came back in
-					their own top three and two returned none of their own posts at all. See
-					docs/plans/popular-blogs-landing-plan.md.
+					does not reach the blog: measured over the twelve this list was drawn down
+					from, only four came back in their own top three and two returned none of
+					their own posts at all. See docs/plans/popular-blogs-landing-plan.md.
 
 					No hover underline: that is this page's link idiom, and this is not a link.
 				-->
@@ -105,7 +105,7 @@
 		{/each}
 	</ul>
 
-	<!-- Twelve names cannot carry the size of the thing they are drawn from, and the size is
+	<!-- Six names cannot carry the size of the thing they are drawn from, and the size is
 	half of why a reader should search it. -->
 	<p class="mt-3 text-sm text-gray-500 dark:text-gray-400">Plus {rest} more in the index.</p>
 </section>

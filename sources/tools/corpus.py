@@ -1,6 +1,6 @@
 """What blogs.yml means, shared by the two generators that read it.
 
-`build_popular.py` picks the twelve blogs the landing page recommends; `build_trending.py`
+`build_popular.py` picks the six blogs the landing page recommends; `build_trending.py`
 picks the four posts Hacker News is reading this week. They disagree about almost
 everything - one ranks lifetime standing, the other this week's - and agree about what
 counts as a blog, what a usable name is, and how to ask the index a question.

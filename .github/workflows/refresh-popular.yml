@@ -1,6 +1,6 @@
 name: Refresh widely shared blogs
 
-# Rebuilds web/src/lib/data/popular.json, the twelve blogs the landing page offers
+# Rebuilds web/src/lib/data/popular.json, the six blogs the landing page offers
 # before anyone has searched, and proposes it as a pull request when it changed.
 #
 # The two steps that do the work live in infra/ci, so they can be read, reviewed and run

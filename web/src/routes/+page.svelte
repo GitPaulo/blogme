@@ -793,7 +793,7 @@
 		saying so here is what keeps them from ever being on screen together.
 
 		This week's reading above what the corpus recommends always: four posts that answer
-		"is anything happening here?", then twelve blogs that answer "what is in here?".
+		"is anything happening here?", then six blogs that answer "what is in here?".
 		Both are generated into Git and inlined into this page, so neither costs a request. -->
 		<TrendingPosts />
 		<PopularBlogs onpick={searchForBlog} />

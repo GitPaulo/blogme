@@ -1,8 +1,8 @@
 # Popular Blogs on the Landing Page
 
-> A plan for what sits below the search bar before anyone has searched: twelve blogs the
+> A plan for what sits below the search bar before anyone has searched: six blogs the
 > corpus recommends always, and four posts it is being read for this week. Companion to
-> [quality-scoring.md](../quality-scoring.md), which owns the figure the twelve read.
+> [quality-scoring.md](../quality-scoring.md), which owns the figure the six read.
 
 ## The problem it solves
 
@@ -69,7 +69,7 @@ the plan so nobody has to reverse-engineer it later:
 - **It favours blogs that have been publishing for a long time.** A blog that started in
   2024 cannot out-total one that started in 2007. This list will be stable for years.
 - **It is a floor, not a gradient**, above roughly 500 points — the same saturation
-  [quality-scoring.md](../quality-scoring.md) describes. For a list of twelve drawn from the
+  [quality-scoring.md](../quality-scoring.md) describes. For a list of six drawn from the
   very top, that does not bite.
 - **It is a proxy for one audience.** Hacker News is where this corpus's readers
   circulate, which is the reason it was chosen, and it is still one room.
@@ -85,7 +85,7 @@ claim to know what is *popular*, only what has been *widely shared*.
 flowchart LR
     P["popularity.json<br/>blob storage"] --> G["make popular<br/>weekly, and by hand"]
     Y["blogs.yml<br/>name, kind, tags"] --> G
-    G --> J["web/src/lib/data/popular.json<br/>twelve rows, committed"]
+    G --> J["web/src/lib/data/popular.json<br/>six rows, committed"]
     J -->|"imported at build time"| B["Prerendered index.html"]
 ```
 
@@ -123,7 +123,7 @@ the repo, and writes `web/src/lib/data/popular.json`.
 | Deny   | drop a short list of hosts                                                                 | `web.archive.org`, `w3.org`, `youtube.com`, `linkedin.com`, `github.com`, `medium.com` — platforms the extractor mis-kinded. Kept short, and in the script where it is reviewable |
 | Dedupe | one row per host, highest points                                                           | Several sources share a host: `bbc.com` appears twice, `tbray.org` twice                                                                  |
 | Gate   | reject unusable names                                                                      | A bad name here is a bad search                                                                                                           |
-| Take   | top twelve                                                                                 | See [How long the list is](#how-long-the-list-is)                                                                                         |
+| Take   | top six                                                                                    | See [How long the list is](#how-long-the-list-is)                                                                                         |
 
 Output shape. One object per blog carrying nothing the page does not render, plus the
 size of the corpus they were drawn from, so the "and N more" line cannot drift from it
@@ -174,7 +174,7 @@ thing the kind filter exists to avoid.
 
 ### Names are a gate
 
-Names in `blogs.yml` come from feed titles, and feeds lie. In the current top twelve:
+Names in `blogs.yml` come from feed titles, and feeds lie. In the top twelve at the time:
 
 | Host             | `blogs.yml` name                          | Problem                                            |
 | ---------------- | ----------------------------------------- | -------------------------------------------------- |
@@ -201,7 +201,7 @@ animate past each other.
 
 Not `Card`. The result list uses cards because a result has a title, a byline, a summary
 and tags — four things that need a container to hold them together. A blog is a name and
-a host. Twelve cards would outweigh the search box they sit under and make the landing
+a host. Six cards would outweigh the search box they sit under and make the landing
 page look busier than a page of actual results.
 
 A two-column grid of compact rows, one column below `sm`:
@@ -272,24 +272,28 @@ the failure that note describes.
 
 - `<section aria-labelledby>` tied to the heading, so the region is announced and
   skippable.
-- `<ul>` and `<li>` around the buttons: twelve items announced as a list of twelve.
+- `<ul>` and `<li>` around the buttons: six items announced as a list of six.
 - The icon stays `aria-hidden`, as everywhere else — the host is written beside it.
 - Nothing goes into the existing `role="status"` region. Clearing the box is the reader's
-  own action and does not need narrating; twelve blog names read aloud on every clear
+  own action and does not need narrating; six blog names read aloud on every clear
   would be noise.
 - Grid order matches DOM order, so tab order reads left to right, top to bottom.
 
 ### How long the list is
 
-Twelve. Two columns of six fills the space under the search box without pushing the page
-into a scroll on a laptop, and it is enough names for one of them to be recognised.
+Six. Two columns of three sits under the search box without crowding the four trending
+posts above it, and it is still enough names for one of them to be recognised.
 
-Twelve is also a budget. Each row asks a third party for a favicon, from that blog's own
+It was twelve, which filled a laptop viewport but left the two sections competing: a
+reader arriving at a search engine met sixteen recommendations before the fold. Halving
+the standing list settles that order without touching the section that answers "is
+anything happening here?".
+
+Six is also a budget. Each row asks a third party for a favicon, from that blog's own
 origin — the trade [`site.ts`](../../web/src/lib/site.ts) already priced and accepted for
 result pages. On a results page that happens after a search; here it happens to every
-visitor on arrival. Twelve keeps the burst well under the twenty a results page already
-costs, `loading="lazy"` keeps the second column's share of it below the fold on short
-viewports, and a `saveData` browser fetches none of them.
+visitor on arrival. Six keeps the burst to well under half the twenty a results page
+already costs, and a `saveData` browser fetches none of them.
 
 A closing line under the grid carries the scale the list cannot: *"…and 46,071 more."*
 
@@ -357,10 +361,10 @@ whether the crawler ever reached it.
 
 So the generator now counts what the index holds for each candidate, using the same
 filter the app sends, and walks down the ranking taking blogs that clear
-`MIN_ARTICLES = 5` rather than taking the top twelve and hoping. That needs a search key,
+`MIN_ARTICLES = 5` rather than taking the head of the ranking and hoping. That needs a search key,
 which `make popular` fetches the way `make dev` does; without one the generator refuses
 to write anything, because a scheduled run has nobody to read a warning. `--allow-unchecked`
-takes the top twelve on standing alone, for working offline.
+takes the top six on standing alone, for working offline.
 
 ## Sequencing
 
@@ -371,7 +375,7 @@ has ever posted. Measured on 30 August 2026: 60–72% of lookups failed per pass
 sites stored at zero in fact had a Hacker News presence. Among the wrong ones:
 `danluu.com` (546 stories), `seangoedecke.com` (381), `wingolog.org` (324).
 
-A front page that recommends twelve blogs while silently omitting Dan Luu is wrong in the
+A front page that recommends six blogs while silently omitting Dan Luu is wrong in the
 most visible possible way, to exactly the audience it is aimed at.
 
 ```mermaid
@@ -379,7 +383,7 @@ flowchart TD
     F["Sweep fix deployed<br/>a failure is no longer written as a zero"] --> D["Wait about three rotations,<br/>roughly three days"]
     D --> C["Spot-check danluu.com,<br/>seangoedecke.com, jvns.ca"]
     C --> G["make popular"]
-    G --> R["Read the twelve.<br/>Fix names in blogs-overrides.yml"]
+    G --> R["Read the six.<br/>Fix names in blogs-overrides.yml"]
     R --> S["Ship"]
 ```
 
@@ -409,7 +413,7 @@ not worth contradicting that over; the click path is verified in the browser ins
 
 ## Popular posts, above them
 
-The twelve rank lifetime Hacker News points. That is a stable ordering — the section
+The six rank lifetime Hacker News points. That is a stable ordering — the section
 above says so plainly — and stability is both its virtue and its whole problem. A reader
 who comes back sees the same page forever, and nothing on it says the index knows about
 anything published since.
@@ -445,7 +449,7 @@ the page may claim more than its ranking knows.
 The two subtitles carry the whole distinction between the sections, so they are worth
 reading together. *Popular posts on forums this week* is a seven-day window. *Blogs
 readers have passed around for years* is a lifetime total, and deliberately not "this
-week": the twelve are rebuilt weekly, but the cadence of a rebuild is not the period a
+week": the six are rebuilt weekly, but the cadence of a rebuild is not the period a
 ranking covers, and borrowing the word would make the lower section claim the upper
 one's job.
 
@@ -479,7 +483,7 @@ The **indexed** title, not Hacker News's — moderators rewrite titles there, an
 should print what the blog called its own post. The two differ in practice: HN had "Hang
 on to **Your** Firefox".
 
-And the row is a **link**, where the twelve below are buttons. Browsing a blog keeps a
+And the row is a **link**, where the six below are buttons. Browsing a blog keeps a
 reader in the corpus with twenty of its posts in front of them; this row already names the
 one post they came for, and sending them anywhere else answers a question they did not
 ask. It carries `data-visit`, so an opened post greys exactly as a result does.
@@ -487,15 +491,15 @@ ask. It carries `data-visit`, so an opened post greys exactly as a result does.
 ### Committed daily, not proposed
 
 [`refresh-trending.yml`](../../.github/workflows/refresh-trending.yml) commits straight to
-`main`, where the twelve go through a pull request. The difference is what a reviewer
-would be reviewing. The twelve are an editorial choice; these four are a data feed,
+`main`, where the six go through a pull request. The difference is what a reviewer
+would be reviewing. The six are an editorial choice; these four are a data feed,
 filtered by rules already written down, and a daily pull request nobody can meaningfully
 reject is the rubber-stamped PR that
 [keeping-the-curated-lists-current.md](keeping-the-curated-lists-current.md) argues
 against — the check removed, the ceremony kept.
 
 The gates stand in for the review. `build_trending.py` refuses to write unless every row
-is a blog-kinded, non-denied, usably-named host that is not already among the twelve and
+is a blog-kinded, non-denied, usably-named host that is not already among the six and
 whose post is in the index; it cannot ship a short section or an empty one. The shared
 rules live in [`corpus.py`](../../sources/tools/corpus.py) precisely so a blog this page
 refuses under one heading cannot appear under the other.

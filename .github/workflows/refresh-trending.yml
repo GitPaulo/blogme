@@ -13,12 +13,12 @@ name: Refresh trending posts
 # points drifting between two runs and the file byte-identical.
 #
 # Committed rather than proposed. See the reasoning at the top of infra/ci/commit-trending.sh:
-# these four are a data feed with hard gates, not the editorial choice the twelve below
+# these four are a data feed with hard gates, not the editorial choice the six below
 # them are, and a daily pull request nobody can reject is ceremony without a check.
 
 on:
   schedule:
-    # Every day at 05:00 UTC, an hour after the weekly refresh of the twelve, so the two
+    # Every day at 05:00 UTC, an hour after the weekly refresh of the six, so the two
     # never race for the same file's neighbourhood on a Monday.
     - cron: '0 5 * * *'
 

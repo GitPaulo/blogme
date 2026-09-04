@@ -87,7 +87,7 @@ class Candidates(unittest.TestCase):
         self.assertEqual(got[0]["url"], "https://antirez.com/news/1")
 
     def test_a_trending_newspaper_is_not(self):
-        # The same one-line newspaper filter the twelve use: no kind, not a blog.
+        # The same one-line newspaper filter the six use: no kind, not a blog.
         got = candidates([source("https://bbc.com/", "BBC News", kind=())],
                          [hit("https://bbc.com/news/1")], set())
 
@@ -106,7 +106,7 @@ class Candidates(unittest.TestCase):
 
         self.assertEqual(got, [])
 
-    def test_a_blog_already_in_the_twelve_is_not(self):
+    def test_a_blog_already_in_the_six_is_not(self):
         # The same name twice on one screen reads as a bug.
         got = candidates([source("https://simonwillison.net/", "Simon Willison")],
                          [hit("https://simonwillison.net/p")], {"simonwillison.net"})
@@ -237,7 +237,7 @@ class ShownBelow(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
 
-    def test_it_reads_the_hosts_the_twelve_offer(self):
+    def test_it_reads_the_hosts_the_six_offer(self):
         path = Path(self.tmp.name) / "popular.json"
         path.write_text(json.dumps({"corpus": 1, "blogs": [
             {"name": "antirez", "site": "https://antirez.com/", "host": "antirez.com",

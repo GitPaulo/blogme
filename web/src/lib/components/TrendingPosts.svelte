@@ -4,7 +4,7 @@
 	import { visited } from '$lib/visited/store.svelte';
 
 	/**
-	 * What the corpus is being read for this week, above the twelve it recommends always.
+	 * What the corpus is being read for this week, above the six it recommends always.
 	 *
 	 * The list below this one ranks lifetime Hacker News points, which have barely moved in
 	 * a decade. That is its virtue — it names writers worth knowing — and its whole problem:
@@ -17,7 +17,7 @@
 	 * mirror of a site the reader has already read this morning.
 	 *
 	 * Generated into Git by `make trending` and daily by refresh-trending.yml, so it is
-	 * inlined into the prerendered page exactly as the twelve are: no request, no spinner.
+	 * inlined into the prerendered page exactly as the six are: no request, no spinner.
 	 * See docs/plans/popular-blogs-landing-plan.md.
 	 */
 
@@ -49,12 +49,12 @@
 		twenty-four hour one yields three eligible blogs across the whole corpus and cannot
 		fill four rows. The heading says what the ranking knows, which is the same rule the
 		"Widely shared blogs" heading below follows — and the week is the half that matters,
-		since it is what separates these four from the twelve underneath them. -->
+		since it is what separates these four from the six underneath them. -->
 		<p class="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
 			Popular posts on forums this week.
 		</p>
 
-		<!-- The same grid, gaps and negative inset as the twelve below, so the two sections
+		<!-- The same grid, gaps and negative inset as the six below, so the two sections
 		read as one system rather than two designs that met on a page. -->
 		<ul class="-mx-2 mt-3 grid gap-x-4 gap-y-1 sm:grid-cols-2">
 			{#each posts as post (post.url)}
@@ -76,7 +76,7 @@
 						data-visit
 						class="flex w-full items-start gap-2.5 rounded-lg px-2 py-2 transition-colors hover:bg-gray-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 dark:hover:bg-gray-800"
 					>
-						<!-- The same icon at the same size the result card and the twelve wear
+						<!-- The same icon at the same size the result card and the six wear
 						beside a host. mt-1 centres a 16px icon on a 24px first line. -->
 						<SiteIcon host={post.host} class="mt-1 h-4 w-4" />
 						<span class="min-w-0 flex-1">

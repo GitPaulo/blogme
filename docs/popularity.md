@@ -118,7 +118,7 @@ Two places, and they use it differently.
 ```mermaid
 flowchart LR
     P["qPopularity<br/>0 to 1, per site"] --> Q["Article quality<br/>a bonus, never a penalty"]
-    P --> L["Landing page<br/>ranks twelve blogs"]
+    P --> L["Landing page<br/>ranks six blogs"]
     Q --> R["Search ranking"]
     L --> H["The empty state"]
 ```
@@ -135,7 +135,7 @@ shared. Most good blogs have never appeared on Hacker News at all, and reading t
 absence as a verdict would rank by fame. See
 [quality-scoring.md](quality-scoring.md#popularity).
 
-**On the landing page** it orders the twelve blogs offered before anyone has searched.
+**On the landing page** it orders the six blogs offered before anyone has searched.
 That surface applies filters the score itself does not, because points measure news
 circulation and the raw top of the corpus is the BBC and TechCrunch. See
 [popular-blogs-landing-plan.md](plans/popular-blogs-landing-plan.md).
