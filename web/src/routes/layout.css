@@ -59,15 +59,23 @@
 	   outside the containing block every one of them is measured in — which is why the
 	   gap has outlived several fixes aimed at the panel.
 
-	   So the page gives the gutter up for as long as a dialog owns the viewport. It costs
-	   nothing while it is given up: the gutter is there to keep the page from shifting as
-	   content arrives, and a page behind a modal is frozen and dimmed. Releasing the
-	   reservation alone is not enough where the page overflows, since a real scrollbar
+	   So the page gives the gutter up for as long as a dialog owns the viewport. Releasing
+	   the reservation alone is not enough where the page overflows, since a real scrollbar
 	   holds the same space open, so the scroll the dialog has already suppressed is taken
-	   away with it. Both are a no-op where scrollbars overlay. */
+	   away with it. Both are a no-op where scrollbars overlay.
+
+	   Giving the gutter up widens the viewport by a scrollbar, though, and half of every
+	   pixel gained lands on either side of anything centred in it — so the whole page slid
+	   sideways as a dialog opened and back as it closed. The gutter goes to the dialog and
+	   the width comes back to the page as padding: the viewport the dialog is measured in
+	   grows, the box the page is laid out in does not, and nothing moves. The number is
+	   published by lib/scrollbarGutter.ts, which measures it from a probe; the fallback
+	   covers the moment before that has run, and the prerendered page, where no dialog can
+	   be open yet anyway. */
 	html:has(dialog:modal) {
 		overflow: hidden;
 		scrollbar-gutter: auto;
+		padding-inline-end: var(--scrollbar-gutter, 0px);
 	}
 
 	html.dark {

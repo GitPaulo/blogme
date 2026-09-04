@@ -6,6 +6,7 @@
 	import GithubLink from '$lib/components/GithubLink.svelte';
 	import LinkPreview from '$lib/components/LinkPreview.svelte';
 	import ThemeToggle from '$lib/components/ThemeToggle.svelte';
+	import { trackScrollbarGutter } from '$lib/scrollbarGutter';
 	import { visited } from '$lib/visited/store.svelte';
 
 	let { children } = $props();
@@ -14,6 +15,10 @@
 	// devices that can hover: an article opened by tap counts the same as one opened by
 	// click, whether or not this device will ever draw the mark.
 	$effect(() => visited.track());
+
+	// Measured for the whole app rather than by the drawer, because every modal dialog on
+	// the site is laid out against the gutter this reports. See lib/scrollbarGutter.ts.
+	$effect(() => trackScrollbarGutter());
 </script>
 
 <svelte:head>

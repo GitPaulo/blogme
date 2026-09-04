@@ -42,6 +42,16 @@ describe('the page hands its scrollbar space back to modal dialogs', () => {
 		expect(block('html:has(dialog:modal)')).toMatch(/overflow:\s*hidden/);
 	});
 
+	it('hands the same width back to the page, so nothing centred on it moves', () => {
+		// Releasing the gutter widens the viewport by a scrollbar, and half of that lands
+		// on either side of everything `mx-auto` centres — so the page stepped sideways as
+		// a dialog opened and back as it closed. The padding is what keeps the box the page
+		// is laid out in the width it already was while the dialog gets the wider viewport.
+		expect(block('html:has(dialog:modal)')).toMatch(
+			/padding-inline-end:\s*var\(--scrollbar-gutter/
+		);
+	});
+
 	it('still reserves the gutter the rest of the time', () => {
 		// The reservation is what keeps a result set arriving or clearing from shifting
 		// every centred thing on the page sideways. If it goes, this file's release rule
