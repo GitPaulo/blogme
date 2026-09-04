@@ -19,6 +19,22 @@
 
 	let { results, filters = $bindable() }: { results: SearchResult[]; filters: Filters } = $props();
 
+	/**
+	 * What a filter button wears while it is on, beyond the colour.
+	 *
+	 * Flowbite's filled `primary` carries no border and its outlined `alternative` carries
+	 * a hairline, so a button that swaps between the two is two pixels narrower for as long
+	 * as it is pressed. In a wrapping row of them that is not a detail: pressing one pulls
+	 * every button before it two pixels along, so a reader turning "bookmarked" on watches
+	 * the controls either side of it twitch.
+	 *
+	 * A transparent border of the same width stands in for the missing one. The button's
+	 * own background is painted under it, so it looks exactly as it did and stops moving
+	 * its neighbours. Only the filled state gets it — naming a colour here for the outlined
+	 * state would override the one that makes its border visible.
+	 */
+	const FILLED = 'border border-transparent';
+
 	let dateOpen = $state(false);
 
 	/** Nothing is published in the future, so a stray year cannot empty the list. */
@@ -91,7 +107,7 @@ that made the select taller pulled it further out of line. -->
 	<Button
 		size="sm"
 		color={hasDateFilter(filters) ? 'primary' : 'alternative'}
-		class="max-w-64 shrink-0 gap-2"
+		class="max-w-64 shrink-0 gap-2 {hasDateFilter(filters) ? FILLED : ''}"
 		aria-haspopup="dialog"
 		aria-expanded={dateOpen}
 		onclick={openDatePicker}
@@ -103,7 +119,7 @@ that made the select taller pulled it further out of line. -->
 	<Button
 		size="sm"
 		color={filters.bookmarkedOnly ? 'primary' : 'alternative'}
-		class="shrink-0 gap-2"
+		class="shrink-0 gap-2 {filters.bookmarkedOnly ? FILLED : ''}"
 		aria-pressed={filters.bookmarkedOnly}
 		aria-label="Bookmarked"
 		onclick={() => (filters.bookmarkedOnly = !filters.bookmarkedOnly)}
@@ -115,7 +131,7 @@ that made the select taller pulled it further out of line. -->
 	<Button
 		size="sm"
 		color={filters.visitedOnly ? 'primary' : 'alternative'}
-		class="shrink-0 gap-2"
+		class="shrink-0 gap-2 {filters.visitedOnly ? FILLED : ''}"
 		aria-pressed={filters.visitedOnly}
 		aria-label="Visited"
 		onclick={() => (filters.visitedOnly = !filters.visitedOnly)}
