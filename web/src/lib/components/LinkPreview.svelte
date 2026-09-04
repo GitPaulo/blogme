@@ -35,7 +35,13 @@
 	const CLOSE_MS = 200;
 	// A panel opening where the reader dragged the last one can be right across the window
 	// from the link that opened it, which is further than CLOSE_MS was measured for.
-	const REACH_MS = 600;
+	//
+	// Six hundred covered the trip only if it was started at once and taken straight. From
+	// a corner the panel had been dragged to, a hand that set off a moment late, or went
+	// round the results rather than over them, arrived to find it gone — and the way to
+	// ask for it back is to find the link again, which by then has scrolled. Nine hundred
+	// is the same journey with the pause at the start of it allowed for.
+	const REACH_MS = 900;
 	// The whole panel for a refusal, header included: the message is one line, so this is
 	// sized to it rather than left as a tall empty box. Not resizable for the same reason.
 	const DENIED_HEIGHT = 128;
