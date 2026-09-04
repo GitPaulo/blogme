@@ -4,9 +4,29 @@
     {
       "name": "web",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["node_modules/vite/bin/vite.js", "dev", "--port", "5174", "--strictPort"],
+      "runtimeArgs": [
+        "node_modules/vite/bin/vite.js",
+        "dev",
+        "--port",
+        "5174",
+        "--strictPort"
+      ],
       "cwd": "web",
       "port": 5174,
+      "autoPort": false
+    },
+    {
+      "name": "web-build",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "node_modules/vite/bin/vite.js",
+        "preview",
+        "--port",
+        "5175",
+        "--strictPort"
+      ],
+      "cwd": "web",
+      "port": 5175,
       "autoPort": false
     }
   ]

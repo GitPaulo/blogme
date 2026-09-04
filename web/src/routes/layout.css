@@ -82,16 +82,7 @@
 		color-scheme: dark;
 	}
 
-	/* A column at least as tall as the window, so the footer's `mt-auto` has something to
-	   push against: on a page too short to scroll the repository mark sits at the foot of
-	   the window rather than tucked under the last line of content, and on a long one it
-	   simply follows it. Nothing is compressed to make the room — `main` is not a fixed
-	   share of anything, it takes the height it needs and the spare falls to the footer.
-
-	   The SvelteKit wrapper between body and the page is `display: contents`, so it has no
-	   box of its own and the header, the page and the footer are this flex container's own
-	   children. The header is fixed, and out of flow, so it is not one of them. */
 	body {
-		@apply flex min-h-dvh flex-col bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100;
+		@apply bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100;
 	}
 }

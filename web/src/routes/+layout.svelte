@@ -46,10 +46,16 @@ which is what this is. -->
 rather than a third seat in the corner: it is the one thing up there that was not about
 the search in front of you.
 
-`mt-auto` against the column layout.css gives the body — on a page too short to scroll it
-settles at the foot of the window, and on a long one it follows the last result. `main` is
-never asked to give the room up, so nothing above it is compressed either way. -->
-<footer class="mt-auto flex justify-center py-8">
+It follows the content and stops there. It was pinned to the foot of the window first,
+which is the same thing on a full page and nothing like it on a short one: a search
+returning three results left the mark stranded hundreds of pixels below the last row,
+with an empty column between them. Ordinary flow keeps it the same distance from the
+last thing on the page whatever that page turned out to be.
+
+That distance is the air the page already left at its foot rather than a second helping
+of it: the eight here is the other half of the sixteen `main` used to carry alone, so the
+bottom of the page is spaced as it always was. -->
+<footer class="flex justify-center pb-8">
 	<GithubLink />
 </footer>
 <!-- Mounted once for the whole app; every `data-preview` link on any page shares it. -->
