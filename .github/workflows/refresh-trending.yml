@@ -46,6 +46,9 @@ jobs:
     permissions:
       # Commit the refreshed section to main.
       contents: write
+      # Dispatch the Pages deploy. A commit pushed with GITHUB_TOKEN starts no workflow
+      # of its own, so this section would otherwise never reach the site by itself.
+      actions: write
       # Required for the OIDC token exchange with Entra ID.
       id-token: write
 
@@ -72,6 +75,9 @@ jobs:
           PYTHON: python
         run: ./infra/ci/refresh-trending.sh
 
-      # Does nothing on a day when the same four posts came back.
-      - name: Commit it
+      # Does nothing on a day when the same four posts came back — no commit, and so no
+      # deploy asked for either.
+      - name: Commit it, and ask Pages to publish
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: ./infra/ci/commit-trending.sh

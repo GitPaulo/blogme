@@ -55,6 +55,28 @@ git commit -m "chore(trending): refresh what the corpus is being read for ($(dat
 git pull --rebase --autostash origin "$BRANCH"
 git push origin "HEAD:$BRANCH"
 
+# A push made with GITHUB_TOKEN deliberately starts no further workflow: GitHub
+# suppresses that to stop runs recursing. So the Pages deploy watching web/** never sees
+# this commit, and the refreshed section sits in main unpublished until some unrelated
+# push happens along. On 4 September it reached the site only because three human commits
+# followed it that afternoon, which is luck rather than a mechanism.
+#
+# workflow_dispatch is the documented way out, being one of the two events that always
+# create a run whatever the token. Nothing to do outside Actions: a push from a person
+# triggers the deploy on its own, which is the case this whole comment is about not being.
+if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
+	log "Asking GitHub Pages to publish it"
+	# Fatal on purpose. The commit has already landed, so a swallowed failure here is
+	# precisely the silent staleness this exists to end: a green run and a site that
+	# never got the section. Re-running the job will not repair it either — the second
+	# run finds nothing changed and returns before reaching this — so say what will.
+	gh workflow run deploy-pages.yml --ref "$BRANCH" || {
+		echo "error: the commit landed but the Pages deploy was not dispatched." >&2
+		echo "       publish it with: gh workflow run deploy-pages.yml --ref $BRANCH" >&2
+		exit 1
+	}
+fi
+
 {
 	echo '### Trending posts refreshed'
 	echo
