@@ -8,22 +8,22 @@
 			"host": "neil.fraser.name"
 		},
 		{
-			"title": "GUIs should be fully keyboard-driven",
-			"url": "https://ckardaris.com/blog/2026/08/28/keyboard-driven-guis.html",
-			"blog": "Charalampos Kardaris’ blog",
-			"host": "ckardaris.com"
-		},
-		{
 			"title": "Hang on to your Firefox!",
 			"url": "https://www.newsonaut.com/articles/hang-on-to-your-firefox",
 			"blog": "Newsonaut",
 			"host": "newsonaut.com"
 		},
 		{
-			"title": "\"iT woRKs BeTter in THe aPp!!\"",
-			"url": "https://shkspr.mobi/blog/2026/08/it-works-better-in-the-app/",
-			"blog": "Shkspr",
-			"host": "shkspr.mobi"
+			"title": "Good Culture is the Biggest Productivity Hack, Not AI",
+			"url": "https://newsletter.eng-leadership.com/p/good-culture-is-the-biggest-productivity",
+			"blog": "Engineering Leadership",
+			"host": "newsletter.eng-leadership.com"
+		},
+		{
+			"title": "The Internet Is Kind of a Predatory Cesspit Now - Stephen Diehl",
+			"url": "https://www.stephendiehl.com/posts/internet_predatory_cesspit/",
+			"blog": "Stephen Diehl",
+			"host": "stephendiehl.com"
 		}
 	]
 }
