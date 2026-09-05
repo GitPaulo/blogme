@@ -1,11 +1,15 @@
 <script lang="ts">
-	import { Badge, Button, Input, Label, Modal, MultiSelect, Tooltip } from 'flowbite-svelte';
-	import {
-		BookmarkSolid,
-		CalendarMonthOutline,
-		CloseOutline,
-		EyeSolid
-	} from 'flowbite-svelte-icons';
+	import Badge from 'flowbite-svelte/Badge.svelte';
+	import Button from 'flowbite-svelte/Button.svelte';
+	import Input from 'flowbite-svelte/Input.svelte';
+	import Label from 'flowbite-svelte/Label.svelte';
+	import Modal from 'flowbite-svelte/Modal.svelte';
+	import MultiSelect from 'flowbite-svelte/MultiSelect.svelte';
+	import Tooltip from 'flowbite-svelte/Tooltip.svelte';
+	import BookmarkSolid from 'flowbite-svelte-icons/BookmarkSolid.svelte';
+	import CalendarMonthOutline from 'flowbite-svelte-icons/CalendarMonthOutline.svelte';
+	import CloseOutline from 'flowbite-svelte-icons/CloseOutline.svelte';
+	import EyeSolid from 'flowbite-svelte-icons/EyeSolid.svelte';
 	import type { SearchResult } from '$lib/api';
 	import { formatDate } from '$lib/date';
 	import {

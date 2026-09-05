@@ -1,5 +1,7 @@
 <script lang="ts">
-	import { ClockOutline, FileLinesOutline, SearchOutline } from 'flowbite-svelte-icons';
+	import ClockOutline from 'flowbite-svelte-icons/ClockOutline.svelte';
+	import FileLinesOutline from 'flowbite-svelte-icons/FileLinesOutline.svelte';
+	import SearchOutline from 'flowbite-svelte-icons/SearchOutline.svelte';
 	import { prefersReducedMotion } from 'svelte/motion';
 	import { highlight, type Suggestion } from '$lib/suggestions.svelte';
 

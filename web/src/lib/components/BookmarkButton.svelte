@@ -1,6 +1,8 @@
 <script lang="ts">
-	import { Button, Tooltip } from 'flowbite-svelte';
-	import { BookmarkOutline, BookmarkSolid } from 'flowbite-svelte-icons';
+	import Button from 'flowbite-svelte/Button.svelte';
+	import Tooltip from 'flowbite-svelte/Tooltip.svelte';
+	import BookmarkOutline from 'flowbite-svelte-icons/BookmarkOutline.svelte';
+	import BookmarkSolid from 'flowbite-svelte-icons/BookmarkSolid.svelte';
 	import { bookmarks } from '$lib/bookmarks/store.svelte';
 	import type { SearchResult } from '$lib/api';
 

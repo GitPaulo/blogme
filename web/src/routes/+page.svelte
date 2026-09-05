@@ -1,25 +1,27 @@
 <script lang="ts">
-	import { Button, Card, Heading, Input, P, Spinner, Tooltip } from 'flowbite-svelte';
-	import {
-		ChevronDoubleUpOutline,
-		ExclamationCircleOutline,
-		SearchOutline,
-		WandMagicSparklesOutline
-	} from 'flowbite-svelte-icons';
+	import Button from 'flowbite-svelte/Button.svelte';
+	import Card from 'flowbite-svelte/Card.svelte';
+	import Heading from 'flowbite-svelte/Heading.svelte';
+	import Input from 'flowbite-svelte/Input.svelte';
+	import P from 'flowbite-svelte/P.svelte';
+	import Spinner from 'flowbite-svelte/Spinner.svelte';
+	import Tooltip from 'flowbite-svelte/Tooltip.svelte';
+	import ChevronDoubleUpOutline from 'flowbite-svelte-icons/ChevronDoubleUpOutline.svelte';
+	import ExclamationCircleOutline from 'flowbite-svelte-icons/ExclamationCircleOutline.svelte';
+	import SearchOutline from 'flowbite-svelte-icons/SearchOutline.svelte';
+	import WandMagicSparklesOutline from 'flowbite-svelte-icons/WandMagicSparklesOutline.svelte';
 	import { tick } from 'svelte';
 	import { prefersReducedMotion } from 'svelte/motion';
 	import { fade } from 'svelte/transition';
 	import { base } from '$app/paths';
-	import EmptyResults from '$lib/components/EmptyResults.svelte';
-	import FilterBar from '$lib/components/FilterBar.svelte';
 	import PopularBlogs from '$lib/components/PopularBlogs.svelte';
-	import ResultCard from '$lib/components/ResultCard.svelte';
 	import SearchSuggestions from '$lib/components/SearchSuggestions.svelte';
 	import TrendingPosts from '$lib/components/TrendingPosts.svelte';
 	import { MAX_QUERY_LENGTH, MAX_SUGGESTIONS, MIN_QUERY_LENGTH } from '$lib/api';
 	import { onArticleOpen } from '$lib/articleOpen';
 	import { bookmarks } from '$lib/bookmarks/store.svelte';
 	import { elementWidth } from '$lib/elementWidth.svelte';
+	import { lazy } from '$lib/lazy.svelte';
 	import { onScreen } from '$lib/onScreen.svelte';
 	import { looksLikeAQuestion } from '$lib/query';
 	import { recent } from '$lib/recent.svelte';
@@ -51,6 +53,20 @@
 	// Everything about the search itself — what was asked, what came back, what is still
 	// in flight — lives in one place. See lib/search.svelte.ts.
 	const search = createSearch();
+
+	// The rows, the filter bar and the empty state, fetched the first time this page has
+	// any reason to draw them. Nothing below the search box exists until a search has
+	// happened, and all of it was in the chunk a reader downloaded to look at six blogs.
+	// See lib/components/resultsUi.ts.
+	const resultsUi = lazy(() => import('$lib/components/resultsUi'));
+
+	// The backstop, and the only trigger that is not optional: a link shared with a query
+	// in it arrives searchable with nobody having typed anything. The first keystroke asks
+	// for the same module earlier — see the field below — which is what puts the fetch
+	// alongside the debounce and the request rather than after them.
+	$effect(() => {
+		if (search.searchable) resultsUi.load();
+	});
 
 	// What is left here is the page's own: what has focus, which suggestion is
 	// highlighted, and where the reader has scrolled to.
@@ -481,6 +497,12 @@
 				// watcher on the query could not tell the two apart and would close the view
 				// the instant it opened.
 				search.leaveBlog();
+				// The first character is the earliest honest sign that a search is coming, and
+				// it is three characters and a debounce ahead of one being sent. Not the focus
+				// event, which is not a signal at all: the effect above puts the caret in this
+				// box on arrival, so every visit would ask for the result view whether or not
+				// anyone went on to search.
+				resultsUi.load();
 			}}
 		>
 			{#snippet left()}
@@ -643,6 +665,11 @@
 	{/if}
 
 	{#if search.searchable}
+		<!-- The result view arrives a moment after the query does, because it is fetched
+		rather than shipped. Every use of it below is guarded on this one value: results the
+		page is still loading the components for read as results that have not arrived yet,
+		which is the state the reader is already in. -->
+		{@const ui = resultsUi.current}
 		<div class="mt-8">
 			<!-- One guard for the whole result view: the summary, the filters, the rows and
 			the controls each describe a set of loaded results, and none of them mean anything
@@ -696,7 +723,9 @@
 					{/if}
 				</div>
 
-				<FilterBar results={search.results} bind:filters={search.filters} />
+				{#if ui}
+					<ui.FilterBar results={search.results} bind:filters={search.filters} />
+				{/if}
 
 				{#if search.shown === 0}
 					<!-- The same card the results are in, because it stands where a result would.
@@ -732,9 +761,11 @@
 						: ''}"
 					bind:this={resultList}
 				>
-					{#each search.filtered as result (result.url)}
-						<ResultCard {result} {summaryChars} />
-					{/each}
+					{#if ui}
+						{#each search.filtered as result (result.url)}
+							<ui.ResultCard {result} {summaryChars} />
+						{/each}
+					{/if}
 				</div>
 
 				<div class="mt-6 flex items-center justify-center gap-2" bind:this={controlsRow}>
@@ -786,8 +817,8 @@
 						<Tooltip>Back to top</Tooltip>
 					</div>
 				{/if}
-			{:else if search.status === 'done'}
-				<EmptyResults semanticRanking={search.semanticRanking} ontoggle={search.toggleRanking} />
+			{:else if search.status === 'done' && ui}
+				<ui.EmptyResults semanticRanking={search.semanticRanking} ontoggle={search.toggleRanking} />
 			{/if}
 		</div>
 	{:else}

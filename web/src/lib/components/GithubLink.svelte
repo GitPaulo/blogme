@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { Tooltip } from 'flowbite-svelte';
-	import { GithubSolid } from 'flowbite-svelte-icons';
+	import Tooltip from 'flowbite-svelte/Tooltip.svelte';
+	import GithubSolid from 'flowbite-svelte-icons/GithubSolid.svelte';
 
 	const REPO_URL = 'https://github.com/GitPaulo/blogme';
 </script>

@@ -1,5 +1,9 @@
 <script lang="ts">
-	import { Badge, Card, Heading, P, Tooltip } from 'flowbite-svelte';
+	import Badge from 'flowbite-svelte/Badge.svelte';
+	import Card from 'flowbite-svelte/Card.svelte';
+	import Heading from 'flowbite-svelte/Heading.svelte';
+	import P from 'flowbite-svelte/P.svelte';
+	import Tooltip from 'flowbite-svelte/Tooltip.svelte';
 	import type { SearchResult } from '$lib/api';
 	import BookmarkButton from '$lib/components/BookmarkButton.svelte';
 	import SiteIcon from '$lib/components/SiteIcon.svelte';

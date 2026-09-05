@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { Badge } from 'flowbite-svelte';
-	import { ArrowUpRightFromSquareOutline } from 'flowbite-svelte-icons';
+	import Badge from 'flowbite-svelte/Badge.svelte';
+	import ArrowUpRightFromSquareOutline from 'flowbite-svelte-icons/ArrowUpRightFromSquareOutline.svelte';
 	import { prefersReducedMotion } from 'svelte/motion';
 	import { fade } from 'svelte/transition';
 	import { safeHttpUrl } from '$lib/api';
-	import { prefersReducedData } from '$lib/saveData';
+	import { previewable } from '$lib/previewable';
 	import { hostOf } from '$lib/site';
 	import {
 		clampPosition,
@@ -363,9 +363,9 @@
 
 	$effect(() => {
 		// A preview costs a document load, so devices that cannot hover, and readers who
-		// asked for less data, never install any of this.
-		const hoverable = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
-		if (!hoverable || prefersReducedData()) return;
+		// asked for less data, never install any of this. The layout asks the same question
+		// before it fetches this component at all — see lib/previewable.ts.
+		if (!previewable()) return;
 
 		stored = readGeometry();
 

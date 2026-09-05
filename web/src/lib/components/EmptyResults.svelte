@@ -1,6 +1,9 @@
 <script lang="ts">
-	import { Button, Card, Tooltip } from 'flowbite-svelte';
-	import { SearchOutline, WandMagicSparklesOutline } from 'flowbite-svelte-icons';
+	import Button from 'flowbite-svelte/Button.svelte';
+	import Card from 'flowbite-svelte/Card.svelte';
+	import Tooltip from 'flowbite-svelte/Tooltip.svelte';
+	import SearchOutline from 'flowbite-svelte-icons/SearchOutline.svelte';
+	import WandMagicSparklesOutline from 'flowbite-svelte-icons/WandMagicSparklesOutline.svelte';
 
 	/**
 	 * What the page says when a search came back with nothing.

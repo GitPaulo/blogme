@@ -133,11 +133,16 @@ export function overlapsContent(target: () => HTMLElement | undefined) {
 			});
 		};
 
-		measure();
 		window.addEventListener('scroll', schedule, { passive: true });
 		window.addEventListener('resize', schedule);
 		// The page growing or shrinking under a mark that has not moved changes the answer
 		// as surely as scrolling does — results arriving is exactly that.
+		//
+		// This is also the first measurement: a ResizeObserver reports the size it found
+		// when it began observing, so observing schedules one. Calling `measure` here as
+		// well only added a hit test and a computed style per element under the mark, read
+		// synchronously in the middle of hydration — the same answer, forced out of the
+		// browser a frame early and paid for in a style and layout flush.
 		const observer = new ResizeObserver(schedule);
 		observer.observe(document.documentElement);
 

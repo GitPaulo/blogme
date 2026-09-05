@@ -1,6 +1,8 @@
 <script lang="ts">
-	import { Button, Tooltip } from 'flowbite-svelte';
-	import { MoonSolid, SunSolid } from 'flowbite-svelte-icons';
+	import Button from 'flowbite-svelte/Button.svelte';
+	import Tooltip from 'flowbite-svelte/Tooltip.svelte';
+	import MoonSolid from 'flowbite-svelte-icons/MoonSolid.svelte';
+	import SunSolid from 'flowbite-svelte-icons/SunSolid.svelte';
 	import { readTheme, setTheme, watchSystemTheme, type Theme } from '$lib/theme';
 
 	// Starts light to match the prerendered markup; the effect below settles it on the

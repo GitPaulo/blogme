@@ -2,6 +2,7 @@
 	import { SvelteSet } from 'svelte/reactivity';
 	import { prefersReducedData } from '$lib/saveData';
 	import { faviconUrl, hueFor, monogram } from '$lib/site';
+	import { siteIcons } from '$lib/siteIcons.svelte';
 
 	// A site's icon, or a coloured tile with its initial where there is no icon to be had.
 	// Both are the same box at the same size, so a card does not resize when one turns
@@ -46,6 +47,14 @@
 
 	const hue = $derived(hueFor(host));
 	const showTile = $derived(saveData || failed.has(host));
+	/**
+	 * The tile stands alone until the page has finished loading, whatever this host's
+	 * icon would have done — a landing page names nine blogs, and nine cross-origin
+	 * fetches are not worth opening while the page is still painting. Distinct from
+	 * `showTile`, which is about a site that has no icon to show: this one is about a
+	 * moment, and it passes. See lib/siteIcons.svelte.ts.
+	 */
+	const fetching = $derived(!showTile && siteIcons.ready);
 </script>
 
 <!-- aria-hidden on the wrapper: the host this stands for is written out beside it in
@@ -67,7 +76,7 @@ every place this is used, so a screen reader announcing the icon would only repe
 	>
 		{monogram(host)}
 	</span>
-	{#if !showTile}
+	{#if fetching}
 		<img
 			src={faviconUrl(host)}
 			alt=""

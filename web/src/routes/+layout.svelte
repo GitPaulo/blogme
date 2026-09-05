@@ -4,16 +4,23 @@
 	import favicon from '$lib/assets/favicon.svg';
 	import BookmarksPanel from '$lib/components/BookmarksPanel.svelte';
 	import GithubLink from '$lib/components/GithubLink.svelte';
-	import LinkPreview from '$lib/components/LinkPreview.svelte';
 	import ThemeToggle from '$lib/components/ThemeToggle.svelte';
+	import { lazy } from '$lib/lazy.svelte';
 	import { overlapsContent } from '$lib/overlapsContent.svelte';
+	import { previewable } from '$lib/previewable';
 	import { trackScrollbarGutter } from '$lib/scrollbarGutter';
+	import { siteIcons } from '$lib/siteIcons.svelte';
 	import { visited } from '$lib/visited/store.svelte';
 
 	let { children } = $props();
 
 	let mark: HTMLElement | undefined = $state();
 	const markCovered = overlapsContent(() => mark);
+
+	// The preview panel is a whole document loader and a drag-and-resize surface, and it
+	// draws nothing until a pointer rests on a result. Fetched on the first pointer
+	// movement anywhere on the page instead of at load. See lib/lazy.svelte.ts.
+	const preview = lazy(() => import('$lib/components/LinkPreview.svelte'));
 
 	// Mounted here rather than beside the preview panel, which only installs itself on
 	// devices that can hover: an article opened by tap counts the same as one opened by
@@ -23,6 +30,27 @@
 	// Measured for the whole app rather than by the drawer, because every modal dialog on
 	// the site is laid out against the gutter this reports. See lib/scrollbarGutter.ts.
 	$effect(() => trackScrollbarGutter());
+
+	// Site icons are decoration on nine other people's origins. Held back until the page
+	// has finished loading. See lib/siteIcons.svelte.ts.
+	$effect(() => siteIcons.release());
+
+	// `pointermove` and not `pointerover` on the links themselves: `pointerover` fires on
+	// entry, so a panel that arrived while the pointer was already resting on a link would
+	// never see the hover that fetched it, and the reader's first preview would be the one
+	// that silently did not open. The first movement of a pointer anywhere comes long
+	// before anyone has aimed it at a result, which makes it both early enough to be free
+	// and coarse enough to lose nothing.
+	//
+	// Gated on the same question the panel asks itself, so a device that would never
+	// install the listeners does not spend a request finding that out.
+	$effect(() => {
+		if (!previewable()) return;
+
+		const fetchPanel = () => preview.load();
+		document.addEventListener('pointermove', fetchPanel, { once: true, passive: true });
+		return () => document.removeEventListener('pointermove', fetchPanel);
+	});
 </script>
 
 <svelte:head>
@@ -90,5 +118,9 @@ the opacity so an invisible mark never takes a click meant for what is behind it
 >
 	<GithubLink />
 </footer>
-<!-- Mounted once for the whole app; every `data-preview` link on any page shares it. -->
-<LinkPreview />
+<!-- Mounted once for the whole app; every `data-preview` link on any page shares it. Absent
+until the reader has moved a pointer, which is what keeps it out of the first load. -->
+{#if preview.current}
+	{@const Preview = preview.current}
+	<Preview />
+{/if}
