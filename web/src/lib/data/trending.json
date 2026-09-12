@@ -2,6 +2,12 @@
 	"windowDays": 7,
 	"posts": [
 		{
+			"title": "Don’t Let Anyone Take Away Your Big Box of Cables",
+			"url": "https://blog.jim-nielsen.com/2026/hands-off-my-cables/",
+			"blog": "Jim Nielsen’s Blog",
+			"host": "blog.jim-nielsen.com"
+		},
+		{
 			"title": "Your intellectual fly is open",
 			"url": "https://bcantrill.dtrace.org/2025/12/05/your-intellectual-fly-is-open/",
 			"blog": "The Observation Deck",
@@ -12,12 +18,6 @@
 			"url": "https://lapcatsoftware.com/articles/2026/9/1.html",
 			"blog": "The Desolation of Blog",
 			"host": "lapcatsoftware.com"
-		},
-		{
-			"title": "I’ve factored the RSA keys of a Certificate Authority…",
-			"url": "https://mcpherrin.ca/2026/09/07/rsa.html",
-			"blog": "Matthew McPherrin",
-			"host": "mcpherrin.ca"
 		},
 		{
 			"title": "De-Brainrot Vacations",
