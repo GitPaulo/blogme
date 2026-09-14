@@ -8,22 +8,22 @@
 			"host": "blog.jim-nielsen.com"
 		},
 		{
-			"title": "Your intellectual fly is open",
-			"url": "https://bcantrill.dtrace.org/2025/12/05/your-intellectual-fly-is-open/",
-			"blog": "The Observation Deck",
-			"host": "bcantrill.dtrace.org"
+			"title": "Everyone should slow down AI development except for me",
+			"url": "https://xeiaso.net/notes/2026/everyone-slowdown-but-me/",
+			"blog": "Xe Iaso's blog",
+			"host": "xeiaso.net"
+		},
+		{
+			"title": "Why is Google still serving dodgy ads?",
+			"url": "https://www.atomic14.com/2026/09/13/why-is-google-still-serving-dodgy-ads",
+			"blog": "atomic14",
+			"host": "atomic14.com"
 		},
 		{
 			"title": "Fuck it, make it anyway",
 			"url": "https://www.joelotter.com/posts/2026/09/make-it-anyway/",
 			"blog": "Joel Auterson",
 			"host": "joelotter.com"
-		},
-		{
-			"title": "De-Brainrot Vacations",
-			"url": "https://devz.cl/posts/i-spent-my-vacations-de-brainrotting/",
-			"blog": "Home on devz.cl",
-			"host": "devz.cl"
 		}
 	]
 }
