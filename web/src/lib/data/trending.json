@@ -8,6 +8,12 @@
 			"host": "atomic14.com"
 		},
 		{
+			"title": "25 Years of Mass Surveillance Is Enough",
+			"url": "https://www.schneier.com/blog/archives/2026/09/25-years-of-mass-surveillance-is-enough.html",
+			"blog": "Schneier on Security",
+			"host": "schneier.com"
+		},
+		{
 			"title": "Everyone should slow down AI development except for me",
 			"url": "https://xeiaso.net/notes/2026/everyone-slowdown-but-me/",
 			"blog": "Xe Iaso's blog",
@@ -18,12 +24,6 @@
 			"url": "https://blog.jim-nielsen.com/2026/hands-off-my-cables/",
 			"blog": "Jim Nielsen’s Blog",
 			"host": "blog.jim-nielsen.com"
-		},
-		{
-			"title": "dario, please!",
-			"url": "https://pop.rdi.sh/dario-please/",
-			"blog": "POP RDI; RET;",
-			"host": "pop.rdi.sh"
 		}
 	]
 }
