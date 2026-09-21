@@ -2,12 +2,6 @@
 	"windowDays": 7,
 	"posts": [
 		{
-			"title": "Why is Google still serving dodgy ads?",
-			"url": "https://www.atomic14.com/2026/09/13/why-is-google-still-serving-dodgy-ads",
-			"blog": "atomic14",
-			"host": "atomic14.com"
-		},
-		{
 			"title": "25 Years of Mass Surveillance Is Enough",
 			"url": "https://www.schneier.com/blog/archives/2026/09/25-years-of-mass-surveillance-is-enough.html",
 			"blog": "Schneier on Security",
@@ -20,10 +14,16 @@
 			"host": "hawksley.dev"
 		},
 		{
-			"title": "Small Programming Tricks",
-			"url": "https://will-keleher.com/posts/small-programming-tricks-matter/",
-			"blog": "will-keleher.com",
-			"host": "will-keleher.com"
+			"title": "How To Write With An LLM",
+			"url": "https://sockpuppet.org/blog/2026/09/17/how-to-write-with-an-llm/",
+			"blog": "Quarrelsome",
+			"host": "sockpuppet.org"
+		},
+		{
+			"title": "ChatGPT now knows what you do on other websites via ad collector",
+			"url": "https://www.buchodi.com/chatgpt-now-knows-what-you-do-on-other-websites-via-ad-collector/",
+			"blog": "Buchodi's Threat Intel",
+			"host": "buchodi.com"
 		}
 	]
 }
