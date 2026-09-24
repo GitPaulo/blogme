@@ -8,22 +8,22 @@
 			"host": "blog.colinbreck.com"
 		},
 		{
-			"title": "I don't like passkeys",
-			"url": "https://hawksley.dev/blog/i-dont-like-passkeys",
-			"blog": "Ethan Hawksley's Blog",
-			"host": "hawksley.dev"
-		},
-		{
 			"title": "I said no and Apple said yes",
 			"url": "https://dbushell.com/2026/09/22/apple-intelligence/",
 			"blog": "dbushell.com (blog)",
 			"host": "dbushell.com"
 		},
 		{
-			"title": "ChatGPT now knows what you do on other websites via ad collector",
-			"url": "https://www.buchodi.com/chatgpt-now-knows-what-you-do-on-other-websites-via-ad-collector/",
-			"blog": "Buchodi's Threat Intel",
-			"host": "buchodi.com"
+			"title": "I don't like passkeys",
+			"url": "https://hawksley.dev/blog/i-dont-like-passkeys",
+			"blog": "Ethan Hawksley's Blog",
+			"host": "hawksley.dev"
+		},
+		{
+			"title": "How To Write With An LLM",
+			"url": "https://sockpuppet.org/blog/2026/09/17/how-to-write-with-an-llm/",
+			"blog": "Quarrelsome",
+			"host": "sockpuppet.org"
 		}
 	]
 }
