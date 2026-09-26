@@ -14,16 +14,16 @@
 			"host": "dbushell.com"
 		},
 		{
-			"title": "I don't like passkeys",
-			"url": "https://hawksley.dev/blog/i-dont-like-passkeys",
-			"blog": "Ethan Hawksley's Blog",
-			"host": "hawksley.dev"
-		},
-		{
 			"title": "ChatGPT now knows what you do on other websites via ad collector",
 			"url": "https://www.buchodi.com/chatgpt-now-knows-what-you-do-on-other-websites-via-ad-collector/",
 			"blog": "Buchodi's Threat Intel",
 			"host": "buchodi.com"
+		},
+		{
+			"title": "What Sun got wrong",
+			"url": "https://bcantrill.dtrace.org/2026/09/20/what-sun-got-wrong/",
+			"blog": "The Observation Deck",
+			"host": "bcantrill.dtrace.org"
 		}
 	]
 }
