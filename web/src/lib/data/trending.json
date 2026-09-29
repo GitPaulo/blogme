@@ -2,12 +2,6 @@
 	"windowDays": 7,
 	"posts": [
 		{
-			"title": "I Don’t Want to Read What You Didn’t Write",
-			"url": "https://blog.colinbreck.com/i-dont-want-to-read-what-you-didnt-write/",
-			"blog": "Colin Breck",
-			"host": "blog.colinbreck.com"
-		},
-		{
 			"title": "I said no and Apple said yes",
 			"url": "https://dbushell.com/2026/09/22/apple-intelligence/",
 			"blog": "dbushell.com (blog)",
@@ -20,10 +14,16 @@
 			"host": "gultsch.de"
 		},
 		{
-			"title": "What Sun got wrong",
-			"url": "https://bcantrill.dtrace.org/2026/09/20/what-sun-got-wrong/",
-			"blog": "The Observation Deck",
-			"host": "bcantrill.dtrace.org"
+			"title": "I don't want the details",
+			"url": "https://michaelheap.com/i-dont-want-the-details/",
+			"blog": "michaelheap.com",
+			"host": "michaelheap.com"
+		},
+		{
+			"title": "Can gzip be a language model?",
+			"url": "https://nathan.rs/posts/gzip-lm/",
+			"blog": "nathan.rs",
+			"host": "nathan.rs"
 		}
 	]
 }
