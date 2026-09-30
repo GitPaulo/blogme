@@ -2,10 +2,10 @@
 	"windowDays": 7,
 	"posts": [
 		{
-			"title": "I said no and Apple said yes",
-			"url": "https://dbushell.com/2026/09/22/apple-intelligence/",
-			"blog": "dbushell.com (blog)",
-			"host": "dbushell.com"
+			"title": "When did Google get so f-ing weird?",
+			"url": "https://sancho.bearblog.dev/google-weird/",
+			"blog": "Sancho Panza's Thoughts",
+			"host": "sancho.bearblog.dev"
 		},
 		{
 			"title": "Breaking Up with Google Play: Why Conversations Is Now Free",
@@ -14,16 +14,16 @@
 			"host": "gultsch.de"
 		},
 		{
+			"title": "It’s Time to Investigate the AI Labs",
+			"url": "https://calnewport.com/its-time-to-investigate-the-ai-labs/",
+			"blog": "Cal Newport",
+			"host": "calnewport.com"
+		},
+		{
 			"title": "I don't want the details",
 			"url": "https://michaelheap.com/i-dont-want-the-details/",
 			"blog": "michaelheap.com",
 			"host": "michaelheap.com"
-		},
-		{
-			"title": "Can gzip be a language model?",
-			"url": "https://nathan.rs/posts/gzip-lm/",
-			"blog": "nathan.rs",
-			"host": "nathan.rs"
 		}
 	]
 }
