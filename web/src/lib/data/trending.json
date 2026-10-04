@@ -8,12 +8,6 @@
 			"host": "sancho.bearblog.dev"
 		},
 		{
-			"title": "Breaking Up with Google Play: Why Conversations Is Now Free",
-			"url": "https://gultsch.de/posts/breaking-up-with-google-play/",
-			"blog": "Daniel Gultsch",
-			"host": "gultsch.de"
-		},
-		{
 			"title": "It’s Time to Investigate the AI Labs",
 			"url": "https://calnewport.com/its-time-to-investigate-the-ai-labs/",
 			"blog": "Cal Newport",
@@ -24,6 +18,12 @@
 			"url": "https://tomwojcik.com/posts/2026-09-21/september-2026-the-world-today/",
 			"blog": "Tom Wojcik",
 			"host": "tomwojcik.com"
+		},
+		{
+			"title": "Self-Hosting on the Dark Web",
+			"url": "https://david.alvarezrosa.com/posts/self-hosting-on-the-dark-web/",
+			"blog": "David Álvarez Rosa",
+			"host": "david.alvarezrosa.com"
 		}
 	]
 }
