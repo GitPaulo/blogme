@@ -2,12 +2,6 @@
 	"windowDays": 7,
 	"posts": [
 		{
-			"title": "When did Google get so f-ing weird?",
-			"url": "https://sancho.bearblog.dev/google-weird/",
-			"blog": "Sancho Panza's Thoughts",
-			"host": "sancho.bearblog.dev"
-		},
-		{
 			"title": "It’s Time to Investigate the AI Labs",
 			"url": "https://calnewport.com/its-time-to-investigate-the-ai-labs/",
 			"blog": "Cal Newport",
@@ -20,10 +14,16 @@
 			"host": "tomwojcik.com"
 		},
 		{
-			"title": "Self-Hosting on the Dark Web",
-			"url": "https://david.alvarezrosa.com/posts/self-hosting-on-the-dark-web/",
-			"blog": "David Álvarez Rosa",
-			"host": "david.alvarezrosa.com"
+			"title": "Hijacking the PS5's RTMP Stream",
+			"url": "https://yashgarg.dev/posts/hijacking-ps5-rtmp-stream/",
+			"blog": "Yash Garg",
+			"host": "yashgarg.dev"
+		},
+		{
+			"title": "How to speed up the Rust compiler in September 2026",
+			"url": "https://nnethercote.github.io/2026/09/30/how-to-speed-up-the-rust-compiler-in-september-2026.html",
+			"blog": "Nicholas Nethercote",
+			"host": "nnethercote.github.io"
 		}
 	]
 }
