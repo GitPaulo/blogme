@@ -2,28 +2,28 @@
 	"windowDays": 7,
 	"posts": [
 		{
-			"title": "It’s Time to Investigate the AI Labs",
-			"url": "https://calnewport.com/its-time-to-investigate-the-ai-labs/",
-			"blog": "Cal Newport",
-			"host": "calnewport.com"
-		},
-		{
 			"title": "September 2026: the world today, as seen by one Polish guy",
 			"url": "https://tomwojcik.com/posts/2026-09-21/september-2026-the-world-today/",
 			"blog": "Tom Wojcik",
 			"host": "tomwojcik.com"
 		},
 		{
-			"title": "Hijacking the PS5's RTMP Stream",
-			"url": "https://yashgarg.dev/posts/hijacking-ps5-rtmp-stream/",
-			"blog": "Yash Garg",
-			"host": "yashgarg.dev"
-		},
-		{
 			"title": "How to speed up the Rust compiler in September 2026",
 			"url": "https://nnethercote.github.io/2026/09/30/how-to-speed-up-the-rust-compiler-in-september-2026.html",
 			"blog": "Nicholas Nethercote",
 			"host": "nnethercote.github.io"
+		},
+		{
+			"title": "21 reasons I didn't become an EMT, ranked",
+			"url": "https://ben.stolovitz.com/posts/reasons-not-emt-ranked/",
+			"blog": "Ben Stolovitz's blog",
+			"host": "ben.stolovitz.com"
+		},
+		{
+			"title": "The death of web development education",
+			"url": "https://molily.de/web-dev-education/",
+			"blog": "molily",
+			"host": "molily.de"
 		}
 	]
 }
