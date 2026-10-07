@@ -20,7 +20,8 @@ RESOURCE_GROUP ?= rg-blogme
 FUNCTION_APP ?= func-blogme-b3d38b
 SEARCH_SERVICE ?= srch-blogme-basic-b3d38b
 
-.PHONY: help setup dev check build clean kill revive harness suggest-harness \
+.PHONY: help setup dev check build clean kill revive status discovery-off discovery-on \
+        harness suggest-harness \
         check-api check-web check-sources build-api build-web fmt sources sources-venv \
         sources-status sources-patch sources-upload popular trending
 
@@ -153,6 +154,17 @@ kill: ## Stop the app: search, health and discovery all refuse
 
 revive: ## Start the app again after a kill
 	@RESOURCE_GROUP=$(RESOURCE_GROUP) FUNCTION_APP=$(FUNCTION_APP) ./infra/kill-switch.sh start
+
+status: ## What is running in Azure, and what it is costing
+	@RESOURCE_GROUP=$(RESOURCE_GROUP) FUNCTION_APP=$(FUNCTION_APP) ./infra/kill-switch.sh status
+
+# Discovery alone, because it is what grows the index and nearly all of the compute bill;
+# search and scoring carry on. Survives deploys, which never touch app settings.
+discovery-off: ## Pause discovery only; search and scoring carry on
+	@RESOURCE_GROUP=$(RESOURCE_GROUP) FUNCTION_APP=$(FUNCTION_APP) ./infra/kill-switch.sh jobs off discover
+
+discovery-on: ## Resume discovery from where it left off
+	@RESOURCE_GROUP=$(RESOURCE_GROUP) FUNCTION_APP=$(FUNCTION_APP) ./infra/kill-switch.sh jobs on discover
 
 clean: ## Remove build output and local emulator state
 	rm -rf api/bin api/*.zip web/build web/.svelte-kit .azurite

@@ -27,6 +27,12 @@ overwrites. The other three are deliberately not in `provision.sh`: their code d
 are the intended values, and repeating them there would be more places to disagree. Set
 them explicitly only when moving off the defaults.
 
+**To pause discovery outright**, `make discovery-off`; `make discovery-on` resumes it at
+the source it had reached. Search and scoring carry on either way. Both run
+[kill-switch.sh](../infra/kill-switch.sh) `jobs off|on discover`, which sets the
+`AzureWebJobs.discover.Disabled` app setting — a deploy never touches app settings, so a
+pause survives one. `make status` shows which timers are running.
+
 ## Why discovery is batched
 
 One run cannot walk the whole list. The corpus is tens of thousands of sources, each
