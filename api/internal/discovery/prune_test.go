@@ -71,10 +71,17 @@ func TestPruneDecidesOnTheHomepage(t *testing.T) {
 		gone bool
 	}{
 		{"404", statusSite(http.StatusNotFound), true},
+		{"410", statusSite(http.StatusGone), true},
 		{"connection refused", func(*testing.T) string { return closed.URL + "/" }, true},
+		// .invalid never resolves: see RFC 2606.
+		{"domain gone", func(*testing.T) string { return "http://blogme-pruned.invalid/" }, true},
 		{"still up, only the feed moved", statusSite(http.StatusOK), false},
 		{"refuses this crawler", statusSite(http.StatusForbidden), false},
 		{"rate limits this crawler", statusSite(http.StatusTooManyRequests), false},
+		// What CSDN answers a crawler while serving readers, and what a briefly broken
+		// site answers everyone: either way, not proof.
+		{"server error", statusSite(521), false},
+		{"unavailable", statusSite(http.StatusServiceUnavailable), false},
 		// Self-signed, which the test client cannot verify: the shape of a missing
 		// intermediate, which a browser repairs and Go does not.
 		{"certificate of unknown authority", func(t *testing.T) string {

@@ -2,9 +2,12 @@ package discovery
 
 import (
 	"context"
+	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"log/slog"
+	"net"
+	"net/http"
 	"net/url"
 
 	"github.com/GitPaulo/blogme/api/internal/sources"
@@ -21,7 +24,7 @@ const maxPrunesPerPass = 10
 // Quarantine stops the crawling but leaves what a source gathered: on 7 October 2026,
 // 486 quarantined sources still held 15,616 documents. Only a source that has failed
 // every attempt for about five weeks is looked at (see Health.Unreachable), and its
-// articles go only if its homepage fails as well.
+// articles go only if its homepage is definitely gone as well.
 //
 // It rides on the quarantine probe the pass already makes, so it costs one listing per
 // source, once, and deletes, which are free. Nothing here is fatal: a source it could
@@ -101,21 +104,40 @@ func (d *Discoverer) siteGone(ctx context.Context, s sources.Source) (string, bo
 	}
 
 	_, _, err = d.fetcher.fetch(ctx, s.Site, maxPageBytes)
-	switch {
-	case err == nil:
-		return "", false
 	// The pass running out is not the site's doing.
-	case ctx.Err() != nil:
-		return "", false
-	// Turned away, which a reader is not.
-	case refusesCrawler(err):
-		return "", false
-	// Go does not fetch a missing intermediate certificate and browsers do, so such a
-	// site often loads for a reader. Expired and wrong-host certificates fail for both.
-	case errors.As(err, new(x509.UnknownAuthorityError)):
+	if err == nil || ctx.Err() != nil || !definitelyGone(err) {
 		return "", false
 	}
 	return err.Error(), true
+}
+
+// definitelyGone reports whether a failed fetch means the site is gone for everyone.
+//
+// Only answers that cannot come from bot protection count. Run over the 77 sources the
+// first draft would have pruned on 8 October 2026, a browser still loaded two: one
+// had timed out on the crawler and one had answered it 521, CSDN's anti-bot page. So
+// timeouts, 5xx and dropped connections prove nothing, and neither do a refusal or a
+// certificate Go cannot verify but a browser can — one missing an intermediate.
+func definitelyGone(err error) bool {
+	var status *statusError
+	if errors.As(err, &status) {
+		return status.code == http.StatusNotFound || status.code == http.StatusGone
+	}
+	var dns *net.DNSError
+	if errors.As(err, &dns) {
+		return dns.IsNotFound
+	}
+	// Refused or unroutable: nothing is listening at the address any more.
+	var op *net.OpError
+	if errors.As(err, &op) && op.Op == "dial" {
+		return !op.Timeout()
+	}
+	// Expired or issued for another host, which a browser refuses too.
+	var cert *tls.CertificateVerificationError
+	if errors.As(err, &cert) {
+		return !errors.As(err, new(x509.UnknownAuthorityError))
+	}
+	return false
 }
 
 // removeArticles takes ids out of the index and then the store. It is project's order

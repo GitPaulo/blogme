@@ -386,18 +386,24 @@ the weekly probe a pass already makes:
    five weeks — is looked at.
 2. Its articles are listed. Most such sources never worked and hold nothing, which settles
    them without a request to the site.
-3. Otherwise its homepage is fetched once, and the articles go only if that fails too. A
-   failing feed alone is not enough, since a blog that moved its feed is still up. A
-   refusal (401, 403, 429) and a certificate Go cannot verify but a browser can — one
-   missing an intermediate — count as the site being there.
+3. Otherwise its homepage is fetched once, and the articles go only if the answer is
+   definite: 404 or 410, a domain that no longer resolves, a refused connection, or an
+   expired or wrong-host certificate. A failing feed alone is not enough, since a blog
+   that moved its feed is still up. Timeouts, 5xx, dropped connections, refusals (401,
+   403, 429) and a certificate Go cannot verify but a browser can all leave the source
+   alone, because bot protection answers with every one of them.
 4. The articles leave the index and then the store, the reverse of how they arrived, so a
    removal cut short leaves blobs the next probe finds and finishes. The source is marked
    `pruned` in the health blob so it is not listed again; a success clears the mark.
 
 It costs one `ListBlobs` per source, once, and deletes, which are free; at most ten
-sources are pruned a pass. Of the 15,616 documents, about 3,500 sat behind DNS failures,
-refused connections and expired certificates, and blocking sites hold 2,124 that stay.
-Every pass that looks at anything logs `unreachable sources checked`, and each removal
+sources are pruned a pass.
+
+Run in dry mode over live data on 8 October, the 3,668 sources then eligible split into
+3,533 holding nothing, 81 whose homepage was not definitely gone, and 54 to prune, 859
+articles. A browser could load none of the 54. The first draft pruned on any failure
+except a refusal, and a browser still loaded two of the 77 it chose: one had timed out
+on the crawler, and one was CSDN answering it with a 521 anti-bot page. Every pass that looks at anything logs `unreachable sources checked`, and each removal
 `pruned unreachable source` with the site and the reason. `BLOGME_PRUNE_DEAD=dry` logs
 `would prune` instead of removing; `off` stops it without a deploy.
 
