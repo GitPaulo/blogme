@@ -38,7 +38,8 @@ WEB_ORIGINS="${WEB_ORIGINS:-https://gitpaulo.github.io https://gitpaulo.moe}"
 # docs/discovery-cadence.md and docs/quality-scoring.md; change them there too.
 DISCOVERY_SCHEDULE="${DISCOVERY_SCHEDULE:-0 0 * * * *}"
 DISCOVERY_BATCH="${DISCOVERY_BATCH:-1000}"
-MAX_POSTS_PER_SOURCE="${MAX_POSTS_PER_SOURCE:-30}"
+# BLOGME_MAX_POSTS_PER_SOURCE is deliberately absent: its code default of 15 is the
+# intended value, and it ran at 30 until 7 October 2026. See docs/discovery-cadence.md.
 QUALITY_SCORE_BATCH="${QUALITY_SCORE_BATCH:-20000}"
 
 log() { printf '\n\033[36m==> %s\033[0m\n' "$1"; }
@@ -230,7 +231,6 @@ az functionapp config appsettings set \
 	"BLOGME_STORAGE_ACCOUNT=${STORAGE_ACCOUNT}" \
 	"BLOGME_DISCOVERY_SCHEDULE=${DISCOVERY_SCHEDULE}" \
 	"BLOGME_DISCOVERY_BATCH=${DISCOVERY_BATCH}" \
-	"BLOGME_MAX_POSTS_PER_SOURCE=${MAX_POSTS_PER_SOURCE}" \
 	"BLOGME_QUALITY_SCORE_BATCH=${QUALITY_SCORE_BATCH}" \
 	--output none
 echo "ok"
