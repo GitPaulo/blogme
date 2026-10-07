@@ -98,9 +98,18 @@ class Applying(Harness):
         self.assertIn("https://new.example/", self.sites())
 
     def test_nothing_to_apply_leaves_the_file_alone(self):
+        # Without hub.example, which the fixture lists twice and a patch would fold.
+        self.write_sources([e for e in ENTRIES if "hub.example" not in e["site"]])
         before = self.sources.read_text(encoding="utf-8")
         self.assertEqual(self.run_tool(), 0)
         self.assertEqual(self.sources.read_text(encoding="utf-8"), before)
+
+    def test_a_site_listed_twice_is_folded_without_any_override(self):
+        # Every post it publishes was being indexed under both ids.
+        self.assertEqual(self.run_tool(), 0)
+        self.assertEqual(self.sites(), ["https://alpha.example/", "https://hub.example/",
+                                        "https://zeta.example/"])
+        self.assertEqual(self.run_tool("--check"), 0)
 
 
 class Checking(Harness):

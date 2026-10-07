@@ -108,8 +108,9 @@ Applying a correction does not need a rebuild:
 make sources-patch
 ```
 
-That loads `blogs.yml`, merges this file into it and writes it back, and the diff is
-exactly the sources the corrections touch. It takes about a minute, nearly all of it
+That loads `blogs.yml`, merges this file into it, folds duplicates as a build does (step
+8 below) and writes it back, and the diff is exactly the sources the corrections and the
+fold touch. It takes about a minute, nearly all of it
 PyYAML parsing and re-rendering 8.6 MB — against hours for the rebuild that was
 previously the only way to deliver the same change. A rebuild performs the same merge
 at the end of its run, so the two always agree.
@@ -135,7 +136,8 @@ flowchart LR
     RETRY -->|yes| E
     D -->|yes| E[Read name, find feed,<br/>infer tags]
     E --> O[Merge blogs-overrides.yml<br/>corrections kept by hand]
-    O --> F[blogs.yml]
+    O --> M[Fold entries the crawler<br/>would read identically]
+    M --> F[blogs.yml]
     D --> G[link-audit.csv<br/>every link, pass or fail]
 ```
 
@@ -166,7 +168,14 @@ flowchart LR
    a feed lookup that merely timed out no longer erases one.
 7. **Override.** [`blogs-overrides.yml`](blogs-overrides.yml) is merged in, so a
    correction made by hand survives the rebuild that would otherwise discard it.
-8. **Write.** `blogs.yml` is validated and written, alongside `link-audit.csv` recording
+8. **Fold.** Entries the crawler would read identically become one: the same site
+   spelled twice (http and https, a `www.`, a trailing slash), two sites naming one feed,
+   or two feedless sites on one host, whose sitemap walks cover the same pages. An
+   article's key includes its source id, so each such pair was indexing every post
+   twice; folding them on 7 October 2026 took the list from 46,081 to 44,877 entries.
+   Sections of a site with feeds of their own stay separate, and so does any entry an
+   override names. See [`extractor/merge.py`](tools/extractor/merge.py).
+9. **Write.** `blogs.yml` is validated and written, alongside `link-audit.csv` recording
    every link that was checked, including failures and the reason.
 
 A feed is recorded when a site has one but is not required, so blogs without feeds still
