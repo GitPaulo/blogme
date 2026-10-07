@@ -31,6 +31,7 @@ from pathlib import Path
 import httpx
 
 from extractor.checks import never_answered
+from extractor.merge import merge_duplicate_crawls, pinned_sites
 from extractor.models import Candidate
 from extractor.output import (
     build_entries,
@@ -218,6 +219,12 @@ def run(args: argparse.Namespace) -> int:
     entries, unmatched = apply_overrides(entries, overrides, committed.ids)
     for site in unmatched:
         log(f"warning: override matched no source and cannot stand alone: {site}")
+
+    # After the overrides, as patch_sources.py does it, so the two always agree and an
+    # entry corrected by hand is never folded away.
+    entries, folded = merge_duplicate_crawls(entries, pinned_sites(overrides))
+    if folded:
+        log(f"folded into a source that crawls the same posts: {len(folded)}")
 
     validate_entries(entries)
     write_sources_yaml(args.output, entries)

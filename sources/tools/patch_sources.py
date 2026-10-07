@@ -20,9 +20,12 @@ nobody made. And an override matching no source that cannot stand alone, because
 is matched exactly: a mistyped one is otherwise silent until the next rebuild, which is
 to say for weeks.
 
-Only the overrides are applied. The build's own rules — dropping platform roots above
-all — are deliberately not re-run: they belong to deriving a list from seeds, and one
-of them would undo an override that put a platform root back on purpose.
+Only the overrides are applied, plus one rule: entries that crawl the same posts are
+folded into one (extractor/merge.py). The build's other rules — dropping platform roots
+above all — are deliberately not re-run: they belong to deriving a list from seeds, and
+one of them would undo an override that put a platform root back on purpose. The fold is
+about what the crawler will read rather than about the seeds, it leaves every entry an
+override names alone, and the build runs it at the same point, so the two agree.
 """
 
 from __future__ import annotations
@@ -34,6 +37,7 @@ from typing import Any
 
 import yaml
 
+from extractor.merge import merge_duplicate_crawls, pinned_sites
 from extractor.output import render_sources_yaml, validate_entries, write_sources_text
 from extractor.overrides import (DROP_FIELD, OVERRIDE_FIELDS, apply_overrides,
                                  load_overrides)
@@ -66,7 +70,8 @@ def load_entries(path: Path) -> list[dict[str, Any]]:
     return entries
 
 
-def describe(before: list[dict[str, Any]], after: list[dict[str, Any]]) -> list[str]:
+def describe(before: list[dict[str, Any]], after: list[dict[str, Any]],
+             folded: dict[str, str] | None = None) -> list[str]:
     """One line per source the patch changes.
 
     Reported per source rather than per line. A rename moves an entry in the sort, so
@@ -81,7 +86,11 @@ def describe(before: list[dict[str, Any]], after: list[dict[str, Any]]) -> list[
     was = {e["site"]: e for e in before}
     now = {e["site"]: e for e in after}
 
-    lines = [f"  dropped  {was[key]['site']}" for key in sorted(was.keys() - now.keys())]
+    folded = folded or {}
+    lines = []
+    for key in sorted(was.keys() - now.keys()):
+        into = folded.get(was[key]["id"])
+        lines.append(f"  folded   {key}  (into {into})" if into else f"  dropped  {key}")
     lines += [f"  added    {now[key]['site']}" for key in sorted(now.keys() - was.keys())]
 
     for key in sorted(was.keys() & now.keys()):
@@ -123,13 +132,6 @@ def main(argv: list[str] | None = None) -> int:
         log(f"error: {exc}")
         return 1
 
-    # Before rendering anything. With nothing to apply the entries are still exactly as
-    # PyYAML loaded them, whose plain lists would render as block sequences and report
-    # the whole file as changed.
-    if not overrides:
-        log("no overrides to apply")
-        return 0
-
     # The ids the list already hands out, so an override added as a source in its own
     # right keeps the id its articles were stored under and cannot take another blog's.
     # Read off the entries in hand rather than through committed_sources, which would
@@ -137,6 +139,11 @@ def main(argv: list[str] | None = None) -> int:
     known_ids = {e["site"]: e["id"] for e in entries}
 
     merged, unmatched = apply_overrides(entries, overrides, known_ids)
+    merged, folded = merge_duplicate_crawls(merged, pinned_sites(overrides))
+
+    if not overrides and not folded:
+        log("nothing to apply")
+        return 0
 
     try:
         validate_entries(merged)
@@ -146,7 +153,7 @@ def main(argv: list[str] | None = None) -> int:
 
     current = args.sources.read_text(encoding="utf-8")
     patched = render_sources_yaml(merged)
-    changes = describe(entries, merged)
+    changes = describe(entries, merged, folded)
 
     # A drop that matches nothing is the resting state of every drop that has already
     # done its work, so it cannot be a failure — it would red the build permanently the
