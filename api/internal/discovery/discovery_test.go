@@ -187,6 +187,8 @@ func (r *recordingSink) IDs(context.Context, string, int) ([]string, bool, error
 	return nil, true, nil
 }
 
+func (r *recordingSink) Delete(context.Context, []string) error { return nil }
+
 func batch(ids ...string) []article.Article {
 	out := make([]article.Article, len(ids))
 	for i, id := range ids {
@@ -243,3 +245,5 @@ func TestProjectStopsWhenTheIndexRefuses(t *testing.T) {
 type refusingIndex struct{ err error }
 
 func (r refusingIndex) Upsert(context.Context, []article.Article) error { return r.err }
+
+func (r refusingIndex) Delete(context.Context, []string) error { return r.err }

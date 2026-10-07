@@ -558,6 +558,13 @@ func (m *memStore) Save(_ context.Context, a article.Article) error {
 	return nil
 }
 
+func (m *memStore) Delete(_ context.Context, ids []string) error {
+	for _, id := range ids {
+		delete(m.have, id)
+	}
+	return nil
+}
+
 func (m *memStore) Has(_ context.Context, id string) (bool, error) {
 	m.lookups++
 	if m.err != nil {

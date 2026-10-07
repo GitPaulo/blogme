@@ -15,15 +15,16 @@ and 7,680 without.
 | `BLOGME_MAX_POSTS_PER_SOURCE`     | code default  | `15`            | New posts taken per source per pass       |
 | `BLOGME_SOURCE_FAILURE_THRESHOLD` | code default  | `3`             | Failures running before quarantine        |
 | `BLOGME_QUARANTINE_DAYS`          | code default  | `7`             | How often a quarantined source is retried |
+| `BLOGME_PRUNE_DEAD`               | code default  | `on`            | Removes a dead site's articles            |
 
-All five are Function App application settings, so changing cadence is a configuration
+All six are Function App application settings, so changing cadence is a configuration
 change and needs **no redeploy**. The deployed values override the code defaults in
 [config.go](../api/config.go); the fallbacks apply only when a setting is absent.
 
 The first two are applied by [provision.sh](../infra/provision.sh), so a rebuilt
 environment comes up at the deployed cadence rather than the code defaults. Change them
 there rather than in the portal alone — the portal value is the one a provision run
-overwrites. The other three are deliberately not in `provision.sh`: their code defaults
+overwrites. The other four are deliberately not in `provision.sh`: their code defaults
 are the intended values, and repeating them there would be more places to disagree. Set
 them explicitly only when moving off the defaults.
 
@@ -373,6 +374,36 @@ having a bad month — the distinction the source list cannot currently draw for
 Feeding that back into the list automatically is the next step and is deliberately not
 built yet: the crawler already routes around every one of these cases at runtime, so what
 it costs today is invisibility rather than breakage.
+
+### Pruning
+
+Quarantine stops the crawling but not what a source already gathered: on 7 October 2026,
+486 quarantined sources still held 15,616 documents, results that send a reader to a page
+that will not load. [prune.go](../api/internal/discovery/prune.go) removes them, riding on
+the weekly probe a pass already makes:
+
+1. Only a source that has failed every attempt for four probes past quarantine — about
+   five weeks — is looked at.
+2. Its articles are listed. Most such sources never worked and hold nothing, which settles
+   them without a request to the site.
+3. Otherwise its homepage is fetched once, and the articles go only if that fails too. A
+   failing feed alone is not enough, since a blog that moved its feed is still up. A
+   refusal (401, 403, 429) and a certificate Go cannot verify but a browser can — one
+   missing an intermediate — count as the site being there.
+4. The articles leave the index and then the store, the reverse of how they arrived, so a
+   removal cut short leaves blobs the next probe finds and finishes. The source is marked
+   `pruned` in the health blob so it is not listed again; a success clears the mark.
+
+It costs one `ListBlobs` per source, once, and deletes, which are free; at most ten
+sources are pruned a pass. Of the 15,616 documents, about 3,500 sat behind DNS failures,
+refused connections and expired certificates, and blocking sites hold 2,124 that stay.
+Every pass that looks at anything logs `unreachable sources checked`, and each removal
+`pruned unreachable source` with the site and the reason. `BLOGME_PRUNE_DEAD=dry` logs
+`would prune` instead of removing; `off` stops it without a deploy.
+
+The source stays in `blogs.yml`, and a site that comes back is crawled like any other.
+Sources dropped from the list are a separate matter: their documents are not touched by
+any of this.
 
 ## Changing it
 

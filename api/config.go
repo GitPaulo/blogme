@@ -34,6 +34,9 @@ type config struct {
 	// than the full crawl ladder every pass. A threshold of zero turns it off.
 	sourceFailureThreshold int
 	quarantineDays         int
+	// What happens to a quarantined source whose site is gone: "on" removes its
+	// articles, "dry" only logs that it would, anything else leaves them.
+	pruneDead string
 	// Quality scoring. It reads and writes the index and nothing else, so the only
 	// settings it needs are when to run and how much to do in one pass.
 	qualitySchedule   string
@@ -67,6 +70,7 @@ func loadConfig() config {
 		// blog having a bad week is not set aside for one.
 		sourceFailureThreshold: envCount("BLOGME_SOURCE_FAILURE_THRESHOLD", 3),
 		quarantineDays:         envInt("BLOGME_QUARANTINE_DAYS", 7),
+		pruneDead:              env("BLOGME_PRUNE_DEAD", "on"),
 		// Half past the hour, so a scoring pass and a discovery pass are not reading
 		// and writing the same index at the same moment.
 		qualitySchedule:   env("BLOGME_QUALITY_SCHEDULE", "0 30 * * * *"),

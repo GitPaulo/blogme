@@ -36,12 +36,15 @@ type articleStore interface {
 	Save(ctx context.Context, a article.Article) error
 	Has(ctx context.Context, id string) (bool, error)
 	IDs(ctx context.Context, prefix string, maxPages int) (ids []string, complete bool, err error)
+	Delete(ctx context.Context, ids []string) error
 }
 
 // articleIndex is what discovery needs of the search index: somewhere to project the
-// articles a pass has gathered. An interface for the same reason articleStore is one.
+// articles a pass has gathered, and a way to take back those of a site that is gone.
+// An interface for the same reason articleStore is one.
 type articleIndex interface {
 	Upsert(ctx context.Context, articles []article.Article) error
+	Delete(ctx context.Context, ids []string) error
 }
 
 // Discoverer fills the corpus one bounded pass at a time.
@@ -63,6 +66,7 @@ type Discoverer struct {
 	maxPosts     int
 	contentWords int
 	concurrency  int
+	prune        string
 }
 
 // Options tune how much work one run does and how much text it keeps.
@@ -71,6 +75,9 @@ type Options struct {
 	MaxPosts     int
 	ContentWords int
 	Concurrency  int
+	// Prune is "on", "dry" to log what would be removed without removing it, or
+	// anything else to leave unreachable sources alone. See pruneUnreachable.
+	Prune string
 }
 
 func New(provider sources.Provider, st articleStore, idx articleIndex, cur *Cursor, hp *Health, opts Options) *Discoverer {
@@ -88,6 +95,7 @@ func New(provider sources.Provider, st articleStore, idx articleIndex, cur *Curs
 		maxPosts:     opts.MaxPosts,
 		contentWords: opts.ContentWords,
 		concurrency:  opts.Concurrency,
+		prune:        opts.Prune,
 	}
 }
 
@@ -139,6 +147,8 @@ func (d *Discoverer) Run(ctx context.Context) error {
 		processed int
 		failed    int
 		timedOut  int
+		// Every source that failed this pass, which is where unreachable ones are found.
+		failures []sources.Source
 	)
 
 	flush := func() error {
@@ -198,6 +208,7 @@ func (d *Discoverer) Run(ctx context.Context) error {
 				"duration_ms", res.duration.Milliseconds(),
 				"error", err)
 			failed++
+			failures = append(failures, res.source)
 			continue
 		}
 
@@ -238,6 +249,10 @@ func (d *Discoverer) Run(ctx context.Context) error {
 	if err := d.cursor.write(ctx, next); err != nil {
 		return fmt.Errorf("write cursor: %w", err)
 	}
+
+	// After the all-failed guard above, so a pass that could reach nothing never
+	// decides a site is gone, and before health is saved, since it marks what it prunes.
+	d.pruneUnreachable(ctx, failures)
 
 	// After the cursor, and not fatal. The crawl is already done and indexed, so losing
 	// a pass of health costs one pass of quarantine, where failing here would report a

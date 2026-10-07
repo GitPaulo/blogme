@@ -86,6 +86,7 @@ func main() {
 		"crawl_concurrency", cfg.crawlConcurrency,
 		"failure_threshold", cfg.sourceFailureThreshold,
 		"quarantine_days", cfg.quarantineDays,
+		"prune_dead", cfg.pruneDead,
 		"quality_schedule", cfg.qualitySchedule,
 		"quality_batch", cfg.qualityScoreBatch,
 		"quality_version", quality.Version)
@@ -146,6 +147,7 @@ func newJobs(cfg config, idx *index.Index) (jobs, error) {
 			MaxPosts:     cfg.maxPostsPerSource,
 			ContentWords: cfg.contentWords,
 			Concurrency:  cfg.crawlConcurrency,
+			Prune:        cfg.pruneDead,
 		},
 	)
 

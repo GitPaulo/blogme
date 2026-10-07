@@ -27,7 +27,16 @@ type health struct {
 	// from. A source never tried holds the zero time, which is older than any interval,
 	// so nothing is quarantined before it has actually failed.
 	LastTried time.Time `json:"lastTried,omitzero"`
+	// Pruned means the source's articles have been removed because its site stopped
+	// answering, so a source that stays down is not looked at again every probe. A
+	// success clears it along with the failures.
+	Pruned bool `json:"pruned,omitempty"`
 }
+
+// Probes past quarantine that a source must fail before it is checked for pruning. At
+// one probe a week that is about five weeks of failing every attempt, long past any
+// outage a blog comes back from.
+const pruneAfterProbes = 4
 
 // blobStore is what source health needs of storage: one blob to read and write.
 //
@@ -190,7 +199,29 @@ func (h *Health) Record(id string, err error) {
 	} else {
 		e.Failures = 0
 		e.LastOK = e.LastTried
+		e.Pruned = false
 	}
+	h.entries[id] = e
+}
+
+// Unreachable reports whether a source has failed long enough that its articles are
+// worth checking for removal, and has not been pruned already. Pruning builds on
+// quarantine, so with quarantine off nothing is unreachable.
+func (h *Health) Unreachable(id string) bool {
+	if h == nil || h.threshold <= 0 {
+		return false
+	}
+	e := h.entries[id]
+	return e.Failures >= h.threshold+pruneAfterProbes && !e.Pruned
+}
+
+// MarkPruned records that a source's articles are gone, until it next succeeds.
+func (h *Health) MarkPruned(id string) {
+	if h == nil {
+		return
+	}
+	e := h.entries[id]
+	e.Pruned = true
 	h.entries[id] = e
 }
 

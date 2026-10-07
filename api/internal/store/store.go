@@ -32,6 +32,18 @@ func (s *Store) Save(ctx context.Context, a article.Article) error {
 	return s.client.Upload(ctx, s.container, a.ID+".json", data)
 }
 
+// Delete removes articles' canonical copies. One that is already gone is not an error,
+// so an interrupted removal can simply be repeated.
+func (s *Store) Delete(ctx context.Context, ids []string) error {
+	for _, id := range ids {
+		err := s.client.Delete(ctx, s.container, id+".json")
+		if err != nil && !errors.Is(err, blob.ErrNotFound) {
+			return err
+		}
+	}
+	return nil
+}
+
 // IDs returns the stored ids that are prefix followed by no further "-", reading at most
 // maxPages pages of the listing, and reports whether that was all of them.
 //

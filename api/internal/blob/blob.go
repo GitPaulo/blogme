@@ -121,6 +121,18 @@ func (c *Client) List(ctx context.Context, container, prefix, delimiter string, 
 	return names, !pager.More(), nil
 }
 
+// Delete removes a blob. Delete operations are not billed.
+// see: https://azure.microsoft.com/en-gb/pricing/details/storage/blobs/
+func (c *Client) Delete(ctx context.Context, container, name string) error {
+	if _, err := c.svc.DeleteBlob(ctx, container, name, nil); err != nil {
+		if bloberror.HasCode(err, bloberror.BlobNotFound, bloberror.ContainerNotFound) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("delete %s/%s: %w", container, name, err)
+	}
+	return nil
+}
+
 func (c *Client) Upload(ctx context.Context, container, name string, data []byte) error {
 	if _, err := c.svc.UploadBuffer(ctx, container, name, data, nil); err != nil {
 		return fmt.Errorf("upload %s/%s: %w", container, name, err)

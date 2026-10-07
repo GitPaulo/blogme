@@ -678,6 +678,26 @@ func (i *Index) Upsert(ctx context.Context, articles []article.Article) error {
 	return nil
 }
 
+// Delete removes documents by id. Deleting one that is not there still succeeds, so an
+// interrupted removal can simply be repeated.
+// see: https://learn.microsoft.com/rest/api/searchservice/documents/index
+func (i *Index) Delete(ctx context.Context, ids []string) error {
+	for start := 0; start < len(ids); start += maxBatch {
+		end := min(start+maxBatch, len(ids))
+
+		docs := make([]map[string]string, 0, end-start)
+		for _, id := range ids[start:end] {
+			docs = append(docs, map[string]string{"@search.action": "delete", "id": id})
+		}
+
+		if err := i.do(ctx, http.MethodPost, "/docs/index", map[string]any{"value": docs}, nil); err != nil {
+			return fmt.Errorf("delete %d documents: %w", len(docs), err)
+		}
+	}
+
+	return nil
+}
+
 func (i *Index) do(ctx context.Context, method, path string, body, out any) error {
 	// A nil body means a GET, which carries none: sending "null" with a JSON content
 	// type would be a request the service is entitled to refuse.

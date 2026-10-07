@@ -105,7 +105,7 @@ Key properties:
 | Idempotent      | Article IDs are the source plus a hash of the URL, so re-crawling updates |
 | Incremental     | Sitemap pages already stored are skipped, so later runs reach deeper      |
 | Fault isolated  | One failing blog is logged and skipped; the pass continues                |
-| Self-pruning    | A source that fails every route repeatedly stops costing a full crawl     |
+| Self-pruning    | Failing sources stop costing a crawl; a dead site's posts are removed     |
 
 The per-domain cap matters more than it looks: shared platforms host thousands of the
 sources, with `bearblog.dev` alone accounting for over a thousand. Limiting by hostname
