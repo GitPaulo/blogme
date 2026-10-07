@@ -8,22 +8,22 @@
 			"host": "tomwojcik.com"
 		},
 		{
+			"title": "The lamps in my house",
+			"url": "https://arslan.io/2026/10/05/the-lamps-in-my-house/",
+			"blog": "Fatih Arslan",
+			"host": "arslan.io"
+		},
+		{
+			"title": "Friendship ended with Deno, now Node is my best friend",
+			"url": "https://dbushell.com/2026/10/03/deno-to-node/",
+			"blog": "dbushell.com (blog)",
+			"host": "dbushell.com"
+		},
+		{
 			"title": "How to speed up the Rust compiler in September 2026",
 			"url": "https://nnethercote.github.io/2026/09/30/how-to-speed-up-the-rust-compiler-in-september-2026.html",
 			"blog": "Nicholas Nethercote",
 			"host": "nnethercote.github.io"
-		},
-		{
-			"title": "21 reasons I didn't become an EMT, ranked",
-			"url": "https://ben.stolovitz.com/posts/reasons-not-emt-ranked/",
-			"blog": "Ben Stolovitz's blog",
-			"host": "ben.stolovitz.com"
-		},
-		{
-			"title": "The death of web development education",
-			"url": "https://molily.de/web-dev-education/",
-			"blog": "molily",
-			"host": "molily.de"
 		}
 	]
 }
