@@ -12,7 +12,7 @@ and 7,680 without.
 | --------------------------------- | ------------- | --------------- | ----------------------------------------- |
 | `BLOGME_DISCOVERY_SCHEDULE`       | `0 0 * * * *` | `0 0 */6 * * *` | Timer cron, hourly                        |
 | `BLOGME_DISCOVERY_BATCH`          | `1000`        | `200`           | Crawlable sources examined per run        |
-| `BLOGME_MAX_POSTS_PER_SOURCE`     | `30`          | `15`            | Newest posts read per source              |
+| `BLOGME_MAX_POSTS_PER_SOURCE`     | code default  | `15`            | New posts taken per source per pass       |
 | `BLOGME_SOURCE_FAILURE_THRESHOLD` | code default  | `3`             | Failures running before quarantine        |
 | `BLOGME_QUARANTINE_DAYS`          | code default  | `7`             | How often a quarantined source is retried |
 
@@ -20,12 +20,12 @@ All five are Function App application settings, so changing cadence is a configu
 change and needs **no redeploy**. The deployed values override the code defaults in
 [config.go](../api/config.go); the fallbacks apply only when a setting is absent.
 
-The first three are applied by [provision.sh](../infra/provision.sh), so a rebuilt
+The first two are applied by [provision.sh](../infra/provision.sh), so a rebuilt
 environment comes up at the deployed cadence rather than the code defaults. Change them
 there rather than in the portal alone — the portal value is the one a provision run
-overwrites. The two quarantine settings are deliberately not in `provision.sh`: their code
-defaults are the intended values, and repeating them there would be two more places to
-disagree. Set them explicitly only when moving off the defaults.
+overwrites. The other three are deliberately not in `provision.sh`: their code defaults
+are the intended values, and repeating them there would be more places to disagree. Set
+them explicitly only when moving off the defaults.
 
 ## Why discovery is batched
 
@@ -152,16 +152,21 @@ probes, the homepage, then any feed advertised there. Paying that every pass for
 that will never answer is the single largest piece of waste in a run, and it was being
 paid on about a tenth of the list — see [quarantine](#quarantine) below.
 
-**The feed window decides what can ever be found.** A feed lists only its most recent
-posts, and the crawler reads the newest `BLOGME_MAX_POSTS_PER_SOURCE` of them. Anything
-that falls past that window before the source is first crawled successfully is not late,
-it is unreachable: the feed path never revisits it, and only the sitemap path consults
-`store.Has` to fill gaps. A blog with no sitemap has no second route at all, so its
-history is exactly what its feed still lists. This is why the setting is 30 rather than
-the code's 15 — a blog that was in the list for months without a working feed comes back
-with a backlog, and a window of 15 silently truncates it. Raising it is a configuration
-change, but it is not free: it scales both the fetches per pass and the documents in the
-index, so weigh it against the two ceilings below.
+**The window bounds how fast a source fills, not what it can reach.** The crawler takes
+at most `BLOGME_MAX_POSTS_PER_SOURCE` new posts from a source in one pass. Posts already
+in the store are skipped without counting towards it, so a feed carrying a backlog is
+drained over successive passes — 15 a pass, a pass every 1.9 days — for as long as the feed
+still lists them. What the window does cut is a source publishing faster than that, more
+than about 225 posts a month, which is a newsroom's rate rather than a blog's: the excess
+scrolls out of the feed before a later pass can reach it.
+
+It was 30 from 21 August to 7 October 2026. That was chosen while the feed path still
+stopped at its newest entries, when a window of 15 truncated a returning blog's backlog
+for good; once stored entries stopped counting (27 August), the larger window no longer
+bought a blog anything and only let high-volume sources in faster. Measured on
+7 October, going back to 15 trimmed a quarter of a month's new posts (54,039 of 219,386)
+from 304 sources, all of them publishing over 225 posts a month. It scales both the fetches
+per pass and the documents in the index, so weigh any rise against the two ceilings below.
 
 **Storage caps bite before compute does.** The 50 MB Free-tier ceiling was reached first,
 which is why the service now runs on Basic; see [tech-stack.md](tech-stack.md). Cadence
