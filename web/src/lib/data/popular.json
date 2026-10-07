@@ -1,5 +1,5 @@
 {
-	"corpus": 46081,
+	"corpus": 44877,
 	"blogs": [
 		{
 			"name": "Simon Willison's Weblog",
@@ -22,8 +22,7 @@
 			"site": "https://danluu.com/",
 			"host": "danluu.com",
 			"ids": [
-				"danluu",
-				"danluu-2"
+				"danluu"
 			]
 		},
 		{
