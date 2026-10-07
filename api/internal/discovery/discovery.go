@@ -27,14 +27,15 @@ const indexBatchSize = 1000
 // it; the articles gathered before the deadline are still kept.
 const sourceTimeout = 90 * time.Second
 
-// articleStore is what a crawl needs of the article store: whether a post has already
-// been captured, and somewhere to put it when it has not.
+// articleStore is what a crawl needs of the article store: which posts a source has
+// already had captured, and somewhere to put the ones it has not.
 //
 // An interface rather than *store.Store so a crawl can be exercised without an Azure
 // account behind it. A nil store knows nothing and keeps nothing.
 type articleStore interface {
 	Save(ctx context.Context, a article.Article) error
 	Has(ctx context.Context, id string) (bool, error)
+	IDs(ctx context.Context, prefix string, maxPages int) (ids []string, complete bool, err error)
 }
 
 // articleIndex is what discovery needs of the search index: somewhere to project the
@@ -275,7 +276,7 @@ func failureKind(err error) string {
 
 // project writes one batch of gathered articles to the index and then to the store.
 //
-// The order is the whole point. The store is what skipStored consults to decide an
+// The order is the whole point. The store is what skipStored lists to decide an
 // article has already been dealt with, so writing it first means a run killed in
 // between leaves an article that is stored, unsearchable, and never looked at again:
 // the next pass sees the blob and skips the post for good. Twelve consecutive runs hit

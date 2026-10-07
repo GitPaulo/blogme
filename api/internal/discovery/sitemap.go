@@ -86,7 +86,7 @@ type sitemapLink struct {
 // crawlSitemap covers the third of the corpus that publishes no feed. It is the slower
 // path by design: a feed describes its posts, whereas here every candidate page must be
 // fetched before it can be judged.
-func (d *Discoverer) crawlSitemap(ctx context.Context, s sources.Source, b *budget) ([]article.Article, error) {
+func (d *Discoverer) crawlSitemap(ctx context.Context, s sources.Source, b *budget, known *knownArticles) ([]article.Article, error) {
 	site, err := url.Parse(s.Site)
 	if err != nil || !isHTTP(site) {
 		return nil, fmt.Errorf("invalid site url %q", s.Site)
@@ -125,10 +125,11 @@ func (d *Discoverer) crawlSitemap(ctx context.Context, s sources.Source, b *budg
 		}
 		// A sitemap lists a whole archive but one run takes only a few pages, so
 		// skipping what is already stored is what lets later runs reach further in.
-		if d.skipStored(ctx, s.ID, link.url.String()) {
+		if known.skipStored(ctx, link.url.String()) {
 			continue
 		}
 		if a, ok := d.sitemapArticle(ctx, s, link, b); ok {
+			known.add(a.ID)
 			articles = append(articles, a)
 		}
 	}

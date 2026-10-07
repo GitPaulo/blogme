@@ -14,6 +14,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
+	azcontainer "github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
 )
 
 // ErrNotFound is returned when a blob does not exist.
@@ -85,6 +86,39 @@ func (c *Client) ETag(ctx context.Context, container, name string) (string, erro
 		return "", nil
 	}
 	return string(*props.ETag), nil
+}
+
+// List returns the names of the blobs directly under prefix, reading delimiter as a
+// path separator, and reports whether it read them all. It stops after maxPages pages,
+// each one billable List Blobs operation of up to 5,000 entries; a name that runs on
+// past another delimiter is folded into a single entry and not returned.
+// see: https://learn.microsoft.com/en-us/rest/api/storageservices/enumerating-blob-resources
+func (c *Client) List(ctx context.Context, container, prefix, delimiter string, maxPages int) ([]string, bool, error) {
+	pager := c.svc.ServiceClient().NewContainerClient(container).
+		NewListBlobsHierarchyPager(delimiter, &azcontainer.ListBlobsHierarchyOptions{Prefix: &prefix})
+
+	var names []string
+	for range maxPages {
+		if !pager.More() {
+			break
+		}
+		page, err := pager.NextPage(ctx)
+		if err != nil {
+			if bloberror.HasCode(err, bloberror.ContainerNotFound) {
+				return nil, false, ErrNotFound
+			}
+			return nil, false, fmt.Errorf("list %s/%s: %w", container, prefix, err)
+		}
+		if page.Segment == nil {
+			continue
+		}
+		for _, item := range page.Segment.BlobItems {
+			if item.Name != nil {
+				names = append(names, *item.Name)
+			}
+		}
+	}
+	return names, !pager.More(), nil
 }
 
 func (c *Client) Upload(ctx context.Context, container, name string, data []byte) error {

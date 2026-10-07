@@ -545,7 +545,12 @@ func TestCrawlWithABrokenFeedAndNoSitemapReportsTheFeed(t *testing.T) {
 // goroutine, so nothing here needs locking.
 type memStore struct {
 	have map[string]bool
-	err  error
+	// Stored, but past where a listing was cut short. Any entry makes listings partial.
+	unlisted map[string]bool
+	err      error
+
+	// What the crawl asked for, each of which is a billed operation against Azure.
+	lists, lookups int
 }
 
 func (m *memStore) Save(_ context.Context, a article.Article) error {
@@ -554,10 +559,29 @@ func (m *memStore) Save(_ context.Context, a article.Article) error {
 }
 
 func (m *memStore) Has(_ context.Context, id string) (bool, error) {
+	m.lookups++
 	if m.err != nil {
 		return false, m.err
 	}
 	return m.have[id], nil
+}
+
+// IDs lists the way the blob store does on the "-" delimiter: ids carrying a further
+// dash belong to a longer source key and are not returned.
+func (m *memStore) IDs(_ context.Context, prefix string, _ int) ([]string, bool, error) {
+	m.lists++
+	if m.err != nil {
+		return nil, false, m.err
+	}
+
+	var ids []string
+	for id := range m.have {
+		rest, ok := strings.CutPrefix(id, prefix)
+		if ok && !strings.Contains(rest, "-") && !m.unlisted[id] {
+			ids = append(ids, id)
+		}
+	}
+	return ids, len(m.unlisted) == 0, nil
 }
 
 // dedupFeed serves two posts as stubs rather than in full, so every post the crawler
@@ -651,7 +675,8 @@ func TestCrawlFeedSkipsWhenTheStoreCannotAnswer(t *testing.T) {
 	srv := dedupFeed(t, &pageHits)
 
 	d := newLocalDiscoverer(5)
-	d.store = &memStore{have: map[string]bool{}, err: errors.New("storage unavailable")}
+	st := &memStore{have: map[string]bool{}, err: errors.New("storage unavailable")}
+	d.store = st
 
 	articles, err := d.crawl(context.Background(), dedupSource(srv))
 	if err != nil {
@@ -662,6 +687,10 @@ func TestCrawlFeedSkipsWhenTheStoreCannotAnswer(t *testing.T) {
 	}
 	if got := pageHits.Load(); got != 0 {
 		t.Errorf("fetched %d pages, want 0: an unreadable store must not cause refetches", got)
+	}
+	// The failed listing answers for every post, rather than each one asking again.
+	if st.lists != 1 || st.lookups != 0 {
+		t.Errorf("listed %d times and looked up %d posts, want 1 and 0", st.lists, st.lookups)
 	}
 }
 
@@ -686,9 +715,186 @@ func TestCrawlFeedStillCapsPostsPerPass(t *testing.T) {
 // A Discoverer built without a store keeps nothing, so it has nothing to skip. The
 // crawl tests that are not about storage rely on this.
 func TestSkipStoredWithoutAStoreSkipsNothing(t *testing.T) {
-	d := newLocalDiscoverer(5)
-	if d.skipStored(context.Background(), "none", "https://example.com/post") {
+	known := newKnownArticles(nil, "none")
+	if known.skipStored(context.Background(), "https://example.com/post") {
 		t.Error("skipStored() = true with no store, want false")
+	}
+}
+
+// A HEAD per candidate link came to a million billed operations a day. One listing now
+// answers for the whole source, both the post it holds and the one it does not.
+func TestCrawlListsTheSourceOnceInsteadOfLookingUpEachPost(t *testing.T) {
+	var pageHits atomic.Int64
+	srv := dedupFeed(t, &pageHits)
+
+	d := newLocalDiscoverer(5)
+	st := &memStore{have: map[string]bool{
+		articleID("dedup", srv.URL+"/posts/one"): true,
+	}}
+	d.store = st
+
+	articles, err := d.crawl(context.Background(), dedupSource(srv))
+	if err != nil {
+		t.Fatalf("crawl() error = %v", err)
+	}
+	if len(articles) != 1 {
+		t.Fatalf("got %d articles, want 1", len(articles))
+	}
+	if st.lists != 1 || st.lookups != 0 {
+		t.Errorf("listed %d times and looked up %d posts, want 1 and 0", st.lists, st.lookups)
+	}
+}
+
+// The listing waits for the first post, so a source that fails before reaching one,
+// about a tenth of a pass, is not charged for it.
+func TestCrawlThatReachesNoPostListsNothing(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+
+	d := newLocalDiscoverer(5)
+	st := &memStore{have: map[string]bool{}}
+	d.store = st
+
+	if _, err := d.crawl(context.Background(), dedupSource(srv)); err == nil {
+		t.Fatal("crawl() error = nil, want the broken feed reported")
+	}
+	if st.lists != 0 {
+		t.Errorf("listed %d times, want 0 for a source that reached no post", st.lists)
+	}
+}
+
+// A site that moves to https, drops www or adds a trailing slash re-spells every post
+// it has already given us, and each spelling hashes to a new id. 8,399 documents were
+// such duplicates on 7 October 2026. The post is already captured, under its old id.
+func TestCrawlFeedSkipsAPostStoredUnderAnotherSpelling(t *testing.T) {
+	var pageHits atomic.Int64
+	srv := dedupFeed(t, &pageHits)
+
+	// Every toggle at once: https, a leading www and a trailing slash, where the feed
+	// lists the post over http, bare and without one.
+	respelled := strings.Replace(srv.URL, "http://", "https://www.", 1) + "/posts/one/"
+
+	d := newLocalDiscoverer(5)
+	d.store = &memStore{have: map[string]bool{articleID("dedup", respelled): true}}
+
+	articles, err := d.crawl(context.Background(), dedupSource(srv))
+	if err != nil {
+		t.Fatalf("crawl() error = %v", err)
+	}
+	if len(articles) != 1 {
+		t.Fatalf("got %d articles, want 1: the first post is stored under another spelling", len(articles))
+	}
+	if got := articles[0].URL; got != srv.URL+"/posts/two" {
+		t.Errorf("URL = %q, want the post the store did not hold", got)
+	}
+	if got := pageHits.Load(); got != 1 {
+		t.Errorf("fetched %d pages, want 1: a respelled post should cost no request", got)
+	}
+}
+
+// What a crawl accepts is not saved until the pass flushes it, so the listing cannot
+// know about it. Two spellings of one post in the same walk must still be one article.
+func TestCrawlFeedTakesOneSpellingOfAPostListedTwice(t *testing.T) {
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	mux.HandleFunc("/feed.xml", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `<?xml version="1.0"?>
+<rss version="2.0"><channel><title>Twice</title>
+  <item><title>A post</title><link>`+srv.URL+`/posts/one</link></item>
+  <item><title>A post</title><link>`+srv.URL+`/posts/one/</link></item>
+</channel></rss>`)
+	})
+	mux.HandleFunc("/posts/", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `<html><body><article><p>Body.</p></article></body></html>`)
+	})
+
+	d := newLocalDiscoverer(5)
+	d.store = &memStore{have: map[string]bool{}}
+
+	articles, err := d.crawl(context.Background(), dedupSource(srv))
+	if err != nil {
+		t.Fatalf("crawl() error = %v", err)
+	}
+	if len(articles) != 1 {
+		t.Errorf("got %d articles, want 1: both entries are the same post", len(articles))
+	}
+}
+
+// Past maxStoredPages the listing is partial, so a post missing from it may still be
+// stored and is looked up on its own. A post the partial listing does carry is not.
+func TestCrawlFeedLooksUpWhatAPartialListingMissed(t *testing.T) {
+	var pageHits atomic.Int64
+	srv := dedupFeed(t, &pageHits)
+
+	one := articleID("dedup", srv.URL+"/posts/one")
+	two := articleID("dedup", srv.URL+"/posts/two")
+	d := newLocalDiscoverer(5)
+	st := &memStore{
+		have:     map[string]bool{one: true, two: true},
+		unlisted: map[string]bool{two: true},
+	}
+	d.store = st
+
+	articles, err := d.crawl(context.Background(), dedupSource(srv))
+	if err != nil {
+		t.Fatalf("crawl() error = %v", err)
+	}
+	if len(articles) != 0 {
+		t.Errorf("got %d articles, want 0: both posts are stored", len(articles))
+	}
+	if st.lookups != 1 {
+		t.Errorf("looked up %d posts, want 1: only the one the listing did not reach", st.lookups)
+	}
+	if got := pageHits.Load(); got != 0 {
+		t.Errorf("fetched %d pages, want 0", got)
+	}
+}
+
+func TestSpellingsTogglesSlashSchemeAndWWW(t *testing.T) {
+	got := spellings("http://example.com/a")
+	want := []string{
+		"http://example.com/a",
+		"http://example.com/a/",
+		"https://example.com/a",
+		"https://example.com/a/",
+		"http://www.example.com/a",
+		"http://www.example.com/a/",
+		"https://www.example.com/a",
+		"https://www.example.com/a/",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("spellings() = %q, want %q", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("spellings()[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+
+	if got := spellings("https://www.example.com/")[4]; got != "https://example.com/" {
+		t.Errorf("spellings() www toggle = %q, want the bare host", got)
+	}
+}
+
+// Discourse links each reply in a topic to an anchor on one page, so two links that
+// differ only in their fragment are two posts and must never be spellings of each other.
+func TestSpellingsKeepTheFragment(t *testing.T) {
+	for _, s := range spellings("https://forum.example.com/t/topic/42#post_7") {
+		if !strings.HasSuffix(s, "#post_7") {
+			t.Errorf("spelling %q lost or changed the fragment", s)
+		}
+	}
+}
+
+func TestSpellingsLeaveAnUnusableLinkAlone(t *testing.T) {
+	for _, link := range []string{"https:opaque", "%zz", "/relative/only"} {
+		if got := spellings(link); len(got) != 1 || got[0] != link {
+			t.Errorf("spellings(%q) = %q, want only the link itself", link, got)
+		}
 	}
 }
 

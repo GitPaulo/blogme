@@ -183,6 +183,10 @@ func (r *recordingSink) Save(_ context.Context, a article.Article) error {
 
 func (r *recordingSink) Has(context.Context, string) (bool, error) { return false, nil }
 
+func (r *recordingSink) IDs(context.Context, string, int) ([]string, bool, error) {
+	return nil, true, nil
+}
+
 func batch(ids ...string) []article.Article {
 	out := make([]article.Article, len(ids))
 	for i, id := range ids {
@@ -191,7 +195,7 @@ func batch(ids ...string) []article.Article {
 	return out
 }
 
-// The store is what skipStored consults to decide an article has been dealt with, so
+// The store is what skipStored lists to decide an article has been dealt with, so
 // storing before indexing means a pass killed in between leaves an article that is
 // stored, unsearchable, and never looked at again. Twelve runs hit the invocation
 // ceiling on 17 August and did exactly that, and the articles are still invisible.

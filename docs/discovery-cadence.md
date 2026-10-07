@@ -174,6 +174,57 @@ bought a blog anything and only let high-volume sources in faster. Measured on
 from 304 sources, all of them publishing over 225 posts a month. It scales both the fetches
 per pass and the documents in the index, so weigh any rise against the two ceilings below.
 
+**Knowing what is already stored costs one listing per source.** Skipping stored posts is
+what lets a pass reach past a feed's newest entries, and it used to cost a blob `HEAD` per
+candidate link: on 7 October 2026 about a million `GetBlobProperties` a day, 873k of them
+hits, 42 for each source a pass reached, and GBP 9.40 in September.
+[known.go](../api/internal/discovery/known.go) asks once instead. At a source's first
+candidate post it lists the `articles` blobs under that source's id prefix and answers
+the rest of the crawl from memory, so about 24,000 `ListBlobs` a day replace the
+million `HEAD`s. A listing is billed as 12.7 `HEAD`s (GBP 0.0445 against 0.0035 per
+10,000), which puts the lookup at about GBP 3 a month instead of 10. A source that fails
+before reaching a post is never listed.
+
+- **The listing is delimited on `-`.** An article id is its source's key, a dash and a hex
+  hash, so a plain prefix listing for `blog` would also page through every `blog-*`
+  source — 2,579 of them, and 1,072 keys in all prefix another. Measured: 88,971 blobs
+  over 18 pages flat, against one page of 2,576 entries delimited, 68 of them `blog`'s own.
+- **It is bounded.** A crawl reads at most four pages; past that the listing is partial,
+  a post missing from it falls back to a `HEAD`, and the crawl logs
+  `store listing cut short`. Nothing is close: the largest source held 825 articles.
+- **A failure still counts as stored.** A listing that cannot be read skips every post
+  for that pass, with one `store listing failed` warning per source rather than one per
+  post, so a storage blip costs a pass instead of causing a storm of refetches.
+- **The crawl's own finds are added as it goes.** The listing is a snapshot, and an
+  accepted article is not saved until the pass flushes, so without this two spellings of
+  one post in the same walk would both be taken.
+
+**A post is matched under any of its spellings.** With the lookups in memory, each link
+is also checked with and without a trailing slash, over http and https, and with and
+without a leading `www.` — eight spellings for the price of eight hashes. A site that
+changes its URL form, or a source whose failed feed falls back to its sitemap, re-spells
+posts it has already given us, and each spelling hashes to a new article id: on
+7 October 8,399 documents, 0.38% of the index, were re-spellings of a post their own
+source already had. They were removed by hand that day, and were accruing at about 200 a
+day, some 39 MB of index a month. Checking spellings one `HEAD` at a time would have cost
+about GBP 1.56 a month per spelling, which is why it waited for the listing. A post keeps
+the id it was first captured under, so nothing stored or indexed moves. The fragment is
+deliberately not a toggle: Discourse forums link distinct replies to `#anchors` on one
+page, so there it is the only thing telling two posts apart.
+
+To confirm both after a deploy, read the storage account's transactions by API.
+`GetBlobProperties` should fall from about a million a day to a few dozen, the source
+list's own `ETag` checks, and `ListBlobs` should sit around 24,000 or below — a listing
+that crosses a storage partition can take a second page. A `HEAD` count
+still in the thousands means listings are being cut short or failing, and the log lines
+above say which.
+
+```bash
+az monitor metrics list --resource "<STORAGE_ACCOUNT_ID>/blobServices/default" \
+  --metric Transactions --aggregation Total --interval P1D \
+  --filter "ApiName eq 'GetBlobProperties' or ApiName eq 'ListBlobs'" -o table
+```
+
 **Storage caps bite before compute does.** The 50 MB Free-tier ceiling was reached first,
 which is why the service now runs on Basic; see [tech-stack.md](tech-stack.md). Cadence
 sets how fast the next ceiling arrives, so check index size against the
@@ -479,5 +530,7 @@ single run.
 - [NCRONTAB expressions](https://learn.microsoft.com/en-us/azure/azure-functions/functions-bindings-timer#ncrontab-expressions)
 - [Azure Functions Flex Consumption plan](https://learn.microsoft.com/en-us/azure/azure-functions/flex-consumption-plan)
 - [Azure AI Search service limits](https://learn.microsoft.com/en-us/azure/search/search-limits-quotas-capacity)
+- [Enumerating blob resources](https://learn.microsoft.com/en-us/rest/api/storageservices/enumerating-blob-resources)
+- [Azure Blob Storage pricing](https://azure.microsoft.com/en-gb/pricing/details/storage/blobs/)
 - [RFC 9309 — Robots Exclusion Protocol](https://www.rfc-editor.org/rfc/rfc9309)
 - [Sitemaps Protocol](https://www.sitemaps.org/protocol.html)

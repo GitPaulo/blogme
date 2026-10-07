@@ -115,13 +115,15 @@ func (d *Discoverer) crawl(ctx context.Context, s sources.Source) ([]article.Art
 	// sitemap, then up to three advertised feeds, and a bound that reset at each of them
 	// would be five times the bound it claims to be.
 	b := newBudget(d.maxPosts)
+	// Shared across routes for the same reason: one listing of the source per crawl.
+	known := newKnownArticles(d.store, s.ID)
 
 	// A recorded feed is the fast path, not the only one. A feed that 404s or no longer
 	// parses is not evidence the blog stopped publishing, so clear it and take the
 	// routes a source without one already gets.
 	var feedErr error
 	if s.Feed != "" {
-		articles, err := d.crawlFeed(ctx, s, b)
+		articles, err := d.crawlFeed(ctx, s, b, known)
 		if err == nil {
 			return articles, nil
 		}
@@ -134,7 +136,7 @@ func (d *Discoverer) crawl(ctx context.Context, s sources.Source) ([]article.Art
 		s.Feed = ""
 	}
 
-	articles, sitemapErr := d.crawlSitemap(ctx, s, b)
+	articles, sitemapErr := d.crawlSitemap(ctx, s, b, known)
 	if sitemapErr == nil {
 		return articles, nil
 	}
@@ -148,7 +150,7 @@ func (d *Discoverer) crawl(ctx context.Context, s sources.Source) ([]article.Art
 	// position do publish a feed and simply never had it recorded.
 	for _, feed := range d.siteFeeds(ctx, s) {
 		s.Feed = feed
-		found, err := d.crawlFeed(ctx, s, b)
+		found, err := d.crawlFeed(ctx, s, b, known)
 		if err != nil {
 			continue
 		}
@@ -210,7 +212,7 @@ func (d *Discoverer) siteFeeds(ctx context.Context, s sources.Source) []string {
 	return feeds
 }
 
-func (d *Discoverer) crawlFeed(ctx context.Context, s sources.Source, b *budget) ([]article.Article, error) {
+func (d *Discoverer) crawlFeed(ctx context.Context, s sources.Source, b *budget, known *knownArticles) ([]article.Article, error) {
 	feedURL, err := url.Parse(s.Feed)
 	if err != nil || !isHTTP(feedURL) {
 		return nil, fmt.Errorf("invalid feed url %q", s.Feed)
@@ -248,17 +250,18 @@ func (d *Discoverer) crawlFeed(ctx context.Context, s sources.Source, b *budget)
 				"articles", len(articles))
 			break
 		}
-		a, ok := d.toArticle(ctx, s, it, feedURL, b)
+		a, ok := d.toArticle(ctx, s, it, feedURL, b, known)
 		if !ok {
 			continue
 		}
+		known.add(a.ID)
 		articles = append(articles, a)
 	}
 
 	return articles, nil
 }
 
-func (d *Discoverer) toArticle(ctx context.Context, s sources.Source, it feedItem, feedURL *url.URL, b *budget) (article.Article, bool) {
+func (d *Discoverer) toArticle(ctx context.Context, s sources.Source, it feedItem, feedURL *url.URL, b *budget, known *knownArticles) (article.Article, bool) {
 	if it.Title == "" || it.Link == "" {
 		return article.Article{}, false
 	}
@@ -270,7 +273,7 @@ func (d *Discoverer) toArticle(ctx context.Context, s sources.Source, it feedIte
 
 	// Ahead of the content parse and of any page fetch, both of which are spent for
 	// nothing on a post the store already holds.
-	if d.skipStored(ctx, s.ID, link.String()) {
+	if known.skipStored(ctx, link.String()) {
 		return article.Article{}, false
 	}
 
@@ -335,39 +338,17 @@ func (d *Discoverer) toArticle(ctx context.Context, s sources.Source, it feedIte
 	}, true
 }
 
-// skipStored reports whether the article for link has already been captured, and so
-// need not be built, fetched or written again.
-//
-// The store is the crawler's memory. Without this the feed path rebuilt and rewrote its
-// newest entries every pass, refetching the page wherever the feed carried stubs, so a
-// corpus that had not changed still cost a blob write and an index upsert per post per
-// pass.
-//
-// A lookup that fails counts as stored. Taking a storage blip for "not stored" would
-// turn every source in the pass into a storm of refetches, where a post missed this
-// time is picked up on the next pass.
-func (d *Discoverer) skipStored(ctx context.Context, sourceID, link string) bool {
-	// A Discoverer built without a store keeps nothing, so it has nothing to skip.
-	if d.store == nil {
-		return false
-	}
-
-	stored, err := d.store.Has(ctx, articleID(sourceID, link))
-	if err != nil {
-		// Said out loud, because from the outside a broken store and a blog with
-		// nothing new to say look alike.
-		slog.WarnContext(ctx, "store lookup failed",
-			"source", sourceID, "url", link, "error", err)
-		return true
-	}
-	return stored
-}
-
 // articleID is stable for a URL so re-crawling updates rather than duplicates.
 // Azure AI Search keys allow only letters, digits, underscore, dash and equals.
 func articleID(sourceID, link string) string {
 	sum := sha256.Sum256([]byte(link))
-	return sanitizeKey(sourceID) + "-" + hex.EncodeToString(sum[:8])
+	return articlePrefix(sourceID) + hex.EncodeToString(sum[:8])
+}
+
+// articlePrefix is what every article id of a source begins with. The hash after it has
+// no dash in it, which is what lets the store list one source's articles on their own.
+func articlePrefix(sourceID string) string {
+	return sanitizeKey(sourceID) + "-"
 }
 
 func sanitizeKey(s string) string {
