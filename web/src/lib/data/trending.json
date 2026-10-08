@@ -2,12 +2,6 @@
 	"windowDays": 7,
 	"posts": [
 		{
-			"title": "September 2026: the world today, as seen by one Polish guy",
-			"url": "https://tomwojcik.com/posts/2026-09-21/september-2026-the-world-today/",
-			"blog": "Tom Wojcik",
-			"host": "tomwojcik.com"
-		},
-		{
 			"title": "The lamps in my house",
 			"url": "https://arslan.io/2026/10/05/the-lamps-in-my-house/",
 			"blog": "Fatih Arslan",
@@ -24,6 +18,12 @@
 			"url": "https://nnethercote.github.io/2026/09/30/how-to-speed-up-the-rust-compiler-in-september-2026.html",
 			"blog": "Nicholas Nethercote",
 			"host": "nnethercote.github.io"
+		},
+		{
+			"title": "21 reasons I didn't become an EMT, ranked",
+			"url": "https://ben.stolovitz.com/posts/reasons-not-emt-ranked/",
+			"blog": "Ben Stolovitz's blog",
+			"host": "ben.stolovitz.com"
 		}
 	]
 }
