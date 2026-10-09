@@ -32,7 +32,10 @@ them explicitly only when moving off the defaults.
 the source it had reached. Search and scoring carry on either way. Both run
 [kill-switch.sh](../infra/kill-switch.sh) `jobs off|on discover`, which sets the
 `AzureWebJobs.discover.Disabled` app setting — a deploy never touches app settings, so a
-pause survives one. `make status` shows which timers are running.
+pause survives one. `make status` shows which timers are running. A pause past half a day
+trips `blogme-discovery-not-running`, so a long one disables that alert as well
+(`az monitor scheduled-query update -g rg-blogme -n blogme-discovery-not-running
+--disabled true`, and `false` on resume).
 
 ## Why discovery is batched
 
@@ -184,7 +187,9 @@ candidate post it lists the `articles` blobs under that source's id prefix and a
 the rest of the crawl from memory, so about 24,000 `ListBlobs` a day replace the
 million `HEAD`s. A listing is billed as 12.7 `HEAD`s (GBP 0.0445 against 0.0035 per
 10,000), which puts the lookup at about GBP 3 a month instead of 10. A source that fails
-before reaching a post is never listed.
+before reaching a post is never listed. Measured on 8 October, its first full day: 22,680
+`ListBlobs` and 1,211 `GetBlobProperties`, against 1,004,258 `GetBlobProperties` on
+6 October, with articles per pass unchanged.
 
 - **The listing is delimited on `-`.** An article id is its source's key, a dash and a hex
   hash, so a plain prefix listing for `blog` would also page through every `blog-*`
@@ -403,7 +408,12 @@ Run in dry mode over live data on 8 October, the 3,668 sources then eligible spl
 3,533 holding nothing, 81 whose homepage was not definitely gone, and 54 to prune, 859
 articles. A browser could load none of the 54. The first draft pruned on any failure
 except a refusal, and a browser still loaded two of the 77 it chose: one had timed out
-on the crawler, and one was CSDN answering it with a 521 anti-bot page. Every pass that looks at anything logs `unreachable sources checked`, and each removal
+on the crawler, and one was CSDN answering it with a 521 anti-bot page. Its first day in
+production, to 9 October, pruned six sources and 39 articles, all gone for readers too:
+two 404s, three domains that no longer resolve, and one refusing HTTPS whose plain HTTP
+serves a web server's default page.
+
+Every pass that looks at anything logs `unreachable sources checked`, and each removal
 `pruned unreachable source` with the site and the reason. `BLOGME_PRUNE_DEAD=dry` logs
 `would prune` instead of removing; `off` stops it without a deploy.
 
