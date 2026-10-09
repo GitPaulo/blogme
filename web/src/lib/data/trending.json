@@ -8,22 +8,22 @@
 			"host": "arslan.io"
 		},
 		{
+			"title": "Anti-Patterns in Software Blogging",
+			"url": "https://refactoringenglish.com/blog/anti-patterns-software-blogging/",
+			"blog": "Refactoring English",
+			"host": "refactoringenglish.com"
+		},
+		{
 			"title": "Friendship ended with Deno, now Node is my best friend",
 			"url": "https://dbushell.com/2026/10/03/deno-to-node/",
 			"blog": "dbushell.com (blog)",
 			"host": "dbushell.com"
 		},
 		{
-			"title": "How to speed up the Rust compiler in September 2026",
-			"url": "https://nnethercote.github.io/2026/09/30/how-to-speed-up-the-rust-compiler-in-september-2026.html",
-			"blog": "Nicholas Nethercote",
-			"host": "nnethercote.github.io"
-		},
-		{
-			"title": "21 reasons I didn't become an EMT, ranked",
-			"url": "https://ben.stolovitz.com/posts/reasons-not-emt-ranked/",
-			"blog": "Ben Stolovitz's blog",
-			"host": "ben.stolovitz.com"
+			"title": "Beauty in DVD Menus",
+			"url": "https://vale.rocks/posts/dvd-menus",
+			"blog": "Vale.Rocks Posts",
+			"host": "vale.rocks"
 		}
 	]
 }
