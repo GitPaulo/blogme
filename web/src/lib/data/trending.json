@@ -8,6 +8,12 @@
 			"host": "arslan.io"
 		},
 		{
+			"title": "Beauty in DVD Menus",
+			"url": "https://vale.rocks/posts/dvd-menus",
+			"blog": "Vale.Rocks Posts",
+			"host": "vale.rocks"
+		},
+		{
 			"title": "Anti-Patterns in Software Blogging",
 			"url": "https://refactoringenglish.com/blog/anti-patterns-software-blogging/",
 			"blog": "Refactoring English",
@@ -18,12 +24,6 @@
 			"url": "https://dbushell.com/2026/10/03/deno-to-node/",
 			"blog": "dbushell.com (blog)",
 			"host": "dbushell.com"
-		},
-		{
-			"title": "Beauty in DVD Menus",
-			"url": "https://vale.rocks/posts/dvd-menus",
-			"blog": "Vale.Rocks Posts",
-			"host": "vale.rocks"
 		}
 	]
 }
